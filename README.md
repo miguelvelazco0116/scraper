@@ -1,16 +1,16 @@
 # Scraper multi-retailer
 
-Base modular para extraer catálogos públicos de retailers de México mediante **Python + Playwright**, generar CSV/Excel y ejecutar pruebas desde GitHub Actions.
+Base modular para extraer catálogos públicos de retailers de México mediante **Python + Playwright**, generar CSV/Excel y ejecutar pruebas desde GitHub Actions o runners propios.
 
 ## Retailers
 
 | Retailer | Estado | Categorías implementadas |
 |---|---|---|
-| Soriana | Implementado | Cuidado bucal; Cuidado del hogar > Limpiadores; Cuidado del hogar > Limpiadores > Detergentes |
-| Walmart | Pendiente | — |
+| Soriana | Implementado y validado | Cuidado bucal; Cuidado del hogar > Limpiadores; Cuidado del hogar > Limpiadores > Detergentes |
+| Walmart | Implementado; GitHub-hosted bloqueado por desafío de identidad | Belleza y cuidado personal > Higiene y cuidado personal > Cuidado bucal; Limpieza del hogar y cuidado personal > Cuidado de la ropa |
 | Chedraui | Pendiente | — |
 
-La arquitectura está preparada para agregar un módulo por retailer sin mezclar selectores, reglas de navegación o diagnósticos.
+La arquitectura usa un módulo por retailer para no mezclar selectores, navegación, paginación o diagnósticos.
 
 ## Estructura
 
@@ -21,41 +21,117 @@ scraper/
 │   ├── config.py
 │   ├── parsers.py
 │   └── retailers/
-│       └── soriana.py
+│       ├── soriana.py
+│       └── walmart.py
 ├── config/
 │   ├── locations.yaml
-│   └── soriana/
-│       └── categories.yaml
+│   ├── soriana/categories.yaml
+│   └── walmart/categories.yaml
 ├── tests/
 └── .github/workflows/
-    └── soriana.yml
+    └── soriana.yml   # workflow multi-retailer
 ```
 
-## Soriana — alcance actual
+## Soriana
 
 Categorías configuradas:
 
-- `cuidado-bucal`: Cuidado bucal — `https://www.soriana.com/cuidado-personal-y-belleza/cuidado-bucal/`
-- `limpiadores`: Cuidado del hogar > Limpiadores — `https://www.soriana.com/limpieza-del-hogar/limpiadores/`
-- `detergentes`: Cuidado del hogar > Limpiadores > Detergentes — `https://www.soriana.com/limpieza-del-hogar/limpiadores/detergentes/`
+- `cuidado-bucal`: Cuidado bucal
+- `limpiadores`: Cuidado del hogar > Limpiadores
+- `detergentes`: Cuidado del hogar > Limpiadores > Detergentes
 
-La salida conserva la jerarquía en columnas separadas:
+Ejemplos:
 
-```text
-category | subcategory | sub_subcategory
+```bash
+python main.py --retailer soriana --category cuidado-bucal --location cdmx
+python main.py --retailer soriana --category limpiadores --location cdmx
+python main.py --retailer soriana --category detergentes --location cdmx
 ```
 
-Características:
+## Walmart México
 
-- Ubicación lógica inicial: Ciudad de México
-- Salida: CSV + Excel
-- Navegación: Playwright + Chromium
-- Recorre la paginación completa reportada por Soriana
-- Detecta `403`, `GF R01`, `Access Denied` y `Forbidden`
-- Guarda screenshot, HTML y registro de `Search-UpdateGrid` / `Search-ShowAjax` en `diagnostics/`
-- No incluye CAPTCHA solving, proxies, fingerprint spoofing ni técnicas de evasión.
+Tienda configurada:
 
-> `CDMX` es por ahora una etiqueta de corrida. Precio/stock por tienda requiere mapear el selector de ubicación/código postal en una fase posterior.
+```text
+id: sc-toreo
+store: SC Toreo
+store_id: 2344
+postal_code: 11220
+city: Miguel Hidalgo
+state: CDMX
+```
+
+Categorías configuradas:
+
+```text
+cuidado-bucal
+Belleza y cuidado personal
+  └── Higiene y cuidado personal
+      └── Cuidado bucal
+
+cuidado-de-la-ropa
+Limpieza del hogar y cuidado personal
+  └── Cuidado de la ropa
+```
+
+URLs de catálogo:
+
+```text
+https://www.walmart.com.mx/browse/cuidado-personal/cuidado-bucal/264479_950014
+https://www.walmart.com.mx/browse/cuidado-de-la-ropa/3680083
+```
+
+Comandos:
+
+```bash
+python main.py --retailer walmart --category cuidado-bucal --store sc-toreo
+python main.py --retailer walmart --category cuidado-de-la-ropa --store sc-toreo
+```
+
+El módulo de Walmart:
+
+- recorre la paginación mediante `?page=N`;
+- deduplica por SKU/URL;
+- reconoce SKU numérico desde URLs `/ip/.../<id>`;
+- exige contexto de tienda antes de etiquetar precios como SC Toreo;
+- filtra productos con señal de pickup/recogida cuando la corrida es por tienda;
+- guarda screenshot, HTML y metadata de diagnóstico cuando la sesión falla;
+- no resuelve CAPTCHAs ni desafíos de identidad, no rota proxies y no falsifica fingerprint.
+
+### Limitación observada en GitHub-hosted runners
+
+La validación inicial en `ubuntu-latest` abrió Walmart y verificó la página pública de SC Toreo, pero al entrar al catálogo Walmart redirigió a `/blocked` y mostró **"Verifica tu identidad / Mantén presionado"**. El scraper se detiene en ese punto para no automatizar el desafío ni etiquetar datos nacionales como datos de tienda.
+
+Para una extracción real por SC Toreo se recomienda ejecutar el mismo código en un equipo o runner propio con Chrome normal. Si Walmart solicita una verificación humana, debe completarse manualmente; después puede mantenerse el perfil/sesión local fuera del repositorio. Nunca subir cookies, perfiles de navegador o credenciales a GitHub.
+
+## Campos de salida
+
+```text
+scrape_timestamp
+retailer
+city
+state
+postal_code
+store
+store_id
+department
+category
+subcategory
+sub_subcategory
+category_id
+sku
+brand
+product
+price_current
+price_regular
+promotion
+pickup_available
+store_context_verified
+url
+price_raw
+```
+
+Los campos específicos que no aplican a un retailer quedan vacíos.
 
 ## Instalación local
 
@@ -66,54 +142,13 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-## Ejecutar Soriana
-
-Cuidado bucal:
-
-```bash
-python main.py --retailer soriana --category cuidado-bucal --location cdmx
-```
-
-Limpiadores:
-
-```bash
-python main.py --retailer soriana --category limpiadores --location cdmx
-```
-
-Detergentes:
-
-```bash
-python main.py --retailer soriana --category detergentes --location cdmx
-```
-
 Para abrir el navegador visible agrega `--headed`.
-
-## Salida
-
-Ejemplos:
-
-```text
-output/
-├── soriana_cuidado_bucal_cdmx.xlsx
-├── soriana_limpiadores_cdmx.xlsx
-└── soriana_detergentes_cdmx.xlsx
-```
-
-Campos principales: retailer, ubicación, category, subcategory, sub_subcategory, SKU, marca, producto, precio actual, precio regular, promoción, URL y timestamp.
 
 ## GitHub Actions
 
-El workflow `Soriana Scraper` permite elegir `cuidado-bucal`, `limpiadores` o `detergentes` desde **Run workflow** y también puede leer `category` y `location` desde `.github/run/soriana-trigger.txt` para corridas disparadas desde ChatGPT.
+El workflow actual es multi-retailer y permite elegir `soriana` o `walmart` mediante **Run workflow**. Las corridas disparadas desde ChatGPT usan archivos de trigger bajo `.github/run/`.
 
-GitHub Actions usa IPs de centros de datos. Si Soriana responde con `GF R01`/403, el scraper guarda diagnósticos y se detiene; no intenta evadir la protección del sitio.
-
-## Agregar otro retailer
-
-1. Crear `scraper/retailers/<retailer>.py`.
-2. Crear `config/<retailer>/categories.yaml`.
-3. Registrar el retailer en `main.py`.
-4. Crear pruebas específicas.
-5. Crear su workflow de GitHub Actions si se requiere.
+GitHub-hosted runners funcionan para Soriana en las pruebas realizadas. Para Walmart, si aparece el desafío de identidad descrito arriba, la corrida falla de forma controlada y publica `diagnostics/` como artifact.
 
 ## Pruebas
 
