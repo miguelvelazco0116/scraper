@@ -10,3 +10,5 @@ diagnostics/*.html
 diagnostics/*.png
 diagnostics/*.json
 playwright/.auth/
+.walmart_profile/
+walmart_profile/
