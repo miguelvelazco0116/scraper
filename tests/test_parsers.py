@@ -11,6 +11,11 @@ def test_extract_sku_from_url():
     assert extract_sku("https://www.soriana.com/algo/371875.html") == "371875"
 
 
+def test_extract_chedraui_sku_from_url():
+    url = "https://www.chedraui.com.mx/Enjuague-Bucal-Colgate-Total-12-Anti-Sarro-500ml-3646798/p"
+    assert extract_sku(url) == "3646798"
+
+
 def test_extract_sku_prefers_data_pid():
     assert extract_sku("https://www.soriana.com/algo/371875.html", "ABC123") == "ABC123"
 
