@@ -35,3 +35,33 @@ def test_walmart_pagination_url():
     url = "https://www.walmart.com.mx/browse/cuidado-de-la-ropa/3680083?facet=x"
     assert WalmartScraper._paged_url(url, 1).endswith("?facet=x")
     assert "page=2" in WalmartScraper._paged_url(url, 2)
+
+
+def test_store_context_accepts_header_with_postal_code():
+    store = {x.id: x for x in load_locations()}["sc-toreo"]
+    text = "Walmart SC TOREO Blvd Manuel Avila Camacho 641 Miguel Hidalgo, CMX 11220"
+    assert WalmartScraper._store_context_in_text(text, store)
+
+
+def test_store_context_accepts_pdp_pickup_store():
+    store = {x.id: x for x in load_locations()}["sc-toreo"]
+    text = "Pickup sin costo, hoy en SC TOREO. Envío a Miguel Hidalgo."
+    assert WalmartScraper._store_context_in_text(text, store)
+
+
+def test_store_context_rejects_generic_pickup_without_store():
+    store = {x.id: x for x in load_locations()}["sc-toreo"]
+    text = "Pickup sin costo hoy. Envío, llega hoy."
+    assert not WalmartScraper._store_context_in_text(text, store)
+
+
+def test_store_context_accepts_browser_state_with_store_and_postal():
+    store = {x.id: x for x in load_locations()}["sc-toreo"]
+    blob = '{"pickupStore":{"id":"2344","name":"SC Toreo"},"postalCode":"11220"}'
+    assert WalmartScraper._store_context_in_state_blob(blob, store)
+
+
+def test_store_context_rejects_state_with_only_postal_code():
+    store = {x.id: x for x in load_locations()}["sc-toreo"]
+    blob = '{"postalCode":"11220"}'
+    assert not WalmartScraper._store_context_in_state_blob(blob, store)
