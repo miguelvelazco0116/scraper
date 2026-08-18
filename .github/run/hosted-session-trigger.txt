@@ -1,0 +1,4 @@
+run=2026-08-18T15:22:00-06:00
+mode=chatgpt-test
+retailer=all
+category=all
