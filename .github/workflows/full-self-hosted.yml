@@ -1,0 +1,63 @@
+name: Full Scraper - Self Hosted
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scrape-all:
+    runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+
+      - name: Resolve Walmart profile
+        shell: pwsh
+        run: |
+          $profile = "${{ vars.WALMART_PROFILE_DIR }}"
+          if ([string]::IsNullOrWhiteSpace($profile)) {
+            $profile = "C:\scraper_profiles\walmart_sc_toreo"
+          }
+          if (-not (Test-Path $profile)) {
+            throw "No existe el perfil persistente de Walmart: $profile. Ejecuta scripts\setup_walmart_session.ps1 una vez en el runner."
+          }
+          "WALMART_PROFILE_DIR=$profile" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Perfil Walmart: $profile"
+
+      - name: Run unit tests
+        shell: pwsh
+        run: pytest -q
+
+      - name: Run all retailers and categories
+        shell: pwsh
+        run: |
+          python scripts/run_all_retailers.py --walmart-profile-dir "$env:WALMART_PROFILE_DIR"
+
+      - name: Upload consolidated workbook and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: concentrado-scraper-${{ github.run_number }}
+          path: |
+            output/concentrado_scraper.xlsx
+            diagnostics/
+          if-no-files-found: warn
+          retention-days: 14

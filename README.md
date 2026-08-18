@@ -1,13 +1,13 @@
 # Scraper multi-retailer
 
-Base modular para extraer catálogos públicos de retailers de México mediante **Python + Playwright**, generar CSV/Excel y ejecutar pruebas desde GitHub Actions o runners propios.
+Base modular para extraer catálogos públicos de retailers de México mediante **Python + Playwright**, generar un Excel consolidado y ejecutar pruebas desde GitHub Actions o runners propios.
 
 ## Retailers
 
 | Retailer | Estado | Categorías implementadas |
 |---|---|---|
-| Soriana | Implementado y validado | Cuidado bucal; Cuidado del hogar > Limpiadores; Cuidado del hogar > Limpiadores > Detergentes |
-| Walmart | Implementado; GitHub-hosted bloqueado por desafío de identidad | Belleza y cuidado personal > Higiene y cuidado personal > Cuidado bucal; Limpieza del hogar y cuidado personal > Cuidado de la ropa |
+| Soriana | Implementado y validado | Cuidado bucal; Cuidado del hogar > Limpiadores; Cuidado del hogar > Limpiadores > Detergentes; Cuidado personal > Afeitado y depilación > Afeitado y depilación para dama |
+| Walmart | Implementado; GitHub-hosted bloqueado por desafío de identidad | Belleza y cuidado personal > Higiene y cuidado personal > Cuidado bucal; Limpieza del hogar y cuidado personal > Cuidado de la ropa; Belleza y cuidado personal > Depilación y rasurado |
 | Chedraui | Pendiente | — |
 
 La arquitectura usa un módulo por retailer para no mezclar selectores, navegación, paginación o diagnósticos.
@@ -25,7 +25,9 @@ scraper/
 │       ├── walmart.py
 │       └── walmart_persistent.py
 ├── scripts/
-│   └── walmart_prepare_session.py
+│   ├── walmart_prepare_session.py
+│   ├── setup_walmart_session.ps1
+│   └── run_all_retailers.py
 ├── config/
 │   ├── locations.yaml
 │   ├── soriana/categories.yaml
@@ -33,7 +35,9 @@ scraper/
 ├── tests/
 └── .github/
     ├── run/retailer-trigger.txt
-    └── workflows/soriana.yml   # workflow multi-retailer
+    └── workflows/
+        ├── soriana.yml
+        └── full-self-hosted.yml
 ```
 
 ## Soriana
@@ -43,14 +47,7 @@ Categorías configuradas:
 - `cuidado-bucal`: Cuidado bucal
 - `limpiadores`: Cuidado del hogar > Limpiadores
 - `detergentes`: Cuidado del hogar > Limpiadores > Detergentes
-
-Ejemplos:
-
-```bash
-python main.py --retailer soriana --category cuidado-bucal --location cdmx
-python main.py --retailer soriana --category limpiadores --location cdmx
-python main.py --retailer soriana --category detergentes --location cdmx
-```
+- `afeitado-depilacion-dama`: Cuidado personal > Afeitado y depilación > Afeitado y depilación para dama
 
 ## Walmart México
 
@@ -67,72 +64,81 @@ state: CDMX
 
 Categorías configuradas:
 
+- `cuidado-bucal`
+- `cuidado-de-la-ropa`
+- `depilacion-y-rasurado`
+
+El módulo de Walmart recorre paginación, deduplica SKU/URL, valida el contexto de tienda y no intenta resolver CAPTCHAs ni desafíos de identidad.
+
+## Solución operativa para Walmart
+
+Las pruebas en GitHub-hosted muestran `Verifica tu identidad / Mantén presionado` antes del catálogo. Por eso Walmart debe ejecutarse en un **runner self-hosted de Windows con sesión interactiva y perfil persistente de Chromium**.
+
+El perfil de Walmart debe vivir **fuera del repositorio**, porque `actions/checkout` limpia el workspace. La ruta predeterminada es:
+
 ```text
-cuidado-bucal
-Belleza y cuidado personal
-  └── Higiene y cuidado personal
-      └── Cuidado bucal
-
-cuidado-de-la-ropa
-Limpieza del hogar y cuidado personal
-  └── Cuidado de la ropa
+C:\scraper_profiles\walmart_sc_toreo
 ```
 
-URLs de catálogo:
+### 1. Preparar la sesión una sola vez
+
+Desde PowerShell, dentro del repositorio:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup_walmart_session.ps1
+```
+
+Se abrirá Walmart en Chromium. Completa manualmente cualquier verificación y confirma **SC Toreo / CP 11220**. El script guarda la sesión en el perfil persistente. No subas ese directorio a GitHub.
+
+### 2. Configurar el runner self-hosted
+
+Agrega esta computadora Windows como runner self-hosted del repositorio con las etiquetas estándar:
 
 ```text
-https://www.walmart.com.mx/browse/cuidado-personal/cuidado-bucal/264479_950014
-https://www.walmart.com.mx/browse/cuidado-de-la-ropa/3680083
+self-hosted
+windows
+x64
 ```
 
-### Ejecución sin perfil persistente
+Para Walmart, inicia el runner **interactivamente en una sesión de Windows abierta**. No lo ejecutes como servicio si necesitas navegador visible.
 
-```bash
-python main.py --retailer walmart --category cuidado-bucal --store sc-toreo
-python main.py --retailer walmart --category cuidado-de-la-ropa --store sc-toreo
+Opcionalmente crea la variable de repositorio `WALMART_PROFILE_DIR` si quieres usar una ruta distinta a `C:\scraper_profiles\walmart_sc_toreo`.
+
+### 3. Ejecutar todos los retailers y categorías
+
+En GitHub Actions selecciona:
+
+```text
+Full Scraper - Self Hosted
 ```
 
-El módulo de Walmart:
+y ejecuta **Run workflow**.
 
-- recorre la paginación mediante `?page=N`;
-- deduplica por SKU/URL;
-- reconoce SKU numérico desde URLs `/ip/.../<id>`;
-- exige contexto de tienda antes de etiquetar precios como SC Toreo;
-- filtra productos con señal de pickup/recogida cuando la corrida es por tienda;
-- guarda screenshot, HTML y metadata de diagnóstico cuando la sesión falla;
-- no resuelve CAPTCHAs ni desafíos de identidad, no rota proxies y no falsifica fingerprint.
+El workflow usa el mismo equipo para:
 
-### Limitación observada en GitHub-hosted runners
+1. Soriana: todas las categorías configuradas.
+2. Walmart: todas las categorías configuradas con SC Toreo y el perfil persistente.
+3. Validación de SKU, precios, URL, duplicados y contexto de tienda.
+4. Un único artifact con:
 
-La validación en `ubuntu-latest` pudo abrir la página pública de SC Toreo, pero al entrar al catálogo Walmart redirigió a `/blocked` y mostró **"Verifica tu identidad / Mantén presionado"**. El scraper se detiene en ese punto para no automatizar el desafío ni etiquetar datos nacionales como datos de tienda.
-
-### Ejecución recomendada para Walmart: perfil local persistente
-
-En una computadora o runner propio, prepara una sesión normal una sola vez:
-
-```bash
-python scripts/walmart_prepare_session.py --profile-dir .walmart_profile
+```text
+output/concentrado_scraper.xlsx
 ```
 
-Se abrirá Chromium visible. Completa manualmente cualquier verificación que Walmart solicite y confirma **SC Toreo / CP 11220**. Después vuelve a la terminal y presiona ENTER para guardar el perfil.
+El workbook tiene:
 
-Luego ejecuta las categorías reutilizando esa sesión:
+- `Concentrado`: todos los productos extraídos.
+- `Resumen`: estado y métricas de cada retailer/categoría.
 
-```bash
-python main.py \
-  --retailer walmart \
-  --category cuidado-bucal \
-  --store sc-toreo \
-  --profile-dir .walmart_profile
+Si Walmart vuelve a pedir verificación, la corrida se detiene de forma controlada. Vuelve a ejecutar `setup_walmart_session.ps1` manualmente para renovar la sesión; no se automatiza el desafío.
 
-python main.py \
-  --retailer walmart \
-  --category cuidado-de-la-ropa \
-  --store sc-toreo \
-  --profile-dir .walmart_profile
+## Ejecución individual con perfil persistente
+
+```powershell
+python main.py --retailer walmart --category cuidado-bucal --store sc-toreo --profile-dir "C:\scraper_profiles\walmart_sc_toreo" --headed
+python main.py --retailer walmart --category cuidado-de-la-ropa --store sc-toreo --profile-dir "C:\scraper_profiles\walmart_sc_toreo" --headed
+python main.py --retailer walmart --category depilacion-y-rasurado --store sc-toreo --profile-dir "C:\scraper_profiles\walmart_sc_toreo" --headed
 ```
-
-También puede definirse la variable `WALMART_USER_DATA_DIR` en lugar de `--profile-dir`. Las carpetas `.walmart_profile/` y `walmart_profile/` están ignoradas por Git. Nunca subir cookies, perfiles de navegador o credenciales al repositorio.
 
 ## Campos de salida
 
@@ -157,28 +163,18 @@ price_regular
 promotion
 pickup_available
 store_context_verified
+store_context_method
 url
 price_raw
 ```
-
-Los campos específicos que no aplican a un retailer quedan vacíos.
 
 ## Instalación local
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
 pip install -r requirements.txt
 playwright install chromium
 ```
-
-Para abrir el navegador visible agrega `--headed`.
-
-## GitHub Actions
-
-El workflow actual es multi-retailer y permite elegir `soriana` o `walmart` mediante **Run workflow**. Las corridas disparadas desde ChatGPT usan únicamente `.github/run/retailer-trigger.txt`, con `retailer`, `category` y `location` explícitos.
-
-GitHub-hosted runners funcionan para Soriana en las pruebas realizadas. Para Walmart, si aparece el desafío de identidad descrito arriba, la corrida falla de forma controlada y publica `diagnostics/` como artifact.
 
 ## Pruebas
 
