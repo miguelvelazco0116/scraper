@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 from playwright.sync_api import BrowserContext, Page, TimeoutError as PlaywrightTimeoutError, sync_playwright
 
@@ -19,6 +19,9 @@ BLOCK_MARKERS = (
     "captcha",
     "reference #18",
     "forbidden",
+    "verifica tu identidad",
+    "mantén presionado",
+    "manten presionado",
 )
 
 
@@ -33,10 +36,11 @@ class WalmartStoreContextError(RuntimeError):
 class WalmartScraper:
     """Playwright scraper for public Walmart Mexico category pages.
 
-    The scraper follows Walmart's normal storefront and pagination URLs. It does
-    not solve CAPTCHAs, rotate proxies, spoof fingerprints, or bypass access
-    controls. When store context cannot be verified, the run stops rather than
-    labeling national/marketplace prices as store-specific.
+    Store-specific rows are emitted only after the current browser session has
+    produced explicit evidence for the configured store. Evidence can come from
+    the storefront text, browser state, or a product detail page that explicitly
+    identifies the pickup store. The scraper never solves identity challenges or
+    bypasses access controls.
     """
 
     def __init__(
@@ -56,6 +60,7 @@ class WalmartScraper:
         self.require_store_context = require_store_context
         self.store_only = store_only
         self.run_meta: dict[str, Any] = {}
+        self._active_store_context_method: str | None = None
 
     @staticmethod
     def _paged_url(url: str, page_number: int) -> str:
@@ -67,6 +72,15 @@ class WalmartScraper:
             query["page"] = str(page_number)
         return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
+    @staticmethod
+    def _normalize(value: str | None) -> str:
+        if not value:
+            return ""
+        value = unquote(value).lower()
+        value = value.replace("á", "a").replace("é", "e").replace("í", "i")
+        value = value.replace("ó", "o").replace("ú", "u").replace("ü", "u")
+        return re.sub(r"\s+", " ", value).strip()
+
     def _save_diagnostics(self, page: Page, prefix: str) -> None:
         safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", prefix)
         try:
@@ -77,9 +91,12 @@ class WalmartScraper:
             (self.diagnostics_dir / f"walmart_{safe}.html").write_text(page.content(), encoding="utf-8")
         except Exception:
             pass
-        (self.diagnostics_dir / "walmart_run_meta.json").write_text(
-            json.dumps(self.run_meta, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        try:
+            (self.diagnostics_dir / "walmart_run_meta.json").write_text(
+                json.dumps(self.run_meta, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except Exception:
+            pass
 
     def _body_text(self, page: Page) -> str:
         try:
@@ -88,33 +105,94 @@ class WalmartScraper:
             return ""
 
     def _assert_not_blocked(self, page: Page, status: int | None = None) -> None:
-        body = self._body_text(page).lower()
-        if status in (401, 403, 429) or any(marker in body for marker in BLOCK_MARKERS):
+        body = self._normalize(self._body_text(page))
+        blocked_url = "/blocked" in (page.url or "").lower()
+        if status in (401, 403, 429) or blocked_url or any(self._normalize(marker) in body for marker in BLOCK_MARKERS):
             self._save_diagnostics(page, "blocked")
             raise WalmartBlocked(
                 "Walmart bloqueó o desafió la sesión automatizada. Se guardaron diagnósticos; "
                 "el scraper no intenta evadir la protección del sitio."
             )
 
-    @staticmethod
-    def _store_context_in_text(text: str, location: Location) -> bool:
-        lower = text.lower()
-        store_ok = bool(location.store and location.store.lower() in lower)
-        cp_ok = bool(location.postal_code and location.postal_code in text)
-        store_id_ok = bool(location.store_id and f"#{location.store_id}" in text)
-        return store_ok and (cp_ok or store_id_ok)
+    @classmethod
+    def _store_context_in_text(cls, text: str, location: Location) -> bool:
+        normalized = cls._normalize(text)
+        store = cls._normalize(location.store)
+        postal = cls._normalize(location.postal_code)
+        store_id = cls._normalize(location.store_id)
+        store_ok = bool(store and store in normalized)
+        postal_ok = bool(postal and postal in normalized)
+        store_id_ok = bool(store_id and (f"#{store_id}" in normalized or store_id in normalized))
 
-    def _try_select_store_ui(self, page: Page, location: Location) -> bool:
-        """Best-effort use of Walmart's own location/store UI."""
+        pickup_store_ok = False
+        if store_ok:
+            pickup_store_ok = bool(
+                re.search(rf"pickup.{{0,100}}{re.escape(store)}", normalized)
+                or re.search(rf"{re.escape(store)}.{{0,100}}pickup", normalized)
+                or re.search(rf"recog.{{0,100}}{re.escape(store)}", normalized)
+                or re.search(rf"{re.escape(store)}.{{0,100}}recog", normalized)
+            )
+
+        return store_ok and (postal_ok or store_id_ok or pickup_store_ok)
+
+    @classmethod
+    def _store_context_in_state_blob(cls, blob: str, location: Location) -> bool:
+        normalized = cls._normalize(blob)
+        store = cls._normalize(location.store)
+        postal = cls._normalize(location.postal_code)
+        store_id = cls._normalize(location.store_id)
+        hits = 0
+        if store and store in normalized:
+            hits += 1
+        if postal and postal in normalized:
+            hits += 1
+        if store_id and store_id in normalized:
+            hits += 1
+        return hits >= 2
+
+    def _browser_state_blob(self, page: Page) -> str:
+        payload: dict[str, Any] = {"cookies": [], "localStorage": {}, "sessionStorage": {}}
         try:
-            trigger = page.get_by_text("¿Cómo quieres tus artículos?", exact=False).first
-            if trigger.count():
-                trigger.click(timeout=5_000)
-                page.wait_for_timeout(700)
+            payload["cookies"] = page.context.cookies()
         except Exception:
             pass
+        try:
+            payload.update(
+                page.evaluate(
+                    """
+                    () => ({
+                      localStorage: Object.fromEntries(Object.entries(localStorage)),
+                      sessionStorage: Object.fromEntries(Object.entries(sessionStorage)),
+                    })
+                    """
+                )
+            )
+        except Exception:
+            pass
+        return json.dumps(payload, ensure_ascii=False)
 
-        for label in ("Pickup", "Recoger", "Recoge"):
+    def _store_context_in_browser_state(self, page: Page, location: Location) -> bool:
+        return self._store_context_in_state_blob(self._browser_state_blob(page), location)
+
+    def _try_select_store_ui(self, page: Page, location: Location) -> tuple[bool, str | None]:
+        """Best-effort use of Walmart's normal fulfillment/store UI."""
+        triggers = (
+            "¿Cómo quieres tus artículos?",
+            "Como quieres tus articulos",
+            "Agregar dirección",
+            "Agregar direccion",
+        )
+        for label in triggers:
+            try:
+                candidate = page.get_by_text(label, exact=False).first
+                if candidate.count() and candidate.is_visible():
+                    candidate.click(timeout=4_000)
+                    page.wait_for_timeout(700)
+                    break
+            except Exception:
+                continue
+
+        for label in ("Pickup", "Recoger", "Recoge", "Recogida"):
             try:
                 candidate = page.get_by_text(label, exact=False).first
                 if candidate.count() and candidate.is_visible():
@@ -122,12 +200,11 @@ class WalmartScraper:
                     page.wait_for_timeout(500)
                     break
             except Exception:
-                pass
+                continue
 
-        # Search visible inputs for postal-code or store search fields.
         inputs = page.locator("input")
         try:
-            count = min(inputs.count(), 30)
+            count = min(inputs.count(), 40)
         except Exception:
             count = 0
         for i in range(count):
@@ -148,7 +225,7 @@ class WalmartScraper:
                 if any(word in hint for word in ("código", "codigo", "postal", "ubic", "tienda", "store")):
                     inp.fill(location.postal_code or location.store or "")
                     inp.press("Enter")
-                    page.wait_for_timeout(1_200)
+                    page.wait_for_timeout(1_500)
                     break
             except Exception:
                 continue
@@ -158,49 +235,138 @@ class WalmartScraper:
                 store_choice = page.get_by_text(location.store, exact=False).first
                 if store_choice.count() and store_choice.is_visible():
                     store_choice.click(timeout=4_000)
-                    page.wait_for_timeout(1_200)
+                    page.wait_for_timeout(1_000)
             except Exception:
                 pass
 
-        return self._store_context_in_text(self._body_text(page), location)
+        for label in ("Usar esta tienda", "Elegir esta tienda", "Seleccionar", "Guardar", "Confirmar"):
+            try:
+                button = page.get_by_text(label, exact=False).first
+                if button.count() and button.is_visible():
+                    button.click(timeout=3_000)
+                    page.wait_for_timeout(900)
+                    break
+            except Exception:
+                continue
 
-    def _establish_store_context(self, page: Page, location: Location) -> bool:
+        body = self._body_text(page)
+        if self._store_context_in_text(body, location):
+            return True, "category_text_after_ui"
+        if self._store_context_in_browser_state(page, location):
+            return True, "browser_state_after_ui"
+        return False, None
+
+    def _establish_store_reference(self, page: Page, location: Location) -> None:
+        """Open Walmart's store page as a reference; this alone is not proof."""
         if not location.store_id or not location.store:
-            return not self.require_store_context
+            return
 
         store_url = f"https://www.walmart.com.mx/tienda/{location.store_id}"
         response = page.goto(store_url, wait_until="domcontentloaded", timeout=120_000)
         self._assert_not_blocked(page, response.status if response else None)
         page.wait_for_timeout(1_000)
 
-        # Walmart exposes the store page publicly; use any normal favorite-store
-        # action when available to persist context in cookies/local storage.
+        text = self._body_text(page)
+        self.run_meta["store_reference_url"] = store_url
+        self.run_meta["store_reference_page_matches"] = self._store_context_in_text(text, location)
+
         try:
             favorite = page.get_by_text("Guardar como mi tienda favorita", exact=False).first
             if favorite.count() and favorite.is_visible():
                 favorite.click(timeout=4_000)
                 page.wait_for_timeout(800)
+                self.run_meta["favorite_store_action_attempted"] = True
         except Exception:
-            pass
+            self.run_meta["favorite_store_action_attempted"] = False
 
-        text = self._body_text(page)
-        page_matches = self._store_context_in_text(text, location)
-        self.run_meta["store_page_verified"] = page_matches
-        self.run_meta["store_url"] = store_url
-        return page_matches
+    def _product_candidates(self, page: Page, limit: int = 5) -> list[str]:
+        try:
+            raw = page.locator('a[href*="/ip/"]').evaluate_all(
+                """
+                (anchors, limit) => {
+                  const out = [];
+                  const seen = new Set();
+                  for (const a of anchors) {
+                    const href = a.getAttribute('href');
+                    if (!href || seen.has(href)) continue;
+                    let node = a;
+                    let text = '';
+                    for (let i = 0; i < 8 && node; i++, node = node.parentElement) {
+                      text = (node.textContent || '').replace(/\s+/g, ' ').trim();
+                      if (/pickup|recoge|recoger|recogida/i.test(text)) break;
+                    }
+                    if (/pickup|recoge|recoger|recogida/i.test(text)) {
+                      seen.add(href);
+                      out.push(href);
+                    }
+                    if (out.length >= limit) break;
+                  }
+                  return out;
+                }
+                """,
+                limit,
+            )
+            return [absolute_url(x, BASE_URL) for x in raw if x]
+        except Exception:
+            return []
+
+    def _verify_store_via_product_detail(self, page: Page, location: Location) -> tuple[bool, str | None]:
+        candidates = self._product_candidates(page)
+        self.run_meta["store_verification_product_candidates"] = candidates
+        for url in candidates:
+            detail = page.context.new_page()
+            try:
+                response = detail.goto(url, wait_until="domcontentloaded", timeout=120_000)
+                self._assert_not_blocked(detail, response.status if response else None)
+                detail.wait_for_timeout(self.wait_ms)
+                text = self._body_text(detail)
+                if self._store_context_in_text(text, location):
+                    self.run_meta["store_verification_product_url"] = detail.url
+                    return True, "product_detail_pickup_store"
+                if self._store_context_in_browser_state(detail, location):
+                    self.run_meta["store_verification_product_url"] = detail.url
+                    return True, "product_detail_browser_state"
+            finally:
+                detail.close()
+        return False, None
+
+    def _verify_store_context(
+        self,
+        page: Page,
+        location: Location,
+        *,
+        allow_ui: bool = True,
+        allow_product_detail: bool = True,
+    ) -> tuple[bool, str | None]:
+        body = self._body_text(page)
+        if self._store_context_in_text(body, location):
+            return True, "category_text"
+        if self._store_context_in_browser_state(page, location):
+            return True, "browser_state"
+
+        if allow_ui:
+            verified, method = self._try_select_store_ui(page, location)
+            if verified:
+                return verified, method
+
+        if allow_product_detail:
+            verified, method = self._verify_store_via_product_detail(page, location)
+            if verified:
+                return verified, method
+
+        return False, None
 
     @staticmethod
     def _infer_brand(product: str | None) -> str | None:
         if not product:
             return None
         known = [
-            # Cuidado bucal
             "Colgate", "Oral-B", "Sensodyne", "Listerine", "Crest", "Equate",
             "Corega", "Aquafresh", "Gum", "Curaprox", "Philips", "Marvis",
-            # Cuidado de la ropa
             "Ariel", "Persil", "Roma", "Suavitel", "Vanish", "Cloralex", "Clorox",
             "Zote", "Ace", "Bold", "Blanca Nieves", "MAS", "Lysol", "Oxiclean",
-            "Dr. Beckmann", "Ensueño", "Great Value", "Arm & Hammer", "Tide",
+            "Dr. Beckmann", "Ensueño", "Great Value", "Arm & Hammer", "Tide", "Downy",
+            "Carisma",
         ]
         lower = product.lower()
         for brand in known:
@@ -306,11 +472,107 @@ class WalmartScraper:
                     "price_regular": regular,
                     "promotion": clean_text(" | ".join(dict.fromkeys(promos))),
                     "pickup_available": pickup,
-                    "store_context_verified": True,
+                    "store_context_verified": bool(self._active_store_context_method),
+                    "store_context_method": self._active_store_context_method,
                     "url": url,
                     "price_raw": text,
                 }
             )
+        return rows
+
+    def _scrape_with_context(
+        self,
+        context: BrowserContext,
+        category: Category,
+        location: Location,
+        *,
+        establish_reference: bool,
+    ) -> list[dict[str, Any]]:
+        page = context.pages[0] if context.pages else context.new_page()
+        rows: list[dict[str, Any]] = []
+        seen_skus: set[str] = set()
+        no_new_pages = 0
+        session_verified = not self.require_store_context
+        verification_method: str | None = None
+
+        if establish_reference:
+            self._establish_store_reference(page, location)
+
+        for page_number in range(1, self.max_pages + 1):
+            url = self._paged_url(category.url, page_number)
+            response = page.goto(url, wait_until="domcontentloaded", timeout=120_000)
+            self._assert_not_blocked(page, response.status if response else None)
+            page.wait_for_timeout(self.wait_ms)
+
+            try:
+                page.wait_for_selector('a[href*="/ip/"]', timeout=20_000)
+            except PlaywrightTimeoutError:
+                self._save_diagnostics(page, f"no_products_page_{page_number}")
+                break
+
+            if not session_verified:
+                session_verified, verification_method = self._verify_store_context(
+                    page,
+                    location,
+                    allow_ui=True,
+                    allow_product_detail=True,
+                )
+                if not session_verified:
+                    self._save_diagnostics(page, f"store_context_missing_page_{page_number}")
+                    raise WalmartStoreContextError(
+                        f"No se pudo probar el contexto de {location.store} / {location.postal_code}. "
+                        "Se guardaron diagnósticos; no se etiquetaron precios como datos de tienda."
+                    )
+                self._active_store_context_method = verification_method
+                self.run_meta["store_context_verified"] = True
+                self.run_meta["store_context_method"] = verification_method
+                self.run_meta["store_context_verified_on_page"] = page_number
+            else:
+                direct_verified, direct_method = self._verify_store_context(
+                    page,
+                    location,
+                    allow_ui=False,
+                    allow_product_detail=False,
+                )
+                page_method = direct_method or f"session:{verification_method or 'preverified'}"
+                self._active_store_context_method = verification_method or direct_method or "preverified"
+                self.run_meta.setdefault("pages", []).append(
+                    {
+                        "page": page_number,
+                        "url": page.url,
+                        "store_context_verified": True,
+                        "store_context_method": page_method,
+                        "direct_store_evidence": direct_verified,
+                    }
+                )
+
+            if not self.run_meta.get("pages") or self.run_meta["pages"][-1].get("page") != page_number:
+                self.run_meta.setdefault("pages", []).append(
+                    {
+                        "page": page_number,
+                        "url": page.url,
+                        "store_context_verified": session_verified,
+                        "store_context_method": verification_method,
+                        "direct_store_evidence": True,
+                    }
+                )
+
+            page_rows = self._extract_cards(page, category, location)
+            new_rows = [r for r in page_rows if r["sku"] not in seen_skus]
+            for row in new_rows:
+                seen_skus.add(row["sku"])
+            rows.extend(new_rows)
+
+            self.run_meta["pages"][-1]["rows"] = len(page_rows)
+            self.run_meta["pages"][-1]["new_rows"] = len(new_rows)
+
+            no_new_pages = no_new_pages + 1 if not new_rows else 0
+            if no_new_pages >= 2:
+                break
+
+        self.run_meta["store_context_verified"] = session_verified
+        self.run_meta["unique_products"] = len(seen_skus)
+        self._save_diagnostics(page, f"success_{category.id}_{location.id}")
         return rows
 
     def scrape_category(self, category: Category, location: Location) -> list[dict[str, Any]]:
@@ -323,62 +585,13 @@ class WalmartScraper:
                 locale="es-MX",
                 viewport={"width": 1440, "height": 1000},
             )
-            page = context.new_page()
             try:
-                self._establish_store_context(page, location)
-                rows: list[dict[str, Any]] = []
-                seen_skus: set[str] = set()
-                no_new_pages = 0
-                verified_any_page = False
-
-                for page_number in range(1, self.max_pages + 1):
-                    url = self._paged_url(category.url, page_number)
-                    response = page.goto(url, wait_until="domcontentloaded", timeout=120_000)
-                    self._assert_not_blocked(page, response.status if response else None)
-                    page.wait_for_timeout(self.wait_ms)
-
-                    body = self._body_text(page)
-                    verified = self._store_context_in_text(body, location)
-                    if not verified:
-                        verified = self._try_select_store_ui(page, location)
-                    verified_any_page = verified_any_page or verified
-                    self.run_meta.setdefault("pages", []).append(
-                        {"page": page_number, "url": page.url, "store_context_verified": verified}
-                    )
-
-                    if self.require_store_context and not verified:
-                        self._save_diagnostics(page, f"store_context_missing_page_{page_number}")
-                        raise WalmartStoreContextError(
-                            f"No se pudo verificar {location.store} / {location.postal_code} en Walmart. "
-                            "Se guardaron diagnósticos; no se etiquetaron precios nacionales como precios de tienda."
-                        )
-
-                    try:
-                        page.wait_for_selector('a[href*="/ip/"]', timeout=20_000)
-                    except PlaywrightTimeoutError:
-                        self._save_diagnostics(page, f"no_products_page_{page_number}")
-                        break
-
-                    page_rows = self._extract_cards(page, category, location)
-                    new_rows = [r for r in page_rows if r["sku"] not in seen_skus]
-                    for row in new_rows:
-                        seen_skus.add(row["sku"])
-                    rows.extend(new_rows)
-
-                    self.run_meta["pages"][-1]["rows"] = len(page_rows)
-                    self.run_meta["pages"][-1]["new_rows"] = len(new_rows)
-
-                    if not new_rows:
-                        no_new_pages += 1
-                    else:
-                        no_new_pages = 0
-                    if no_new_pages >= 2:
-                        break
-
-                self.run_meta["store_context_verified"] = verified_any_page
-                self.run_meta["unique_products"] = len(seen_skus)
-                self._save_diagnostics(page, f"success_{category.id}_{location.id}")
-                return rows
+                return self._scrape_with_context(
+                    context,
+                    category,
+                    location,
+                    establish_reference=True,
+                )
             finally:
                 context.close()
                 browser.close()
