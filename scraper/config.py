@@ -12,6 +12,7 @@ class Category:
     id: str
     name: str
     url: str
+    subcategory: str | None = None
 
 
 @dataclass(frozen=True)
@@ -32,7 +33,12 @@ def _load_yaml(path: str | Path) -> dict[str, Any]:
 def load_categories(path: str | Path = "config/soriana/categories.yaml") -> list[Category]:
     data = _load_yaml(path)
     return [
-        Category(id=x["id"], name=x["name"], url=x["url"])
+        Category(
+            id=x["id"],
+            name=x["name"],
+            url=x["url"],
+            subcategory=x.get("subcategory"),
+        )
         for x in data.get("categories", [])
         if x.get("enabled", True)
     ]
