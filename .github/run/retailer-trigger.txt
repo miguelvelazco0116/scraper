@@ -1,5 +1,5 @@
-run=2026-08-18T11:03:00-06:00
-retailer=walmart
+run=2026-08-18T12:11:30-06:00
+retailer=soriana
 category=cuidado-bucal
-location=sc-toreo
-mode=chatgpt
+location=cdmx
+mode=validate-consolidated-output
