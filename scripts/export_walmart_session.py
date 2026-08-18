@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import gzip
 import json
 from pathlib import Path
 
@@ -12,10 +14,12 @@ STORE_URL = "https://www.walmart.com.mx/tienda/2344"
 def main() -> int:
     parser = argparse.ArgumentParser(description="Exportar una sesión verificada de Walmart/SC Toreo")
     parser.add_argument("--out", default="walmart_session.json")
+    parser.add_argument("--secret-out", default="walmart_session.secret.txt")
     parser.add_argument("--profile-dir", default=".walmart_export_profile")
     args = parser.parse_args()
 
     out = Path(args.out).resolve()
+    secret_out = Path(args.secret_out).resolve()
     profile = Path(args.profile_dir).resolve()
     profile.mkdir(parents=True, exist_ok=True)
 
@@ -57,9 +61,18 @@ def main() -> int:
                 "storage_state": storage_state,
                 "session_storage": session_storage,
             }
-            out.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            out.write_bytes(raw)
+
+            secret_value = base64.b64encode(gzip.compress(raw, compresslevel=9)).decode("ascii")
+            secret_out.write_text(secret_value, encoding="ascii")
+
             print(f"Sesión exportada: {out}")
-            print("IMPORTANTE: este archivo contiene cookies/estado sensible. No lo subas al repositorio.")
+            print(f"Valor comprimido para GitHub Secret: {secret_out}")
+            print(f"Tamaño del Secret: {len(secret_value):,} caracteres")
+            if len(secret_value) > 48_000:
+                print("ADVERTENCIA: el valor supera ~48 KB; elimina datos innecesarios y vuelve a exportar.")
+            print("IMPORTANTE: ambos archivos contienen estado sensible. No los subas al repositorio.")
         finally:
             context.close()
     return 0
