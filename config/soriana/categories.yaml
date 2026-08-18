@@ -1,0 +1,6 @@
+retailer: soriana
+categories:
+  - id: cuidado-bucal
+    name: Cuidado bucal
+    url: https://www.soriana.com/cuidado-personal-y-belleza/cuidado-bucal/
+    enabled: true
