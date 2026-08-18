@@ -13,6 +13,7 @@ class Category:
     name: str
     url: str
     subcategory: str | None = None
+    sub_subcategory: str | None = None
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ def load_categories(path: str | Path = "config/soriana/categories.yaml") -> list
             name=x["name"],
             url=x["url"],
             subcategory=x.get("subcategory"),
+            sub_subcategory=x.get("sub_subcategory"),
         )
         for x in data.get("categories", [])
         if x.get("enabled", True)
