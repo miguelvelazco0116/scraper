@@ -11,6 +11,7 @@ on:
         options:
           - cuidado-bucal
           - limpiadores
+          - detergentes
       location:
         description: Ubicacion configurada
         required: true
