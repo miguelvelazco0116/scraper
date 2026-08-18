@@ -11,6 +11,7 @@ on:
         options:
           - soriana
           - walmart
+          - all
       category:
         description: Categoria configurada
         required: true
@@ -68,7 +69,9 @@ jobs:
 
           RETAILER="${RETAILER:-soriana}"
           CATEGORY="${CATEGORY:-cuidado-bucal}"
-          if [[ "$RETAILER" == "walmart" ]]; then
+          if [[ "$RETAILER" == "all" ]]; then
+            LOCATION="all"
+          elif [[ "$RETAILER" == "walmart" ]]; then
             LOCATION="${LOCATION:-sc-toreo}"
           else
             LOCATION="${LOCATION:-cdmx}"
@@ -98,7 +101,9 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          if [[ "${{ steps.params.outputs.retailer }}" == "walmart" ]]; then
+          if [[ "${{ steps.params.outputs.retailer }}" == "all" && "${{ steps.params.outputs.category }}" == "all" ]]; then
+            python scripts/full_test.py
+          elif [[ "${{ steps.params.outputs.retailer }}" == "walmart" ]]; then
             python main.py --retailer walmart --category "${{ steps.params.outputs.category }}" --store "${{ steps.params.outputs.location }}"
           else
             python main.py --retailer soriana --category "${{ steps.params.outputs.category }}" --location "${{ steps.params.outputs.location }}"
