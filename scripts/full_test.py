@@ -9,14 +9,18 @@ import pandas as pd
 import yaml
 from openpyxl.styles import Font
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from main import COLUMNS
 
-OUTPUT = Path("output/concentrado_scraper.xlsx")
-LOG_DIR = Path("diagnostics/full_test")
+OUTPUT = ROOT / "output/concentrado_scraper.xlsx"
+LOG_DIR = ROOT / "diagnostics/full_test"
 
 
 def load_enabled_categories(retailer: str) -> list[dict]:
-    path = Path(f"config/{retailer}/categories.yaml")
+    path = ROOT / f"config/{retailer}/categories.yaml"
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return [x for x in data.get("categories", []) if x.get("enabled", True)]
 
@@ -48,7 +52,7 @@ def run_case(retailer: str, category: dict) -> dict:
         location_id = "cdmx"
         cmd = [sys.executable, "main.py", "--retailer", retailer, "--category", category_id, "--location", location_id]
 
-    proc = subprocess.run(cmd, text=True, capture_output=True)
+    proc = subprocess.run(cmd, text=True, capture_output=True, cwd=ROOT)
     combined_log = f"$ {' '.join(cmd)}\n\nSTDOUT\n{proc.stdout}\n\nSTDERR\n{proc.stderr}\n"
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     (LOG_DIR / f"{retailer}_{category_id}.log").write_text(combined_log, encoding="utf-8")
