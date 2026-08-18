@@ -11,6 +11,7 @@ on:
         options:
           - soriana
           - walmart
+          - chedraui
       category:
         description: Categoria configurada
         required: true
@@ -70,6 +71,8 @@ jobs:
           CATEGORY="${CATEGORY:-cuidado-bucal}"
           if [[ "$RETAILER" == "walmart" ]]; then
             LOCATION="${LOCATION:-sc-toreo}"
+          elif [[ "$RETAILER" == "chedraui" ]]; then
+            LOCATION="${LOCATION:-chedraui-polanco}"
           else
             LOCATION="${LOCATION:-cdmx}"
           fi
@@ -100,6 +103,8 @@ jobs:
         run: |
           if [[ "${{ steps.params.outputs.retailer }}" == "walmart" ]]; then
             python main.py --retailer walmart --category "${{ steps.params.outputs.category }}" --store "${{ steps.params.outputs.location }}"
+          elif [[ "${{ steps.params.outputs.retailer }}" == "chedraui" ]]; then
+            python main.py --retailer chedraui --category "${{ steps.params.outputs.category }}" --store "${{ steps.params.outputs.location }}"
           else
             python main.py --retailer soriana --category "${{ steps.params.outputs.category }}" --location "${{ steps.params.outputs.location }}"
           fi
