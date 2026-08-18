@@ -12,3 +12,6 @@ diagnostics/*.json
 playwright/.auth/
 .walmart_profile/
 walmart_profile/
+.walmart_export_profile/
+walmart_session.json
+walmart_session.secret.txt
