@@ -5,6 +5,9 @@ on:
   push:
     paths:
       - ".github/run/soriana-trigger.txt"
+  pull_request:
+    paths:
+      - ".github/run/soriana-trigger.txt"
 
 permissions:
   contents: read
