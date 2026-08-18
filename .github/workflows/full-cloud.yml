@@ -5,6 +5,10 @@ on:
   push:
     paths:
       - ".github/run/hosted-session-trigger.txt"
+  pull_request:
+    paths:
+      - ".github/run/hosted-session-test-marker.txt"
+      - ".github/workflows/full-cloud.yml"
 
 permissions:
   contents: read
