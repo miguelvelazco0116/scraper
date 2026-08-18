@@ -1,13 +1,32 @@
-name: Soriana - Cuidado Bucal
+name: Soriana Scraper
 
 on:
   workflow_dispatch:
+    inputs:
+      category:
+        description: Categoria configurada de Soriana
+        required: true
+        default: cuidado-bucal
+        type: choice
+        options:
+          - cuidado-bucal
+          - limpiadores
+      location:
+        description: Ubicacion configurada
+        required: true
+        default: cdmx
+        type: string
   push:
     paths:
       - ".github/run/soriana-trigger.txt"
   pull_request:
     paths:
       - ".github/run/soriana-trigger.txt"
+      - "config/soriana/categories.yaml"
+      - "scraper/config.py"
+      - "scraper/retailers/soriana.py"
+      - "main.py"
+      - ".github/workflows/soriana.yml"
 
 permissions:
   contents: read
@@ -20,6 +39,26 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Resolve parameters
+        id: params
+        shell: bash
+        run: |
+          CATEGORY="${{ inputs.category }}"
+          LOCATION="${{ inputs.location }}"
+
+          if [[ "${{ github.event_name }}" != "workflow_dispatch" && -f ".github/run/soriana-trigger.txt" ]]; then
+            FILE_CATEGORY=$(grep -E '^category=' .github/run/soriana-trigger.txt | tail -1 | cut -d= -f2- || true)
+            FILE_LOCATION=$(grep -E '^location=' .github/run/soriana-trigger.txt | tail -1 | cut -d= -f2- || true)
+            CATEGORY="${FILE_CATEGORY:-$CATEGORY}"
+            LOCATION="${FILE_LOCATION:-$LOCATION}"
+          fi
+
+          CATEGORY="${CATEGORY:-cuidado-bucal}"
+          LOCATION="${LOCATION:-cdmx}"
+          echo "category=$CATEGORY" >> "$GITHUB_OUTPUT"
+          echo "location=$LOCATION" >> "$GITHUB_OUTPUT"
+          echo "Ejecutando Soriana category=$CATEGORY location=$LOCATION"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -36,13 +75,17 @@ jobs:
       - name: Run Soriana scraper
         id: scrape
         continue-on-error: true
-        run: python main.py --retailer soriana --category cuidado-bucal --location cdmx
+        run: >-
+          python main.py
+          --retailer soriana
+          --category "${{ steps.params.outputs.category }}"
+          --location "${{ steps.params.outputs.location }}"
 
       - name: Upload Excel and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: soriana-cuidado-bucal-${{ github.run_number }}
+          name: soriana-${{ steps.params.outputs.category }}-${{ github.run_number }}
           path: |
             output/
             diagnostics/
