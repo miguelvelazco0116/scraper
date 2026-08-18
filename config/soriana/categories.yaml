@@ -2,5 +2,12 @@ retailer: soriana
 categories:
   - id: cuidado-bucal
     name: Cuidado bucal
+    subcategory: null
     url: https://www.soriana.com/cuidado-personal-y-belleza/cuidado-bucal/
+    enabled: true
+
+  - id: limpiadores
+    name: Cuidado del hogar
+    subcategory: Limpiadores
+    url: https://www.soriana.com/limpieza-del-hogar/limpiadores/
     enabled: true
