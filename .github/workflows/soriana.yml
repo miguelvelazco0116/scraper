@@ -1,82 +1,22 @@
-name: Retailer Scraper
+name: Full Retailer Test
 
 on:
-  workflow_dispatch:
-    inputs:
-      retailer:
-        description: Retailer
-        required: true
-        default: soriana
-        type: choice
-        options:
-          - soriana
-          - walmart
-      category:
-        description: Categoria configurada
-        required: true
-        default: cuidado-bucal
-        type: string
-      location:
-        description: Ubicacion o tienda configurada
-        required: true
-        default: cdmx
-        type: string
-  push:
-    paths:
-      - ".github/run/retailer-trigger.txt"
   pull_request:
     paths:
-      - ".github/run/retailer-trigger.txt"
-      - "config/**"
-      - "scraper/config.py"
-      - "scraper/parsers.py"
-      - "scraper/retailers/**"
-      - "scripts/**"
-      - "main.py"
-      - "tests/**"
-      - ".gitignore"
+      - ".github/run/full-test-trigger.txt"
       - ".github/workflows/soriana.yml"
 
 permissions:
   contents: read
 
 jobs:
-  scrape:
+  full-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Resolve parameters
-        id: params
-        shell: bash
-        run: |
-          RETAILER="${{ inputs.retailer }}"
-          CATEGORY="${{ inputs.category }}"
-          LOCATION="${{ inputs.location }}"
-
-          if [[ "${{ github.event_name }}" != "workflow_dispatch" && -f ".github/run/retailer-trigger.txt" ]]; then
-            FILE_RETAILER=$(grep -E '^retailer=' .github/run/retailer-trigger.txt | tail -1 | cut -d= -f2- || true)
-            FILE_CATEGORY=$(grep -E '^category=' .github/run/retailer-trigger.txt | tail -1 | cut -d= -f2- || true)
-            FILE_LOCATION=$(grep -E '^location=' .github/run/retailer-trigger.txt | tail -1 | cut -d= -f2- || true)
-            RETAILER="${FILE_RETAILER:-$RETAILER}"
-            CATEGORY="${FILE_CATEGORY:-$CATEGORY}"
-            LOCATION="${FILE_LOCATION:-$LOCATION}"
-          fi
-
-          RETAILER="${RETAILER:-soriana}"
-          CATEGORY="${CATEGORY:-cuidado-bucal}"
-          if [[ "$RETAILER" == "walmart" ]]; then
-            LOCATION="${LOCATION:-sc-toreo}"
-          else
-            LOCATION="${LOCATION:-cdmx}"
-          fi
-          echo "retailer=$RETAILER" >> "$GITHUB_OUTPUT"
-          echo "category=$CATEGORY" >> "$GITHUB_OUTPUT"
-          echo "location=$LOCATION" >> "$GITHUB_OUTPUT"
-          echo "Ejecutando retailer=$RETAILER category=$CATEGORY location=$LOCATION"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -93,28 +33,105 @@ jobs:
       - name: Install Chromium
         run: playwright install chromium
 
-      - name: Run scraper
-        id: scrape
-        continue-on-error: true
+      - name: Run all configured retailer cases
         shell: bash
         run: |
-          if [[ "${{ steps.params.outputs.retailer }}" == "walmart" ]]; then
-            python main.py --retailer walmart --category "${{ steps.params.outputs.category }}" --store "${{ steps.params.outputs.location }}"
-          else
-            python main.py --retailer soriana --category "${{ steps.params.outputs.category }}" --location "${{ steps.params.outputs.location }}"
-          fi
+          set -u
+          mkdir -p full_test_logs full_test_diagnostics
+          printf "retailer\tcategory\tlocation\texit_code\tresult\tproducts\n" > full_test_summary.tsv
 
-      - name: Upload Excel and diagnostics
+          run_case() {
+            retailer="$1"
+            category="$2"
+            location="$3"
+            slug="${retailer}_${category}_${location}"
+            log="full_test_logs/${slug}.log"
+
+            echo "============================================================"
+            echo "TEST: retailer=$retailer category=$category location=$location"
+            echo "============================================================"
+
+            set +e
+            if [[ "$retailer" == "walmart" ]]; then
+              python main.py --retailer walmart --category "$category" --store "$location" --max-load-more 100 2>&1 | tee "$log"
+              rc=${PIPESTATUS[0]}
+            else
+              python main.py --retailer soriana --category "$category" --location "$location" --max-load-more 100 2>&1 | tee "$log"
+              rc=${PIPESTATUS[0]}
+            fi
+            set -e
+
+            products=$(grep -Eo 'Productos únicos: [0-9]+' "$log" | tail -1 | awk '{print $3}' || true)
+            products=${products:-0}
+
+            if [[ $rc -eq 0 ]]; then
+              result="success"
+            elif grep -qi 'BLOCKED:' "$log"; then
+              result="blocked"
+            elif grep -qi 'STORE_CONTEXT_ERROR:' "$log"; then
+              result="store_context_error"
+            else
+              result="error"
+            fi
+
+            printf "%s\t%s\t%s\t%s\t%s\t%s\n" "$retailer" "$category" "$location" "$rc" "$result" "$products" >> full_test_summary.tsv
+
+            mkdir -p "full_test_diagnostics/${slug}"
+            if [[ -d diagnostics ]]; then
+              cp -a diagnostics/. "full_test_diagnostics/${slug}/" 2>/dev/null || true
+              rm -rf diagnostics
+              mkdir -p diagnostics
+            fi
+          }
+
+          run_case soriana cuidado-bucal cdmx
+          run_case soriana limpiadores cdmx
+          run_case soriana detergentes cdmx
+          run_case walmart cuidado-bucal sc-toreo
+          run_case walmart cuidado-de-la-ropa sc-toreo
+
+          echo ""
+          echo "================ SUMMARY ================"
+          cat full_test_summary.tsv
+
+      - name: Analyze generated Excel files
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import pandas as pd
+
+          rows = []
+          for path in sorted(Path('output').glob('*.xlsx')):
+              df = pd.read_excel(path)
+              def present(col):
+                  return int(df[col].notna().sum()) if col in df.columns else 0
+              dup = int(df['sku'].duplicated().sum()) if 'sku' in df.columns else 0
+              rows.append({
+                  'file': path.name,
+                  'rows': len(df),
+                  'sku_present': present('sku'),
+                  'price_current_present': present('price_current'),
+                  'price_regular_present': present('price_regular'),
+                  'url_present': present('url'),
+                  'duplicate_sku': dup,
+                  'store_context_verified_true': int(df['store_context_verified'].fillna(False).astype(bool).sum()) if 'store_context_verified' in df.columns else 0,
+              })
+          metrics = pd.DataFrame(rows)
+          metrics.to_csv('full_test_metrics.csv', index=False)
+          print(metrics.to_string(index=False) if not metrics.empty else 'No Excel files generated')
+          PY
+
+      - name: Upload complete test artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.params.outputs.retailer }}-${{ steps.params.outputs.category }}-${{ steps.params.outputs.location }}-${{ github.run_number }}
+          name: full-retailer-test-${{ github.run_number }}
           path: |
             output/
-            diagnostics/
+            full_test_logs/
+            full_test_diagnostics/
+            full_test_summary.tsv
+            full_test_metrics.csv
           if-no-files-found: warn
           retention-days: 14
-
-      - name: Fail workflow if scraper failed
-        if: steps.scrape.outcome == 'failure'
-        run: exit 1
