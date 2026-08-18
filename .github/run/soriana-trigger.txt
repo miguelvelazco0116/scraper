@@ -1,5 +1,5 @@
-run=2026-08-18T15:56:00Z
+run=2026-08-18T16:23:00-06:00
 retailer=soriana
-category=cuidado-bucal
+category=limpiadores
 location=cdmx
 mode=chatgpt-pr
