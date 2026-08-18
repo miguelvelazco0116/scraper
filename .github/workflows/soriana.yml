@@ -1,0 +1,48 @@
+name: Soriana - Cuidado Bucal
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Chromium
+        run: playwright install --with-deps chromium
+
+      - name: Run Soriana scraper
+        id: scrape
+        continue-on-error: true
+        run: python main.py --retailer soriana --category cuidado-bucal --location cdmx
+
+      - name: Upload Excel and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soriana-cuidado-bucal-${{ github.run_number }}
+          path: |
+            output/
+            diagnostics/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Fail workflow if scraper failed
+        if: steps.scrape.outcome == 'failure'
+        run: exit 1
