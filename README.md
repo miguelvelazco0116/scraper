@@ -1,71 +1,48 @@
 # Scraper multi-retailer
 
-Base modular para extraer catálogos públicos de retailers de México mediante **Python + Playwright**, generar un único Excel consolidado y ejecutar pruebas desde GitHub Actions o desde una VM cloud dedicada.
+Base modular para extraer catálogos públicos de retailers de México mediante **Python + Playwright**, generar un único Excel consolidado y ejecutar pruebas desde GitHub Actions.
 
 ## Retailers
 
 | Retailer | Estado | Categorías implementadas |
 |---|---|---|
 | Soriana | Implementado y validado | Cuidado bucal; Cuidado del hogar > Limpiadores; Cuidado del hogar > Limpiadores > Detergentes; Cuidado personal > Afeitado y depilación > Afeitado y depilación para dama |
-| Walmart | Implementado; GitHub-hosted bloqueado por desafío de identidad | Belleza y cuidado personal > Higiene y cuidado personal > Cuidado bucal; Limpieza del hogar y cuidado personal > Cuidado de la ropa; Belleza y cuidado personal > Depilación y rasurado |
+| Walmart | Implementado; requiere una sesión verificada portable para SC Toreo | Belleza y cuidado personal > Higiene y cuidado personal > Cuidado bucal; Limpieza del hogar y cuidado personal > Cuidado de la ropa; Belleza y cuidado personal > Depilación y rasurado |
 | Chedraui | Pendiente | — |
-
-La arquitectura usa un módulo por retailer para no mezclar selectores, navegación, paginación o diagnósticos.
 
 ## Ejecución recomendada
 
-- **Soriana:** puede ejecutarse en GitHub-hosted runners.
-- **Walmart:** debe ejecutarse en una **VM Linux cloud dedicada** con perfil persistente de Chromium para SC Toreo.
-- **No se requiere usar una PC personal como runner.**
-- La VM cloud puede administrarse mediante Azure Bastion/RDP y ejecutar GitHub Actions como servicio usando `xvfb-run`.
+- **Soriana:** GitHub-hosted Actions.
+- **Walmart:** GitHub-hosted Actions reutilizando una sesión Playwright verificada manualmente y guardada como GitHub Secret.
+- **No se requiere VM ni self-hosted runner.**
+- **No se automatizan CAPTCHAs ni desafíos de identidad.** Si la sesión expira, se renueva manualmente y se actualiza el Secret.
 
-La guía completa está en [`CLOUD_RUNNER.md`](CLOUD_RUNNER.md).
+La guía está en [`HOSTED_SESSION.md`](HOSTED_SESSION.md).
 
 ## Estructura principal
 
 ```text
 scraper/
 ├── main.py
-├── scraper/
-│   ├── config.py
-│   ├── parsers.py
-│   └── retailers/
-│       ├── soriana.py
-│       ├── walmart.py
-│       └── walmart_persistent.py
+├── scraper/retailers/
+│   ├── soriana.py
+│   ├── walmart.py
+│   ├── walmart_persistent.py
+│   └── walmart_storage_state.py
 ├── scripts/
+│   ├── export_walmart_session.py
 │   ├── walmart_prepare_session.py
-│   ├── setup_cloud_runner_ubuntu.sh
-│   ├── setup_walmart_session_linux.sh
 │   └── run_all_retailers.py
 ├── config/
 │   ├── locations.yaml
 │   ├── soriana/categories.yaml
 │   └── walmart/categories.yaml
-├── tests/
-└── .github/
-    ├── run/retailer-trigger.txt
-    └── workflows/
-        ├── soriana.yml
-        └── full-cloud.yml
+└── .github/workflows/
+    ├── soriana.yml
+    └── full-cloud.yml
 ```
 
-## Soriana
-
-Categorías configuradas:
-
-- `cuidado-bucal`: Cuidado bucal
-- `limpiadores`: Cuidado del hogar > Limpiadores
-- `detergentes`: Cuidado del hogar > Limpiadores > Detergentes
-- `afeitado-depilacion-dama`: Cuidado personal > Afeitado y depilación > Afeitado y depilación para dama
-
-Ejemplo:
-
-```bash
-python main.py --retailer soriana --category cuidado-bucal --location cdmx
-```
-
-## Walmart México
+## Walmart / SC Toreo
 
 Tienda configurada:
 
@@ -78,53 +55,53 @@ city: Miguel Hidalgo
 state: CDMX
 ```
 
-Categorías configuradas:
+Categorías:
 
 - `cuidado-bucal`
 - `cuidado-de-la-ropa`
 - `depilacion-y-rasurado`
 
-El módulo de Walmart:
+### Crear una sesión portable
 
-- recorre paginación;
-- deduplica SKU/URL;
-- valida contexto de tienda;
-- conserva un perfil persistente de Chromium en la VM cloud;
-- no intenta resolver CAPTCHAs ni desafíos de identidad;
-- se detiene como `BLOCKED` si Walmart vuelve a solicitar verificación.
-
-## VM cloud
-
-Preparación base en Ubuntu:
+En una computadora con navegador visible:
 
 ```bash
-chmod +x scripts/setup_cloud_runner_ubuntu.sh
-./scripts/setup_cloud_runner_ubuntu.sh
+pip install -r requirements.txt
+playwright install chromium
+python scripts/export_walmart_session.py
 ```
 
-Después conecta la VM por Azure Bastion/RDP y prepara una sesión de SC Toreo:
-
-```bash
-chmod +x scripts/setup_walmart_session_linux.sh
-./scripts/setup_walmart_session_linux.sh
-```
-
-El perfil predeterminado queda fuera del workspace de GitHub:
+Completa manualmente cualquier verificación de Walmart y confirma SC Toreo. El script genera localmente:
 
 ```text
-$HOME/scraper_profiles/walmart_sc_toreo
+walmart_session.json
+walmart_session.secret.txt
 ```
 
-Registra la VM como GitHub self-hosted runner Linux x64 con la etiqueta adicional:
+Ambos están ignorados por Git y contienen estado sensible.
+
+Copia **todo el contenido** de `walmart_session.secret.txt` a un Repository Secret llamado:
 
 ```text
-cloud-scraper
+WALMART_SESSION_GZIP_B64
 ```
 
 Luego ejecuta en GitHub Actions:
 
 ```text
-Full Scraper - Cloud VM
+Full Scraper - Hosted Session
+```
+
+El workflow reconstruye la sesión sólo dentro del runner temporal, ejecuta todas las categorías y borra el archivo al terminar.
+
+## Ejecución individual con storage state
+
+```bash
+python main.py \
+  --retailer walmart \
+  --category cuidado-bucal \
+  --store sc-toreo \
+  --storage-state walmart_session.json
 ```
 
 ## Output
@@ -139,34 +116,6 @@ Hojas:
 
 - `Concentrado`
 - `Resumen`
-
-## Campos de salida
-
-```text
-scrape_timestamp
-retailer
-city
-state
-postal_code
-store
-store_id
-department
-category
-subcategory
-sub_subcategory
-category_id
-sku
-brand
-product
-price_current
-price_regular
-promotion
-pickup_available
-store_context_verified
-store_context_method
-url
-price_raw
-```
 
 ## Pruebas
 
