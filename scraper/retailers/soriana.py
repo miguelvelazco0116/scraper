@@ -154,6 +154,7 @@ class SorianaScraper:
                     "postal_code": location.postal_code,
                     "store": location.store,
                     "category": category.name,
+                    "subcategory": category.subcategory,
                     "category_id": category.id,
                     "sku": extract_sku(url, item.get("data_pid")),
                     "brand": self._infer_brand(product),
@@ -172,8 +173,13 @@ class SorianaScraper:
         if not product:
             return None
         known = [
+            # Cuidado bucal
             "Colgate", "Oral-B", "Listerine", "Sensodyne", "Crest", "Gum",
-            "Curaprox", "Philips", "Pro", "Aquafresh", "Bexident", "Corega",
+            "Curaprox", "Philips", "Aquafresh", "Bexident", "Corega",
+            # Cuidado del hogar / limpiadores
+            "Ariel", "Pinol", "Fabuloso", "Cloralex", "Clorox", "Axion",
+            "Harpic", "Windex", "Drano", "Brasso", "Flash", "Tide", "Persil",
+            "Escudo", "Vanish", "Downy", "Suavitel", "Salvo", "Maestro Limpio",
         ]
         lower = product.lower()
         for brand in known:
