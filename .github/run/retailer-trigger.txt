@@ -1,0 +1,5 @@
+run=2026-08-18T11:03:00-06:00
+retailer=walmart
+category=cuidado-bucal
+location=sc-toreo
+mode=chatgpt
