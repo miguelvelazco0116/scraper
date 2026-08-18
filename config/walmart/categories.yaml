@@ -1,0 +1,17 @@
+retailer: walmart
+categories:
+  - id: cuidado-bucal
+    department: Belleza y cuidado personal
+    name: Higiene y cuidado personal
+    subcategory: Cuidado bucal
+    sub_subcategory: null
+    url: https://www.walmart.com.mx/browse/cuidado-personal/cuidado-bucal/264479_950014
+    enabled: true
+
+  - id: cuidado-de-la-ropa
+    department: Limpieza del hogar y cuidado personal
+    name: Cuidado de la ropa
+    subcategory: null
+    sub_subcategory: null
+    url: https://www.walmart.com.mx/browse/cuidado-de-la-ropa/3680083
+    enabled: true
