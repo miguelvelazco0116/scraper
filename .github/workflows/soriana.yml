@@ -23,18 +23,18 @@ on:
         type: string
   push:
     paths:
-      - ".github/run/soriana-trigger.txt"
-      - ".github/run/walmart-trigger.txt"
+      - ".github/run/retailer-trigger.txt"
   pull_request:
     paths:
-      - ".github/run/soriana-trigger.txt"
-      - ".github/run/walmart-trigger.txt"
+      - ".github/run/retailer-trigger.txt"
       - "config/**"
       - "scraper/config.py"
       - "scraper/parsers.py"
       - "scraper/retailers/**"
+      - "scripts/**"
       - "main.py"
       - "tests/**"
+      - ".gitignore"
       - ".github/workflows/soriana.yml"
 
 permissions:
@@ -57,22 +57,13 @@ jobs:
           CATEGORY="${{ inputs.category }}"
           LOCATION="${{ inputs.location }}"
 
-          if [[ "${{ github.event_name }}" != "workflow_dispatch" ]]; then
-            if [[ -f ".github/run/walmart-trigger.txt" ]] && grep -q '^retailer=walmart' .github/run/walmart-trigger.txt; then
-              FILE_RETAILER=$(grep -E '^retailer=' .github/run/walmart-trigger.txt | tail -1 | cut -d= -f2- || true)
-              FILE_CATEGORY=$(grep -E '^category=' .github/run/walmart-trigger.txt | tail -1 | cut -d= -f2- || true)
-              FILE_LOCATION=$(grep -E '^store=' .github/run/walmart-trigger.txt | tail -1 | cut -d= -f2- || true)
-              RETAILER="${FILE_RETAILER:-$RETAILER}"
-              CATEGORY="${FILE_CATEGORY:-$CATEGORY}"
-              LOCATION="${FILE_LOCATION:-$LOCATION}"
-            elif [[ -f ".github/run/soriana-trigger.txt" ]]; then
-              FILE_RETAILER=$(grep -E '^retailer=' .github/run/soriana-trigger.txt | tail -1 | cut -d= -f2- || true)
-              FILE_CATEGORY=$(grep -E '^category=' .github/run/soriana-trigger.txt | tail -1 | cut -d= -f2- || true)
-              FILE_LOCATION=$(grep -E '^location=' .github/run/soriana-trigger.txt | tail -1 | cut -d= -f2- || true)
-              RETAILER="${FILE_RETAILER:-soriana}"
-              CATEGORY="${FILE_CATEGORY:-$CATEGORY}"
-              LOCATION="${FILE_LOCATION:-$LOCATION}"
-            fi
+          if [[ "${{ github.event_name }}" != "workflow_dispatch" && -f ".github/run/retailer-trigger.txt" ]]; then
+            FILE_RETAILER=$(grep -E '^retailer=' .github/run/retailer-trigger.txt | tail -1 | cut -d= -f2- || true)
+            FILE_CATEGORY=$(grep -E '^category=' .github/run/retailer-trigger.txt | tail -1 | cut -d= -f2- || true)
+            FILE_LOCATION=$(grep -E '^location=' .github/run/retailer-trigger.txt | tail -1 | cut -d= -f2- || true)
+            RETAILER="${FILE_RETAILER:-$RETAILER}"
+            CATEGORY="${FILE_CATEGORY:-$CATEGORY}"
+            LOCATION="${FILE_LOCATION:-$LOCATION}"
           fi
 
           RETAILER="${RETAILER:-soriana}"
