@@ -58,6 +58,19 @@ def run_case(
             cmd.extend(["--profile-dir", str(walmart_profile_dir), "--headed"])
         location = "sc-toreo"
         store = "SC Toreo"
+    elif retailer == "chedraui":
+        cmd = [
+            sys.executable,
+            "main.py",
+            "--retailer",
+            "chedraui",
+            "--category",
+            category_id,
+            "--store",
+            "chedraui-polanco",
+        ]
+        location = "chedraui-polanco"
+        store = "Chedraui Selecto México Polanco"
     else:
         cmd = [
             sys.executable,
@@ -183,7 +196,7 @@ def main() -> int:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
     cases: list[tuple[str, dict]] = []
-    for retailer in ("soriana", "walmart"):
+    for retailer in ("soriana", "chedraui", "walmart"):
         cases.extend((retailer, category) for category in load_enabled_categories(retailer))
 
     results: list[dict] = []
