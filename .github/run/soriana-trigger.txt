@@ -1,4 +1,4 @@
-run=2026-08-18T15:56:00Z
+run=test-cuidado-bucal-20260818-2
 retailer=soriana
 category=cuidado-bucal
 location=cdmx
