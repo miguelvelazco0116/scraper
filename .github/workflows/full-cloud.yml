@@ -1,0 +1,72 @@
+name: Full Scraper - Cloud VM
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scrape-all:
+    runs-on: [self-hosted, linux, x64, cloud-scraper]
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        shell: bash
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+
+      - name: Resolve Walmart profile
+        shell: bash
+        run: |
+          PROFILE="${{ vars.WALMART_PROFILE_DIR }}"
+          if [[ -z "$PROFILE" ]]; then
+            PROFILE="$HOME/scraper_profiles/walmart_sc_toreo"
+          fi
+          if [[ ! -d "$PROFILE" ]]; then
+            echo "Perfil persistente de Walmart no encontrado: $PROFILE"
+            echo "Conéctate a la VM por Bastion/RDP y ejecuta scripts/setup_walmart_session_linux.sh una vez."
+            exit 1
+          fi
+          echo "WALMART_PROFILE_DIR=$PROFILE" >> "$GITHUB_ENV"
+          echo "Perfil Walmart: $PROFILE"
+
+      - name: Validate cloud display tools
+        shell: bash
+        run: |
+          command -v xvfb-run >/dev/null || { echo "xvfb-run no está instalado. Ejecuta scripts/setup_cloud_runner_ubuntu.sh"; exit 1; }
+
+      - name: Run unit tests
+        shell: bash
+        run: pytest -q
+
+      - name: Run all retailers and categories
+        shell: bash
+        run: |
+          xvfb-run -a -s "-screen 0 1440x1000x24" \
+            python scripts/run_all_retailers.py \
+              --walmart-profile-dir "$WALMART_PROFILE_DIR"
+
+      - name: Upload consolidated workbook and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: concentrado-scraper-${{ github.run_number }}
+          path: |
+            output/concentrado_scraper.xlsx
+            diagnostics/
+          if-no-files-found: warn
+          retention-days: 14
