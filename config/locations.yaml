@@ -1,0 +1,8 @@
+locations:
+  - id: cdmx
+    city: Ciudad de México
+    state: CDMX
+    country: México
+    postal_code: null
+    store: null
+    enabled: true
