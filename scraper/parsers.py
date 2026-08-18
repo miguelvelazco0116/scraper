@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urljoin, urlparse
 
-BASE_URL = "https://www.soriana.com/"
+DEFAULT_BASE_URL = "https://www.soriana.com/"
 
 
 def clean_text(value: str | None) -> str | None:
@@ -27,11 +27,18 @@ def extract_sku(url: str | None, data_pid: str | None = None) -> str | None:
     if not url:
         return None
     path = urlparse(url).path
+
+    # Soriana product URLs end in /<sku>.html
     match = re.search(r"/(\d+)\.html/?$", path)
+    if match:
+        return match.group(1)
+
+    # Walmart Mexico product URLs end in /ip/<slug>/<numeric-id>
+    match = re.search(r"/(\d{8,20})/?$", path)
     return match.group(1) if match else None
 
 
-def absolute_url(url: str | None) -> str | None:
+def absolute_url(url: str | None, base_url: str = DEFAULT_BASE_URL) -> str | None:
     if not url:
         return None
-    return urljoin(BASE_URL, url)
+    return urljoin(base_url, url)
