@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from scraper.config import load_categories, load_locations
+from scraper.retailers.chedraui import ChedrauiBlocked, ChedrauiScraper, ChedrauiStoreContextError
 from scraper.retailers.soriana import SorianaBlocked, SorianaScraper
 from scraper.retailers.walmart import WalmartBlocked, WalmartScraper, WalmartStoreContextError
 from scraper.retailers.walmart_persistent import WalmartPersistentScraper
@@ -113,10 +114,10 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Scraper multi-retailer")
-    parser.add_argument("--retailer", default="soriana", choices=["soriana", "walmart"])
+    parser.add_argument("--retailer", default="soriana", choices=["soriana", "walmart", "chedraui"])
     parser.add_argument("--category", default="cuidado-bucal")
     parser.add_argument("--location", default=None)
-    parser.add_argument("--store", default=None, help="Alias de ubicación para una tienda configurada, ej. sc-toreo")
+    parser.add_argument("--store", default=None, help="Alias de ubicación para una tienda configurada")
     parser.add_argument("--profile-dir", default=None, help="Perfil persistente de Playwright para Walmart")
     parser.add_argument("--storage-state", default=None, help="Sesión portable de Playwright para Walmart")
     parser.add_argument("--headed", action="store_true", help="Abrir navegador visible")
@@ -125,7 +126,13 @@ def main() -> int:
 
     category_path = f"config/{args.retailer}/categories.yaml"
     category = next((x for x in load_categories(category_path) if x.id == args.category), None)
-    location_id = args.store or args.location or ("sc-toreo" if args.retailer == "walmart" else "cdmx")
+    if args.retailer == "walmart":
+        default_location = "sc-toreo"
+    elif args.retailer == "chedraui":
+        default_location = "chedraui-polanco"
+    else:
+        default_location = "cdmx"
+    location_id = args.store or args.location or default_location
     location = next((x for x in load_locations() if x.id == location_id), None)
     if category is None:
         raise SystemExit(f"Categoría no encontrada: {args.category}")
@@ -162,6 +169,16 @@ def main() -> int:
             print(f"BLOCKED: {exc}")
             return 2
         except WalmartStoreContextError as exc:
+            print(f"STORE_CONTEXT_ERROR: {exc}")
+            return 4
+    elif args.retailer == "chedraui":
+        scraper = ChedrauiScraper(headless=not args.headed, max_pages=args.max_load_more)
+        try:
+            rows = scraper.scrape_category(category, location)
+        except ChedrauiBlocked as exc:
+            print(f"BLOCKED: {exc}")
+            return 2
+        except ChedrauiStoreContextError as exc:
             print(f"STORE_CONTEXT_ERROR: {exc}")
             return 4
     else:
