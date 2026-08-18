@@ -1,4 +1,4 @@
-name: Full Scraper - Cloud VM
+name: Full Scraper - Hosted Session
 
 on:
   workflow_dispatch:
@@ -8,14 +8,12 @@ permissions:
 
 jobs:
   scrape-all:
-    runs-on: [self-hosted, linux, x64, cloud-scraper]
+    runs-on: ubuntu-latest
     timeout-minutes: 120
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          clean: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -23,42 +21,33 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install Python dependencies
-        shell: bash
+      - name: Install dependencies
         run: |
           pip install -r requirements.txt
           playwright install chromium
 
-      - name: Resolve Walmart profile
+      - name: Restore Walmart session from GitHub Secret
         shell: bash
+        env:
+          WALMART_SESSION_GZIP_B64: ${{ secrets.WALMART_SESSION_GZIP_B64 }}
         run: |
-          PROFILE="${{ vars.WALMART_PROFILE_DIR }}"
-          if [[ -z "$PROFILE" ]]; then
-            PROFILE="$HOME/scraper_profiles/walmart_sc_toreo"
-          fi
-          if [[ ! -d "$PROFILE" ]]; then
-            echo "Perfil persistente de Walmart no encontrado: $PROFILE"
-            echo "Conéctate a la VM por Bastion/RDP y ejecuta scripts/setup_walmart_session_linux.sh una vez."
+          if [[ -z "$WALMART_SESSION_GZIP_B64" ]]; then
+            echo "Falta el secret WALMART_SESSION_GZIP_B64."
+            echo "Ejecuta scripts/export_walmart_session.py localmente y guarda walmart_session.secret.txt como Repository Secret."
             exit 1
           fi
-          echo "WALMART_PROFILE_DIR=$PROFILE" >> "$GITHUB_ENV"
-          echo "Perfil Walmart: $PROFILE"
-
-      - name: Validate cloud display tools
-        shell: bash
-        run: |
-          command -v xvfb-run >/dev/null || { echo "xvfb-run no está instalado. Ejecuta scripts/setup_cloud_runner_ubuntu.sh"; exit 1; }
+          AUTH_FILE="$RUNNER_TEMP/walmart_session.json"
+          printf '%s' "$WALMART_SESSION_GZIP_B64" | base64 --decode | gzip --decompress > "$AUTH_FILE"
+          chmod 600 "$AUTH_FILE"
+          echo "WALMART_STORAGE_STATE_FILE=$AUTH_FILE" >> "$GITHUB_ENV"
 
       - name: Run unit tests
-        shell: bash
         run: pytest -q
 
       - name: Run all retailers and categories
-        shell: bash
         run: |
-          xvfb-run -a -s "-screen 0 1440x1000x24" \
-            python scripts/run_all_retailers.py \
-              --walmart-profile-dir "$WALMART_PROFILE_DIR"
+          python scripts/run_all_retailers.py \
+            --walmart-storage-state "$WALMART_STORAGE_STATE_FILE"
 
       - name: Upload consolidated workbook and diagnostics
         if: always()
@@ -70,3 +59,8 @@ jobs:
             diagnostics/
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Delete reconstructed session
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/walmart_session.json"

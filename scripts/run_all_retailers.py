@@ -33,7 +33,13 @@ def classify_result(code: int, text: str) -> str:
     return "ERROR"
 
 
-def run_case(retailer: str, category: dict, walmart_profile_dir: Path) -> dict:
+def run_case(
+    retailer: str,
+    category: dict,
+    *,
+    walmart_profile_dir: Path | None = None,
+    walmart_storage_state: Path | None = None,
+) -> dict:
     category_id = category["id"]
     if retailer == "walmart":
         cmd = [
@@ -45,10 +51,11 @@ def run_case(retailer: str, category: dict, walmart_profile_dir: Path) -> dict:
             category_id,
             "--store",
             "sc-toreo",
-            "--profile-dir",
-            str(walmart_profile_dir),
-            "--headed",
         ]
+        if walmart_storage_state is not None:
+            cmd.extend(["--storage-state", str(walmart_storage_state)])
+        elif walmart_profile_dir is not None:
+            cmd.extend(["--profile-dir", str(walmart_profile_dir), "--headed"])
         location = "sc-toreo"
         store = "SC Toreo"
     else:
@@ -159,12 +166,18 @@ def write_final_workbook(concentrated: pd.DataFrame, summary: pd.DataFrame) -> N
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Ejecutar todos los retailers y categorías configuradas")
-    parser.add_argument("--walmart-profile-dir", required=True)
+    parser.add_argument("--walmart-profile-dir")
+    parser.add_argument("--walmart-storage-state")
     args = parser.parse_args()
 
-    walmart_profile = Path(args.walmart_profile_dir).expanduser().resolve()
-    if not walmart_profile.exists():
+    walmart_profile = Path(args.walmart_profile_dir).expanduser().resolve() if args.walmart_profile_dir else None
+    walmart_state = Path(args.walmart_storage_state).expanduser().resolve() if args.walmart_storage_state else None
+    if walmart_state is not None and not walmart_state.exists():
+        raise SystemExit(f"Storage state Walmart no encontrado: {walmart_state}")
+    if walmart_profile is not None and not walmart_profile.exists():
         raise SystemExit(f"Perfil Walmart no encontrado: {walmart_profile}")
+    if walmart_state is None and walmart_profile is None:
+        raise SystemExit("Debes proporcionar --walmart-storage-state o --walmart-profile-dir")
 
     OUTPUT.unlink(missing_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -177,12 +190,14 @@ def main() -> int:
     print(f"Casos configurados: {len(cases)}")
     for index, (retailer, category) in enumerate(cases, start=1):
         print(f"[{index}/{len(cases)}] {retailer} / {category['id']}")
-        result = run_case(retailer, category, walmart_profile)
-        results.append(result)
-        print(
-            f"  -> {result['status']} "
-            f"(exit={result['exit_code']}, reported={result['reported_products']})"
+        result = run_case(
+            retailer,
+            category,
+            walmart_profile_dir=walmart_profile,
+            walmart_storage_state=walmart_state,
         )
+        results.append(result)
+        print(f"  -> {result['status']} (exit={result['exit_code']}, reported={result['reported_products']})")
 
     concentrated, summary = apply_quality(results)
     write_final_workbook(concentrated, summary)
@@ -190,14 +205,8 @@ def main() -> int:
 
     print("\nRESUMEN FINAL")
     columns = [
-        "retailer",
-        "category_id",
-        "status",
-        "products",
-        "sku_complete",
-        "price_current_complete",
-        "url_complete",
-        "duplicates_sku_url",
+        "retailer", "category_id", "status", "products", "sku_complete",
+        "price_current_complete", "url_complete", "duplicates_sku_url",
         "store_context_verified",
     ]
     print(summary[columns].to_string(index=False))

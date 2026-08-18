@@ -10,6 +10,7 @@ from scraper.config import load_categories, load_locations
 from scraper.retailers.soriana import SorianaBlocked, SorianaScraper
 from scraper.retailers.walmart import WalmartBlocked, WalmartScraper, WalmartStoreContextError
 from scraper.retailers.walmart_persistent import WalmartPersistentScraper
+from scraper.retailers.walmart_storage_state import WalmartStorageStateScraper
 
 COLUMNS = [
     "scrape_timestamp", "retailer", "city", "state", "postal_code", "store", "store_id",
@@ -22,12 +23,7 @@ CONSOLIDATED_PATH = Path("output/concentrado_scraper.xlsx")
 
 
 def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATED_PATH) -> Path:
-    """Actualiza un único Excel consolidado con la extracción actual.
-
-    Si el archivo ya existe, reemplaza únicamente el bloque correspondiente a la
-    misma combinación retailer + category_id + city + store_id. Esto permite
-    ejecutar varias categorías secuencialmente y terminar con un solo workbook.
-    """
+    """Actualiza un único Excel consolidado con la extracción actual."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     incoming = df.copy()
@@ -122,6 +118,7 @@ def main() -> int:
     parser.add_argument("--location", default=None)
     parser.add_argument("--store", default=None, help="Alias de ubicación para una tienda configurada, ej. sc-toreo")
     parser.add_argument("--profile-dir", default=None, help="Perfil persistente de Playwright para Walmart")
+    parser.add_argument("--storage-state", default=None, help="Sesión portable de Playwright para Walmart")
     parser.add_argument("--headed", action="store_true", help="Abrir navegador visible")
     parser.add_argument("--max-load-more", type=int, default=100)
     args = parser.parse_args()
@@ -143,8 +140,15 @@ def main() -> int:
             print(f"BLOCKED: {exc}")
             return 2
     elif args.retailer == "walmart":
+        storage_state = args.storage_state or os.getenv("WALMART_STORAGE_STATE_FILE")
         profile_dir = args.profile_dir or os.getenv("WALMART_USER_DATA_DIR")
-        if profile_dir:
+        if storage_state:
+            scraper = WalmartStorageStateScraper(
+                storage_state_path=storage_state,
+                headless=not args.headed,
+                max_pages=args.max_load_more,
+            )
+        elif profile_dir:
             scraper = WalmartPersistentScraper(
                 user_data_dir=profile_dir,
                 headless=not args.headed,
@@ -163,9 +167,6 @@ def main() -> int:
     else:
         raise SystemExit(f"Retailer no implementado: {args.retailer}")
 
-    # La jerarquía de negocio se define en config/<retailer>/categories.yaml.
-    # Se normaliza aquí para que todos los retailers escriban el mismo esquema
-    # aunque un parser individual no agregue alguno de estos niveles.
     for row in rows:
         row["department"] = category.department
         row["category"] = category.name
