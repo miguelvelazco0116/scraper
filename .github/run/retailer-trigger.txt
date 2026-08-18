@@ -1,5 +1,5 @@
-run=2026-08-18T12:11:30-06:00
+run=2026-08-18T12:42:00-06:00
 retailer=soriana
-category=cuidado-bucal
+category=afeitado-depilacion-dama
 location=cdmx
-mode=validate-consolidated-output
+mode=chatgpt-validation

@@ -163,6 +163,16 @@ def main() -> int:
     else:
         raise SystemExit(f"Retailer no implementado: {args.retailer}")
 
+    # La jerarquía de negocio se define en config/<retailer>/categories.yaml.
+    # Se normaliza aquí para que todos los retailers escriban el mismo esquema
+    # aunque un parser individual no agregue alguno de estos niveles.
+    for row in rows:
+        row["department"] = category.department
+        row["category"] = category.name
+        row["subcategory"] = category.subcategory
+        row["sub_subcategory"] = category.sub_subcategory
+        row["category_id"] = category.id
+
     df = pd.DataFrame(rows, columns=COLUMNS)
     if not df.empty:
         df = df.drop_duplicates(subset=["sku", "url"], keep="last")
