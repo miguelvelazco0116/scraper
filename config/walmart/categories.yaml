@@ -15,3 +15,11 @@ categories:
     sub_subcategory: null
     url: https://www.walmart.com.mx/browse/cuidado-de-la-ropa/3680083
     enabled: true
+
+  - id: depilacion-y-rasurado
+    department: Belleza y cuidado personal
+    name: Depilación y rasurado
+    subcategory: null
+    sub_subcategory: null
+    url: https://www.walmart.com.mx/browse/belleza/depilacion-y-rasurado/930017_264512
+    enabled: true
