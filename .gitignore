@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.env
+output/*.xlsx
+output/*.csv
+diagnostics/*.html
+diagnostics/*.png
+diagnostics/*.json
+playwright/.auth/
