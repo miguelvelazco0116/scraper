@@ -5,4 +5,14 @@ locations:
     country: México
     postal_code: null
     store: null
+    store_id: null
+    enabled: true
+
+  - id: sc-toreo
+    city: Miguel Hidalgo
+    state: CDMX
+    country: México
+    postal_code: "11220"
+    store: SC Toreo
+    store_id: "2344"
     enabled: true
