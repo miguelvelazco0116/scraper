@@ -1,5 +1,5 @@
-run=2026-08-18T16:32:00-06:00
+run=2026-08-18T10:38:00-06:00
 retailer=soriana
 category=detergentes
 location=cdmx
-mode=chatgpt-pr
+mode=chatgpt-full-sample
