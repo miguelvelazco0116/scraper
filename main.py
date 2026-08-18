@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -8,6 +9,7 @@ import pandas as pd
 from scraper.config import load_categories, load_locations
 from scraper.retailers.soriana import SorianaBlocked, SorianaScraper
 from scraper.retailers.walmart import WalmartBlocked, WalmartScraper, WalmartStoreContextError
+from scraper.retailers.walmart_persistent import WalmartPersistentScraper
 
 COLUMNS = [
     "scrape_timestamp", "retailer", "city", "state", "postal_code", "store", "store_id",
@@ -23,6 +25,7 @@ def main() -> int:
     parser.add_argument("--category", default="cuidado-bucal")
     parser.add_argument("--location", default=None)
     parser.add_argument("--store", default=None, help="Alias de ubicación para una tienda configurada, ej. sc-toreo")
+    parser.add_argument("--profile-dir", default=None, help="Perfil persistente de Playwright para Walmart")
     parser.add_argument("--headed", action="store_true", help="Abrir navegador visible")
     parser.add_argument("--max-load-more", type=int, default=100)
     args = parser.parse_args()
@@ -44,7 +47,15 @@ def main() -> int:
             print(f"BLOCKED: {exc}")
             return 2
     elif args.retailer == "walmart":
-        scraper = WalmartScraper(headless=not args.headed, max_pages=args.max_load_more)
+        profile_dir = args.profile_dir or os.getenv("WALMART_USER_DATA_DIR")
+        if profile_dir:
+            scraper = WalmartPersistentScraper(
+                user_data_dir=profile_dir,
+                headless=not args.headed,
+                max_pages=args.max_load_more,
+            )
+        else:
+            scraper = WalmartScraper(headless=not args.headed, max_pages=args.max_load_more)
         try:
             rows = scraper.scrape_category(category, location)
         except WalmartBlocked as exc:
