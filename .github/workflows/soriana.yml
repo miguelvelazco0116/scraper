@@ -2,6 +2,9 @@ name: Soriana - Cuidado Bucal
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - ".github/run/soriana-trigger.txt"
 
 permissions:
   contents: read
