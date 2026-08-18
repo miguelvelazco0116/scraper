@@ -28,3 +28,14 @@ def test_soriana_parent_levels_remain_available():
     assert "cuidado-bucal" in categories
     assert "limpiadores" in categories
     assert categories["limpiadores"].sub_subcategory is None
+
+
+def test_walmart_depilacion_y_rasurado_hierarchy():
+    categories = {x.id: x for x in load_categories("config/walmart/categories.yaml")}
+
+    depilacion = categories["depilacion-y-rasurado"]
+    assert depilacion.department == "Belleza y cuidado personal"
+    assert depilacion.name == "Depilación y rasurado"
+    assert depilacion.subcategory is None
+    assert depilacion.sub_subcategory is None
+    assert depilacion.url.endswith("/browse/belleza/depilacion-y-rasurado/930017_264512")
