@@ -155,6 +155,7 @@ class SorianaScraper:
                     "store": location.store,
                     "category": category.name,
                     "subcategory": category.subcategory,
+                    "sub_subcategory": category.sub_subcategory,
                     "category_id": category.id,
                     "sku": extract_sku(url, item.get("data_pid")),
                     "brand": self._infer_brand(product),
@@ -180,6 +181,7 @@ class SorianaScraper:
             "Ariel", "Pinol", "Fabuloso", "Cloralex", "Clorox", "Axion",
             "Harpic", "Windex", "Drano", "Brasso", "Flash", "Tide", "Persil",
             "Escudo", "Vanish", "Downy", "Suavitel", "Salvo", "Maestro Limpio",
+            "Roma", "Zote", "Carisma", "Ace", "Bold", "Blanca Nieves",
         ]
         lower = product.lower()
         for brand in known:
