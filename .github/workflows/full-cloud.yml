@@ -2,6 +2,9 @@ name: Full Scraper - Hosted Session
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - ".github/run/hosted-session-trigger.txt"
 
 permissions:
   contents: read
