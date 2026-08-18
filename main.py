@@ -18,6 +18,102 @@ COLUMNS = [
     "store_context_verified", "store_context_method", "url", "price_raw",
 ]
 
+CONSOLIDATED_PATH = Path("output/concentrado_scraper.xlsx")
+
+
+def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATED_PATH) -> Path:
+    """Actualiza un único Excel consolidado con la extracción actual.
+
+    Si el archivo ya existe, reemplaza únicamente el bloque correspondiente a la
+    misma combinación retailer + category_id + city + store_id. Esto permite
+    ejecutar varias categorías secuencialmente y terminar con un solo workbook.
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    incoming = df.copy()
+    for col in COLUMNS:
+        if col not in incoming.columns:
+            incoming[col] = None
+    incoming = incoming[COLUMNS]
+
+    if output_path.exists():
+        try:
+            existing = pd.read_excel(output_path, sheet_name="Concentrado", dtype={"sku": str, "store_id": str})
+        except Exception:
+            existing = pd.DataFrame(columns=COLUMNS)
+    else:
+        existing = pd.DataFrame(columns=COLUMNS)
+
+    for col in COLUMNS:
+        if col not in existing.columns:
+            existing[col] = None
+    existing = existing[COLUMNS]
+
+    if not incoming.empty:
+        retailer = str(incoming.iloc[0]["retailer"])
+        category_id = str(incoming.iloc[0]["category_id"])
+        city = incoming.iloc[0]["city"]
+        store_id = incoming.iloc[0]["store_id"]
+
+        same_retailer = existing["retailer"].astype(str).eq(retailer)
+        same_category = existing["category_id"].astype(str).eq(category_id)
+        same_city = existing["city"].fillna("").astype(str).eq("" if pd.isna(city) else str(city))
+        same_store = existing["store_id"].fillna("").astype(str).eq("" if pd.isna(store_id) else str(store_id))
+        existing = existing.loc[~(same_retailer & same_category & same_city & same_store)].copy()
+
+    combined = pd.concat([existing, incoming], ignore_index=True)
+    if not combined.empty:
+        combined["sku"] = combined["sku"].astype(str)
+        combined = combined.drop_duplicates(
+            subset=["retailer", "category_id", "city", "store_id", "sku", "url"],
+            keep="last",
+        )
+        combined = combined.sort_values(
+            ["retailer", "category_id", "brand", "product"],
+            na_position="last",
+        ).reset_index(drop=True)
+
+    if combined.empty:
+        summary = pd.DataFrame(
+            columns=["retailer", "category_id", "city", "store", "store_id", "products", "sku_complete", "price_complete", "url_complete"]
+        )
+    else:
+        summary = (
+            combined.groupby(["retailer", "category_id", "city", "store", "store_id"], dropna=False)
+            .agg(
+                products=("sku", "size"),
+                sku_complete=("sku", lambda s: int(s.notna().sum())),
+                price_complete=("price_current", lambda s: int(s.notna().sum())),
+                url_complete=("url", lambda s: int(s.notna().sum())),
+            )
+            .reset_index()
+        )
+
+    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        combined.to_excel(writer, index=False, sheet_name="Concentrado")
+        summary.to_excel(writer, index=False, sheet_name="Resumen")
+
+        workbook = writer.book
+        for sheet_name in ("Concentrado", "Resumen"):
+            ws = workbook[sheet_name]
+            ws.freeze_panes = "A2"
+            ws.auto_filter.ref = ws.dimensions
+            for cell in ws[1]:
+                cell.font = cell.font.copy(bold=True)
+            for col_cells in ws.columns:
+                values = [str(c.value) if c.value is not None else "" for c in col_cells[:200]]
+                width = min(max(max((len(v) for v in values), default=0) + 2, 10), 42)
+                ws.column_dimensions[col_cells[0].column_letter].width = width
+
+        for cell in workbook["Concentrado"]["P"]:
+            if cell.row > 1:
+                cell.number_format = '$#,##0.00'
+        for cell in workbook["Concentrado"]["Q"]:
+            if cell.row > 1:
+                cell.number_format = '$#,##0.00'
+
+    return output_path
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Scraper multi-retailer")
@@ -72,16 +168,10 @@ def main() -> int:
         df = df.drop_duplicates(subset=["sku", "url"], keep="last")
         df = df.sort_values(["brand", "product"], na_position="last").reset_index(drop=True)
 
-    Path("output").mkdir(exist_ok=True)
-    stem = f"{args.retailer}_{args.category.replace('-', '_')}_{location_id.replace('-', '_')}"
-    csv_path = Path(f"output/{stem}.csv")
-    xlsx_path = Path(f"output/{stem}.xlsx")
-    df.to_csv(csv_path, index=False, encoding="utf-8-sig")
-    df.to_excel(xlsx_path, index=False, sheet_name=args.retailer.title())
+    consolidated_path = update_consolidated_output(df)
 
     print(f"Productos únicos: {len(df)}")
-    print(f"CSV: {csv_path}")
-    print(f"Excel: {xlsx_path}")
+    print(f"Concentrado: {consolidated_path}")
     if df.empty:
         print("No se encontraron productos. Revisa diagnostics/.")
         return 3
