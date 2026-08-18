@@ -47,6 +47,7 @@ def run_case(retailer: str, category: dict, walmart_profile_dir: Path) -> dict:
             "sc-toreo",
             "--profile-dir",
             str(walmart_profile_dir),
+            "--headed",
         ]
         location = "sc-toreo"
         store = "SC Toreo"
