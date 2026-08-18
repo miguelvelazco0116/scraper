@@ -22,14 +22,18 @@ scraper/
 │   ├── parsers.py
 │   └── retailers/
 │       ├── soriana.py
-│       └── walmart.py
+│       ├── walmart.py
+│       └── walmart_persistent.py
+├── scripts/
+│   └── walmart_prepare_session.py
 ├── config/
 │   ├── locations.yaml
 │   ├── soriana/categories.yaml
 │   └── walmart/categories.yaml
 ├── tests/
-└── .github/workflows/
-    └── soriana.yml   # workflow multi-retailer
+└── .github/
+    ├── run/retailer-trigger.txt
+    └── workflows/soriana.yml   # workflow multi-retailer
 ```
 
 ## Soriana
@@ -81,7 +85,7 @@ https://www.walmart.com.mx/browse/cuidado-personal/cuidado-bucal/264479_950014
 https://www.walmart.com.mx/browse/cuidado-de-la-ropa/3680083
 ```
 
-Comandos:
+### Ejecución sin perfil persistente
 
 ```bash
 python main.py --retailer walmart --category cuidado-bucal --store sc-toreo
@@ -100,9 +104,35 @@ El módulo de Walmart:
 
 ### Limitación observada en GitHub-hosted runners
 
-La validación inicial en `ubuntu-latest` abrió Walmart y verificó la página pública de SC Toreo, pero al entrar al catálogo Walmart redirigió a `/blocked` y mostró **"Verifica tu identidad / Mantén presionado"**. El scraper se detiene en ese punto para no automatizar el desafío ni etiquetar datos nacionales como datos de tienda.
+La validación en `ubuntu-latest` pudo abrir la página pública de SC Toreo, pero al entrar al catálogo Walmart redirigió a `/blocked` y mostró **"Verifica tu identidad / Mantén presionado"**. El scraper se detiene en ese punto para no automatizar el desafío ni etiquetar datos nacionales como datos de tienda.
 
-Para una extracción real por SC Toreo se recomienda ejecutar el mismo código en un equipo o runner propio con Chrome normal. Si Walmart solicita una verificación humana, debe completarse manualmente; después puede mantenerse el perfil/sesión local fuera del repositorio. Nunca subir cookies, perfiles de navegador o credenciales a GitHub.
+### Ejecución recomendada para Walmart: perfil local persistente
+
+En una computadora o runner propio, prepara una sesión normal una sola vez:
+
+```bash
+python scripts/walmart_prepare_session.py --profile-dir .walmart_profile
+```
+
+Se abrirá Chromium visible. Completa manualmente cualquier verificación que Walmart solicite y confirma **SC Toreo / CP 11220**. Después vuelve a la terminal y presiona ENTER para guardar el perfil.
+
+Luego ejecuta las categorías reutilizando esa sesión:
+
+```bash
+python main.py \
+  --retailer walmart \
+  --category cuidado-bucal \
+  --store sc-toreo \
+  --profile-dir .walmart_profile
+
+python main.py \
+  --retailer walmart \
+  --category cuidado-de-la-ropa \
+  --store sc-toreo \
+  --profile-dir .walmart_profile
+```
+
+También puede definirse la variable `WALMART_USER_DATA_DIR` en lugar de `--profile-dir`. Las carpetas `.walmart_profile/` y `walmart_profile/` están ignoradas por Git. Nunca subir cookies, perfiles de navegador o credenciales al repositorio.
 
 ## Campos de salida
 
@@ -146,7 +176,7 @@ Para abrir el navegador visible agrega `--headed`.
 
 ## GitHub Actions
 
-El workflow actual es multi-retailer y permite elegir `soriana` o `walmart` mediante **Run workflow**. Las corridas disparadas desde ChatGPT usan archivos de trigger bajo `.github/run/`.
+El workflow actual es multi-retailer y permite elegir `soriana` o `walmart` mediante **Run workflow**. Las corridas disparadas desde ChatGPT usan únicamente `.github/run/retailer-trigger.txt`, con `retailer`, `category` y `location` explícitos.
 
 GitHub-hosted runners funcionan para Soriana en las pruebas realizadas. Para Walmart, si aparece el desafío de identidad descrito arriba, la corrida falla de forma controlada y publica `diagnostics/` como artifact.
 
