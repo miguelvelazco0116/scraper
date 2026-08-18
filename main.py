@@ -10,8 +10,8 @@ from scraper.retailers.soriana import SorianaBlocked, SorianaScraper
 
 COLUMNS = [
     "scrape_timestamp", "retailer", "city", "state", "postal_code", "store",
-    "category", "subcategory", "category_id", "sku", "brand", "product",
-    "price_current", "price_regular", "promotion", "url", "price_raw",
+    "category", "subcategory", "sub_subcategory", "category_id", "sku", "brand",
+    "product", "price_current", "price_regular", "promotion", "url", "price_raw",
 ]
 
 
