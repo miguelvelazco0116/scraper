@@ -20,3 +20,11 @@ categories:
     sub_subcategory: Detergentes
     url: https://www.soriana.com/limpieza-del-hogar/limpiadores/detergentes/
     enabled: true
+
+  - id: afeitado-depilacion-dama
+    department: Cuidado personal
+    name: Afeitado y depilación
+    subcategory: Afeitado y depilación para dama
+    sub_subcategory: null
+    url: https://www.soriana.com/cuidado-personal-y-belleza/afeitado-y-depilacion/afeitado-y-depilacion-para-dama/
+    enabled: true
