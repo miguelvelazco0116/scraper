@@ -1,0 +1,33 @@
+retailer: farmacias-guadalajara
+categories:
+  - id: vias-respiratorias
+    department: Medicina
+    name: Respiratorio
+    subcategory: Vías respiratorias
+    sub_subcategory: null
+    url: https://www.farmaciasguadalajara.com/farmacia/medicina/respiratorio/vias-respiratorias
+    enabled: true
+
+  - id: lavanderia
+    department: Super
+    name: Hogar
+    subcategory: Lavandería
+    sub_subcategory: null
+    url: https://www.farmaciasguadalajara.com/super/hogar/lavanderia-
+    enabled: true
+
+  - id: cuidado-bucal
+    department: Super
+    name: Higiene y belleza
+    subcategory: Cuidado bucal
+    sub_subcategory: null
+    url: https://www.farmaciasguadalajara.com/super/higiene-y-belleza/cuidado-bucal
+    enabled: true
+
+  - id: preservativos
+    department: Farmacia
+    name: Salud sexual
+    subcategory: Preservativos
+    sub_subcategory: null
+    url: https://www.farmaciasguadalajara.com/farmacia/salud-sexual/preservativos
+    enabled: true
