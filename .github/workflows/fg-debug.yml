@@ -14,38 +14,37 @@ permissions:
 
 jobs:
   diagnose:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Probe Farmacias Guadalajara
+      - name: Probe official alternate hosts
         shell: bash
         run: |
           mkdir -p diagnostics
-          SAFE_OS=$(echo '${{ matrix.os }}' | tr -cd '[:alnum:]_-')
           UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'
           probe() {
             NAME="$1"
-            EXTRA="$2"
+            URL="$2"
+            FOLLOW="$3"
             set +e
-            curl $EXTRA -L \
-              --connect-timeout 8 --max-time 20 \
+            curl --http1.1 $FOLLOW \
+              --connect-timeout 6 --max-time 15 \
               -A "$UA" \
-              -D "diagnostics/${SAFE_OS}_${NAME}_headers.txt" \
-              -o "diagnostics/${SAFE_OS}_${NAME}_body.txt" \
-              -w 'http_code=%{http_code}\nremote_ip=%{remote_ip}\nsize_download=%{size_download}\ntime_total=%{time_total}\n' \
-              'https://www.farmaciasguadalajara.com/farmacia/salud-sexual/preservativos' \
-              > "diagnostics/${SAFE_OS}_${NAME}_meta.txt" \
-              2> "diagnostics/${SAFE_OS}_${NAME}_stderr.txt"
-            echo "curl_exit=$?" >> "diagnostics/${SAFE_OS}_${NAME}_meta.txt"
+              -D "diagnostics/${NAME}_headers.txt" \
+              -o "diagnostics/${NAME}_body.txt" \
+              -w 'http_code=%{http_code}\nremote_ip=%{remote_ip}\nsize_download=%{size_download}\nredirect_url=%{redirect_url}\ntime_total=%{time_total}\n' \
+              "$URL" > "diagnostics/${NAME}_meta.txt" 2> "diagnostics/${NAME}_stderr.txt"
+            echo "curl_exit=$?" >> "diagnostics/${NAME}_meta.txt"
           }
-          probe default '' &
-          probe http1 '--http1.1' &
+
+          probe http_www 'http://www.farmaciasguadalajara.com/farmacia/salud-sexual/preservativos' '' &
+          probe https_apex 'https://farmaciasguadalajara.com/farmacia/salud-sexual/preservativos' '-L' &
+          probe https_mobile 'https://www.movil.farmaciasguadalajara.com/' '-L' &
+          probe http_mobile 'http://www.movil.farmaciasguadalajara.com/' '' &
+          probe mobile_image 'https://www.movil.farmaciasguadalajara.com/wcsstore/FGCAS/wcs/products/1400185_A_1280_AL.jpg' '-L' &
           wait || true
+
           for meta in diagnostics/*_meta.txt; do
             echo "===== $meta ====="
             cat "$meta"
@@ -53,7 +52,7 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: fg-http-${{ matrix.os }}-${{ github.run_number }}
+          name: fg-http-alternate-hosts-${{ github.run_number }}
           path: diagnostics/
           retention-days: 2
           if-no-files-found: warn
