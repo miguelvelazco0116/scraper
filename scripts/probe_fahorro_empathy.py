@@ -11,44 +11,37 @@ if str(ROOT) not in sys.path:
 
 from playwright.sync_api import sync_playwright
 
-URL = "https://www.fahorro.com/cuidado-personal/higiene-bucal/cremas-dentales.html"
 ENDPOINT = "https://api.empathy.co/search/v1/query/fda/browse"
 
 
 def main() -> int:
     candidates = [
-        {"browseField": "categoryId", "browseValue": "8196", "start": "0", "rows": "3"},
-        {"browseField": "facetCategory", "browseValue": "8196", "start": "0", "rows": "3"},
-        {"browseField": "category", "browseValue": "8196", "start": "0", "rows": "3"},
-        {"browseField": "categoryId", "browseValue": "8196", "start": "0", "rows": "3", "scope": "NACIONAL"},
-        {"browseField": "categoryId", "browseValue": "8196", "start": "0", "rows": "3", "customerGroup": "NACIONAL"},
-        {"browseField": "facetCategory", "browseValue": "8196", "start": "0", "rows": "3", "scope": "NACIONAL"},
+        {"lang": "es", "browseField": "categoryId", "browseValue": "8196", "start": "0", "rows": "3"},
+        {"lang": "es", "browseField": "facetCategory", "browseValue": "8196", "start": "0", "rows": "3"},
+        {"lang": "es", "browseField": "category", "browseValue": "8196", "start": "0", "rows": "3"},
+        {"lang": "es", "browseField": "categoryId", "browseValue": "8196", "start": "0", "rows": "3", "scope": "NACIONAL"},
+        {"lang": "es", "browseField": "facetCategory", "browseValue": "8196", "start": "0", "rows": "3", "scope": "NACIONAL"},
+        {"lang": "es", "browseField": "categoryId", "browseValue": "8196", "start": "0", "rows": "3", "customerGroup": "NACIONAL"},
     ]
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(locale="es-MX")
-        page = context.new_page()
-        page.goto(URL, wait_until="domcontentloaded", timeout=45_000)
-
+        request = p.request.new_context(extra_http_headers={"Accept": "application/json"})
         print("EMPATHY_DIRECT_BEGIN")
         for index, params in enumerate(candidates, start=1):
             url = ENDPOINT + "?" + urlencode(params)
             try:
-                response = context.request.get(url, timeout=30_000)
+                response = request.get(url, timeout=30_000)
                 text = response.text()
                 print(json.dumps({
                     "candidate": index,
                     "status": response.status,
                     "url": url,
-                    "body": text[:2500],
+                    "body": text[:5000],
                 }, ensure_ascii=False))
             except Exception as exc:
                 print(json.dumps({"candidate": index, "url": url, "error": repr(exc)}, ensure_ascii=False))
         print("EMPATHY_DIRECT_END")
-
-        context.close()
-        browser.close()
+        request.dispose()
     return 0
 
 
