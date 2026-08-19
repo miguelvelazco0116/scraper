@@ -9,11 +9,13 @@ Base modular para extraer catálogos públicos de retailers de México mediante 
 | Soriana | Implementado y validado | Cuidado bucal; Cuidado del hogar > Limpiadores; Cuidado del hogar > Limpiadores > Detergentes; Cuidado personal > Afeitado y depilación > Afeitado y depilación para dama |
 | Walmart | Implementado; requiere una sesión verificada portable para SC Toreo | Belleza y cuidado personal > Higiene y cuidado personal > Cuidado bucal; Limpieza del hogar y cuidado personal > Cuidado de la ropa; Belleza y cuidado personal > Depilación y rasurado |
 | Chedraui | Implementado para Chedraui Selecto México Polanco (232) | Cuidado e higiene personal > Higiene bucal; Supermercado > Limpieza del hogar > Lavandería |
+| Farmacias Guadalajara | Implementado como catálogo online sin sucursal asignada | Medicina > Respiratorio > Vías respiratorias; Super > Hogar > Lavandería; Super > Higiene y belleza > Cuidado bucal; Farmacia > Salud sexual > Preservativos |
 
 ## Ejecución recomendada
 
 - **Soriana:** GitHub-hosted Actions.
 - **Chedraui:** GitHub-hosted Actions con selección obligatoria de Chedraui Selecto México Polanco / tienda 232.
+- **Farmacias Guadalajara:** GitHub-hosted Actions en contexto `fg-online`. No se atribuyen precios ni disponibilidad a una sucursal mientras no se configure una ubicación específica.
 - **Walmart:** GitHub-hosted Actions reutilizando una sesión Playwright verificada manualmente y guardada como GitHub Secret.
 - **No se requiere VM ni self-hosted runner.**
 - **No se automatizan CAPTCHAs ni desafíos de identidad.**
@@ -30,6 +32,7 @@ scraper/
 │   ├── chedraui.py
 │   ├── chedraui_polanco.py
 │   ├── chedraui_polanco_api.py
+│   ├── farmacias_guadalajara.py
 │   ├── walmart.py
 │   ├── walmart_persistent.py
 │   └── walmart_storage_state.py
@@ -41,11 +44,43 @@ scraper/
 │   ├── locations.yaml
 │   ├── soriana/categories.yaml
 │   ├── chedraui/categories.yaml
+│   ├── farmacias-guadalajara/categories.yaml
 │   └── walmart/categories.yaml
 └── .github/workflows/
     ├── soriana.yml
     └── full-cloud.yml
 ```
+
+## Farmacias Guadalajara / catálogo online
+
+Contexto configurado:
+
+```text
+id: fg-online
+city: Catálogo online
+state: Nacional
+store: null
+store_id: null
+postal_code: null
+```
+
+Categorías:
+
+- `vias-respiratorias`: Medicina > Respiratorio > Vías respiratorias
+- `lavanderia`: Super > Hogar > Lavandería
+- `cuidado-bucal`: Super > Higiene y belleza > Cuidado bucal
+- `preservativos`: Farmacia > Salud sexual > Preservativos
+
+Ejemplos:
+
+```bash
+python main.py --retailer farmacias-guadalajara --category vias-respiratorias --location fg-online
+python main.py --retailer farmacias-guadalajara --category lavanderia --location fg-online
+python main.py --retailer farmacias-guadalajara --category cuidado-bucal --location fg-online
+python main.py --retailer farmacias-guadalajara --category preservativos --location fg-online
+```
+
+El scraper recorre el catálogo público, expande el control de "Ver más productos", extrae SKU, marca, producto, precio actual, precio regular, promoción y URL, y conserva `store_context_verified=False` mientras no exista una sucursal configurada.
 
 ## Chedraui / Polanco
 
@@ -132,7 +167,7 @@ Con un perfil Walmart persistente ya preparado:
 python scripts/run_all_retailers.py --walmart-profile-dir .walmart_profile
 ```
 
-El runner incluye Soriana, Chedraui y Walmart y consolida todas las categorías habilitadas.
+El runner incluye Soriana, Chedraui, Farmacias Guadalajara y Walmart y consolida todas las categorías habilitadas.
 
 ## Output
 
