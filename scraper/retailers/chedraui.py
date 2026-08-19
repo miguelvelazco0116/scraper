@@ -35,9 +35,9 @@ class ChedrauiStoreContextError(RuntimeError):
 class ChedrauiScraper:
     """Scraper browser-based para el catálogo público de Chedraui.
 
-    El scraper usa la navegación normal del sitio para seleccionar Pickup en la
-    tienda configurada. Nunca atribuye datos a una tienda si el contexto de
-    tienda no puede verificarse y no intenta resolver CAPTCHAs o desafíos.
+    Selecciona Pickup mediante la UI normal del sitio y sólo emite filas cuando
+    el contexto de la tienda configurada se puede verificar. No resuelve ni
+    evade CAPTCHAs, WAFs o desafíos de identidad.
     """
 
     def __init__(
@@ -145,11 +145,10 @@ class ChedrauiScraper:
             (store_id and store_id in normalized)
             or (postal and postal in normalized)
             or "selecto mexico polanco" in normalized
-            or "selecto méxico polanco" in text.lower()
         )
         pickup_detail = bool(
-            re.search(r"(recoger|pickup).{0,120}polanco", normalized)
-            or re.search(r"polanco.{0,120}(recoger|pickup)", normalized)
+            re.search(r"(recoger|pickup|tienda).{0,140}polanco", normalized)
+            or re.search(r"polanco.{0,140}(recoger|pickup|tienda)", normalized)
         )
         return polanco and (strong_detail or pickup_detail)
 
@@ -174,42 +173,66 @@ class ChedrauiScraper:
             return True, "browser_state"
         return False, None
 
+    @staticmethod
+    def _click_text(page: Page, labels: tuple[str, ...], timeout: int = 5_000) -> bool:
+        for label in labels:
+            try:
+                node = page.get_by_text(label, exact=False).first
+                if node.count() and node.is_visible():
+                    node.click(timeout=timeout)
+                    return True
+            except Exception:
+                continue
+        return False
+
     def _try_select_store_ui(self, page: Page, location: Location) -> tuple[bool, str | None]:
-        # Flujo documentado por Chedraui: Agregar dirección -> Recoger en -> tienda.
-        for label in ("Agregar dirección", "Agrega dirección", "Agregar direccion", "Agrega direccion"):
-            try:
-                node = page.get_by_text(label, exact=False).first
-                if node.count() and node.is_visible():
-                    node.click(timeout=5_000)
-                    page.wait_for_timeout(700)
-                    break
-            except Exception:
-                continue
+        # El banner de cookies puede cubrir el botón de ubicación.
+        try:
+            cookie = page.locator(".chedrauimx-frontend-applications-5-x-cookiesButtonAccept").first
+            if cookie.count() and cookie.is_visible():
+                cookie.click(timeout=4_000)
+                page.wait_for_timeout(350)
+        except Exception:
+            self._click_text(page, ("Aceptar",), timeout=2_000)
 
-        for label in ("Recoger en", "Recoger en tienda", "Pickup", "Recoger"):
-            try:
-                node = page.get_by_text(label, exact=False).first
-                if node.count() and node.is_visible():
-                    node.click(timeout=5_000)
-                    page.wait_for_timeout(700)
-                    break
-            except Exception:
-                continue
+        opened = False
+        try:
+            button = page.locator("button.chedrauimx-locator-2-x-labelTextAddress").first
+            if button.count() and button.is_visible():
+                button.click(timeout=5_000)
+                opened = True
+        except Exception:
+            pass
+        if not opened:
+            opened = self._click_text(
+                page,
+                (
+                    "Agregar una Dirección",
+                    "Agregar una Direccion",
+                    "Agregar dirección",
+                    "Agrega dirección",
+                ),
+            )
+        page.wait_for_timeout(700)
+        self.run_meta["location_button_opened"] = opened
+        if not opened:
+            self._save_diagnostics(page, "store_location_button_not_found")
+            return False, None
 
-        for label in ("Directorio de tiendas", "Directorio", "Ver tiendas"):
-            try:
-                node = page.get_by_text(label, exact=False).first
-                if node.count() and node.is_visible():
-                    node.click(timeout=5_000)
-                    page.wait_for_timeout(700)
-                    break
-            except Exception:
-                continue
+        # Modal VTEX: elegir Pickup.
+        pickup_clicked = self._click_text(
+            page,
+            ("Recoger en una tienda", "Recoger en tienda", "Recoger en", "Pickup", "Recoger"),
+        )
+        page.wait_for_timeout(600)
+        self.run_meta["pickup_clicked"] = pickup_clicked
 
-        # Busca Polanco en cualquier input visible relacionado con dirección/tienda.
+        # El sitio solicita código postal para calcular los puntos de Pickup.
+        postal_filled = False
+        postal_value = location.postal_code or "11500"
         try:
             inputs = page.locator("input")
-            for i in range(min(inputs.count(), 50)):
+            for i in range(min(inputs.count(), 60)):
                 inp = inputs.nth(i)
                 try:
                     if not inp.is_visible():
@@ -224,43 +247,48 @@ class ChedrauiScraper:
                             ],
                         )
                     ).lower()
-                    if any(x in hint for x in ("direc", "tienda", "buscar", "ubic", "postal", "codigo")):
-                        inp.fill("Polanco")
-                        page.wait_for_timeout(1_200)
+                    if any(x in hint for x in ("código postal", "codigo postal", "postal", "ubicación", "ubicacion")):
+                        inp.fill(postal_value)
+                        postal_filled = True
                         break
                 except Exception:
                     continue
         except Exception:
             pass
+        self.run_meta["postal_filled"] = postal_filled
+        if postal_filled:
+            self._click_text(page, ("Continuar", "Actualizar", "Buscar"), timeout=4_000)
+            page.wait_for_timeout(1_200)
 
-        for label in (
-            location.store or "Chedraui Selecto México Polanco",
-            "Selecto México Polanco",
-            "Selecto Mexico Polanco",
-            "Polanco",
-        ):
-            try:
-                node = page.get_by_text(label, exact=False).first
-                if node.count() and node.is_visible():
-                    node.click(timeout=5_000)
-                    page.wait_for_timeout(900)
-                    break
-            except Exception:
-                continue
+        # Selecciona específicamente Polanco si está entre los puntos de recogida.
+        store_clicked = self._click_text(
+            page,
+            (
+                location.store or "Chedraui Selecto México Polanco",
+                "Selecto México Polanco",
+                "Selecto Mexico Polanco",
+                "México Polanco",
+                "Mexico Polanco",
+            ),
+        )
+        page.wait_for_timeout(700)
+        self.run_meta["store_clicked"] = store_clicked
 
-        for label in ("Seleccionar", "Elegir", "Usar esta tienda", "Confirmar", "Guardar"):
-            try:
-                node = page.get_by_text(label, exact=False).first
-                if node.count() and node.is_visible():
-                    node.click(timeout=4_000)
-                    page.wait_for_timeout(900)
-                    break
-            except Exception:
-                continue
+        if store_clicked:
+            self._click_text(
+                page,
+                ("Seleccionar", "Elegir", "Usar esta tienda", "Confirmar", "Guardar", "Continuar"),
+                timeout=4_000,
+            )
+            page.wait_for_timeout(1_000)
 
         verified, method = self._verify_store_context(page, location)
         if verified:
             return True, f"{method}_after_ui"
+
+        # Diagnóstico intermedio del modal real para futuros cambios del storefront.
+        self.run_meta["store_modal_text"] = self._body_text(page)[:8_000]
+        self._save_diagnostics(page, "store_selection_unverified")
         return False, None
 
     @staticmethod
