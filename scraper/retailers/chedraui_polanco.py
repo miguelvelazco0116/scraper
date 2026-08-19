@@ -210,7 +210,6 @@ class ChedrauiScraper(BaseChedrauiScraper):
             self._assert_not_blocked(page, response.status if response else None)
             page.wait_for_timeout(max(self.wait_ms, 1_100))
 
-            # Product cards are lazy-rendered; force the complete grid into view.
             try:
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 page.wait_for_timeout(700)
@@ -249,6 +248,7 @@ class ChedrauiScraper(BaseChedrauiScraper):
         page_size: int | None = None
         expected_pages: int | None = None
         consecutive_empty = 0
+        consecutive_stale = 0
 
         for page_number in range(1, max_pages + 1):
             if expected_total is not None and len(rows_by_key) >= expected_total:
@@ -272,12 +272,21 @@ class ChedrauiScraper(BaseChedrauiScraper):
                 page, category, location, page_number, target_rows
             )
 
+            # The product total sometimes appears only after the first category
+            # page is fully rendered with the selected store context.
+            if expected_total is None and page_rows:
+                detected_total = self._store_specific_total(page)
+                if detected_total is not None:
+                    expected_total = detected_total
+                    self.run_meta["expected_store_products"] = expected_total
+
             if page_size is None and page_rows:
                 page_size = len(page_rows)
-                if expected_total:
-                    expected_pages = math.ceil(expected_total / page_size)
-                    self.run_meta["page_size"] = page_size
-                    self.run_meta["expected_pages"] = expected_pages
+                self.run_meta["page_size"] = page_size
+
+            if page_size and expected_total:
+                expected_pages = math.ceil(expected_total / page_size)
+                self.run_meta["expected_pages"] = expected_pages
 
             before = len(rows_by_key)
             for row in page_rows:
@@ -301,14 +310,17 @@ class ChedrauiScraper(BaseChedrauiScraper):
             else:
                 consecutive_empty = 0
 
-            # With a known store-specific count, do not stop on one transient
-            # empty VTEX page. Without a count, two empty pages remain the guard.
-            if expected_total is None and consecutive_empty >= 2:
+            if new_count == 0:
+                consecutive_stale += 1
+            else:
+                consecutive_stale = 0
+
+            if expected_total is None and consecutive_stale >= 2:
                 break
             if expected_total is not None and expected_pages is not None:
-                if page_number >= expected_pages and len(rows_by_key) >= expected_total:
+                if len(rows_by_key) >= expected_total:
                     break
-                if consecutive_empty >= 2 and page_number >= expected_pages:
+                if page_number >= expected_pages and consecutive_stale >= 2:
                     break
 
         self.run_meta["collected_products"] = len(rows_by_key)
