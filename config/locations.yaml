@@ -25,3 +25,12 @@ locations:
     store: Chedraui Selecto México Polanco
     store_id: "232"
     enabled: true
+
+  - id: fg-online
+    city: Catálogo online
+    state: Nacional
+    country: México
+    postal_code: null
+    store: null
+    store_id: null
+    enabled: true
