@@ -1,5 +1,5 @@
-run=2026-08-18T19:10:00-06:00
-retailer=chedraui
-category=higiene-bucal
-location=chedraui-polanco
-mode=final-validate-new-retailer
+run=2026-08-19T13:43:00-06:00
+retailer=farmacias-guadalajara
+category=preservativos
+location=fg-online
+mode=validate-new-retailer
