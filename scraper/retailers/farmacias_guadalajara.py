@@ -7,7 +7,6 @@ from pathlib import Path
 from urllib.parse import urljoin
 
 from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 from ..config import Category, Location
@@ -141,16 +140,18 @@ class FarmaciasGuadalajaraScraper:
         last_error: Exception | None = None
         for attempt in range(1, 4):
             try:
-                return page.goto(url, wait_until="domcontentloaded", timeout=120_000)
+                response = page.goto(url, wait_until="commit", timeout=30_000)
+                page.wait_for_selector("body", state="attached", timeout=15_000)
+                return response
             except PlaywrightError as exc:
                 last_error = exc
                 if attempt >= 3:
                     break
                 try:
-                    page.goto("about:blank", wait_until="commit", timeout=10_000)
+                    page.goto("about:blank", wait_until="commit", timeout=5_000)
                 except Exception:
                     pass
-                page.wait_for_timeout(1_500 * attempt)
+                page.wait_for_timeout(1_000 * attempt)
         if last_error is not None:
             raise last_error
         return None
@@ -247,7 +248,7 @@ class FarmaciasGuadalajaraScraper:
                 response = self._goto_with_retries(page, category.url)
                 if response and response.status >= 400:
                     raise RuntimeError(f"HTTP {response.status} en {category.url}")
-                page.wait_for_timeout(2_000)
+                page.wait_for_timeout(3_000)
                 self._assert_not_blocked(page)
                 target = self._target_count(page)
                 self._expand_all_products(page, target)
