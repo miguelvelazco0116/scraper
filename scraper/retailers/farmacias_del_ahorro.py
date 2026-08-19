@@ -41,16 +41,9 @@ class FarmaciasDelAhorroScraper:
         re.compile(r'"sku"\s*:\s*"([^"]+)"', re.IGNORECASE),
         re.compile(r'\bSKU\b\s*</[^>]+>\s*<[^>]+>\s*([^<]+)', re.IGNORECASE),
     ]
-    BLOCK_MARKERS = (
-        "access denied",
-        "request rejected",
-        "verify you are human",
-        "verifica que eres humano",
-        "captcha",
-    )
 
     def __init__(self, headless: bool = True, max_pages: int = 100, rows_per_page: int = 50) -> None:
-        self.headless = headless  # compatibilidad con el resto de retailers
+        self.headless = headless
         self.max_pages = max_pages
         self.rows_per_page = rows_per_page
 
@@ -73,7 +66,6 @@ class FarmaciasDelAhorroScraper:
         old_text: str | None,
         card_text: str | None,
     ) -> tuple[float | None, float | None, str | None]:
-        """Compatibilidad y pruebas de parsing para HTML de fichas/listados."""
         current = cls._parse_money(final_text)
         regular = cls._parse_money(old_text)
         text = clean_text(card_text) or ""
@@ -132,7 +124,6 @@ class FarmaciasDelAhorroScraper:
 
     @staticmethod
     def _extract_category_id(html: str) -> str | None:
-        # Prioriza la configuración del componente Empathy de la página.
         component = re.search(
             r'"component"\s*:\s*"Infinite_EmpathySearch/js/view/search-list-component"(.{0,12000}?)"categoryId"\s*:\s*"?(\d+)"?',
             html,
@@ -142,6 +133,20 @@ class FarmaciasDelAhorroScraper:
             return component.group(2)
         matches = re.findall(r'"categoryId"\s*:\s*"?(\d+)"?', html, flags=re.IGNORECASE)
         return matches[-1] if matches else None
+
+    @staticmethod
+    def _looks_blocked(html: str) -> bool:
+        # No usar la palabra "captcha" sola: Magento carga módulos CAPTCHA
+        # también en páginas normales. Sólo detectamos mensajes de desafío.
+        folded = re.sub(r"\s+", " ", html.casefold())
+        markers = (
+            "verify you are human",
+            "verifica que eres humano",
+            "access denied",
+            "request rejected",
+            "press and hold",
+        )
+        return any(marker in folded for marker in markers)
 
     @staticmethod
     def _browse_url(category_id: str, start: int, rows: int) -> str:
@@ -163,9 +168,7 @@ class FarmaciasDelAhorroScraper:
         if current is None or regular is None or regular <= 0 or current >= regular:
             return None
         discount = round((1 - current / regular) * 100)
-        if discount > 0:
-            return f"{discount}% de descuento | Precio promocional"
-        return "Precio promocional"
+        return f"{discount}% de descuento | Precio promocional" if discount > 0 else "Precio promocional"
 
     @staticmethod
     def _to_price(value) -> float | None:
@@ -245,8 +248,7 @@ class FarmaciasDelAhorroScraper:
                         f"HTTP {page_response.status} en {category.url}"
                     )
                 html = page_response.text()
-                folded = html.casefold()
-                if any(marker in folded for marker in self.BLOCK_MARKERS):
+                if self._looks_blocked(html):
                     raise FarmaciasDelAhorroBlocked(
                         "Farmacias del Ahorro presentó un bloqueo o verificación"
                     )
