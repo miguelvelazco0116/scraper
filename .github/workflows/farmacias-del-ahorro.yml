@@ -23,6 +23,7 @@ on:
       - "config/locations.yaml"
       - "scraper/retailers/farmacias_del_ahorro.py"
       - "scripts/run_farmacias_del_ahorro.py"
+      - "scripts/probe_fahorro_empathy.py"
       - "tests/test_farmacias_del_ahorro.py"
       - ".github/workflows/farmacias-del-ahorro.yml"
 
@@ -70,6 +71,9 @@ jobs:
 
       - name: Install Chromium
         run: playwright install chromium
+
+      - name: Probe Empathy network
+        run: python scripts/probe_fahorro_empathy.py
 
       - name: Run scraper
         id: scrape
