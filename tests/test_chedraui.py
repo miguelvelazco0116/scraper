@@ -1,5 +1,6 @@
 from scraper.config import Location
 from scraper.retailers.chedraui import ChedrauiScraper
+from scraper.retailers.chedraui_polanco import ChedrauiScraper as ChedrauiPolancoScraper
 
 
 POLANCO = Location(
@@ -32,3 +33,9 @@ def test_chedraui_store_context_from_browser_state():
 def test_chedraui_rejects_unrelated_store():
     text = "Recoger en Chedraui Selecto México Santa Fe 01219"
     assert not ChedrauiScraper._store_context_in_text(text, POLANCO)
+
+
+def test_chedraui_brand_inference_uses_word_boundaries():
+    assert ChedrauiPolancoScraper._infer_brand("Detergente Ace Líquido 2 L") == "Ace"
+    assert ChedrauiPolancoScraper._infer_brand("Portacepillo Dental CoolxShock") is None
+    assert ChedrauiPolancoScraper._infer_brand("Gel Dental Fluoxytil Lacer Fresa 75ml") is None
