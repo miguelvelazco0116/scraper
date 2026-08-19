@@ -1,0 +1,97 @@
+name: Farmacias del Ahorro Scraper
+
+on:
+  workflow_dispatch:
+    inputs:
+      category:
+        description: Categoría configurada o all
+        required: true
+        default: all
+        type: string
+      location:
+        description: Contexto configurado
+        required: true
+        default: fahorro-online
+        type: string
+  push:
+    paths:
+      - ".github/run/fahorro-trigger.txt"
+  pull_request:
+    paths:
+      - ".github/run/fahorro-trigger.txt"
+      - "config/farmacias-del-ahorro/**"
+      - "config/locations.yaml"
+      - "scraper/retailers/farmacias_del_ahorro.py"
+      - "scripts/run_farmacias_del_ahorro.py"
+      - "tests/test_farmacias_del_ahorro.py"
+      - ".github/workflows/farmacias-del-ahorro.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve parameters
+        id: params
+        shell: bash
+        run: |
+          CATEGORY="${{ inputs.category }}"
+          LOCATION="${{ inputs.location }}"
+          if [[ "${{ github.event_name }}" != "workflow_dispatch" && -f ".github/run/fahorro-trigger.txt" ]]; then
+            FILE_CATEGORY=$(grep -E '^category=' .github/run/fahorro-trigger.txt | tail -1 | cut -d= -f2- || true)
+            FILE_LOCATION=$(grep -E '^location=' .github/run/fahorro-trigger.txt | tail -1 | cut -d= -f2- || true)
+            CATEGORY="${FILE_CATEGORY:-$CATEGORY}"
+            LOCATION="${FILE_LOCATION:-$LOCATION}"
+          fi
+          CATEGORY="${CATEGORY:-all}"
+          LOCATION="${LOCATION:-fahorro-online}"
+          echo "category=$CATEGORY" >> "$GITHUB_OUTPUT"
+          echo "location=$LOCATION" >> "$GITHUB_OUTPUT"
+          echo "Ejecutando Farmacias del Ahorro category=$CATEGORY location=$LOCATION"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: pytest -q
+
+      - name: Install Chromium
+        run: playwright install chromium
+
+      - name: Run scraper
+        id: scrape
+        continue-on-error: true
+        shell: bash
+        run: |
+          python scripts/run_farmacias_del_ahorro.py \
+            --category "${{ steps.params.outputs.category }}" \
+            --location "${{ steps.params.outputs.location }}" \
+            --fresh
+
+      - name: Upload Excel and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: farmacias-del-ahorro-${{ steps.params.outputs.category }}-${{ github.run_number }}
+          path: |
+            output/
+            diagnostics/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Fail workflow if scraper failed
+        if: steps.scrape.outcome == 'failure'
+        run: exit 1
