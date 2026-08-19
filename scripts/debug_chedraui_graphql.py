@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import base64
 import json
 import sys
 from pathlib import Path
+from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -15,6 +17,23 @@ from scraper.retailers.chedraui_polanco import ChedrauiScraper
 
 
 OUT = Path("diagnostics/chedraui_graphql_capture.json")
+MISSING = Path("diagnostics/chedraui_missing_340_359.json")
+
+
+def rewrite_range(url: str, start: int, end: int) -> str:
+    parts = urlsplit(url)
+    qs = parse_qs(parts.query, keep_blank_values=True)
+    extensions = json.loads(qs["extensions"][0])
+    encoded = extensions.get("variables")
+    variables = json.loads(base64.b64decode(encoded).decode("utf-8"))
+    variables["from"] = start
+    variables["to"] = end
+    extensions["variables"] = base64.b64encode(
+        json.dumps(variables, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).decode("ascii")
+    flat = {k: values[-1] for k, values in qs.items()}
+    flat["extensions"] = json.dumps(extensions, separators=(",", ":"))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(flat), parts.fragment))
 
 
 def main() -> int:
@@ -22,6 +41,7 @@ def main() -> int:
     location = next(x for x in load_locations() if x.id == "chedraui-polanco")
     scraper = ChedrauiScraper(headless=True, max_pages=1)
     captured: list[dict] = []
+    product_search_urls: list[str] = []
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -30,6 +50,8 @@ def main() -> int:
 
         def on_request(request):
             url = request.url
+            if "operationName=productSearchV3" in url:
+                product_search_urls.append(url)
             if "graphql" not in url.lower() and "search" not in url.lower():
                 return
             if "productSearch" not in (request.post_data or "") and "graphql" not in url.lower():
@@ -84,7 +106,19 @@ def main() -> int:
 
         OUT.parent.mkdir(parents=True, exist_ok=True)
         OUT.write_text(json.dumps(captured, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"captured={len(captured)} file={OUT}")
+
+        if not product_search_urls:
+            raise RuntimeError("No se capturó productSearchV3")
+        missing_url = rewrite_range(product_search_urls[0], 340, 359)
+        api_response = context.request.get(missing_url, timeout=120_000)
+        payload = {
+            "status": api_response.status,
+            "url": missing_url,
+            "body": api_response.json(),
+        }
+        MISSING.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        products = payload["body"].get("data", {}).get("productSearch", {}).get("products", [])
+        print(f"captured={len(captured)} missing_products={len(products)} status={api_response.status}")
         context.close()
         browser.close()
     return 0
