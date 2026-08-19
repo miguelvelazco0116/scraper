@@ -33,6 +33,12 @@ def extract_sku(url: str | None, data_pid: str | None = None) -> str | None:
     if match:
         return match.group(1)
 
+    # Chedraui product URLs use a numeric id immediately before /p.
+    # Example: /Enjuague-Bucal-Colgate-Total-12-500ml-3646798/p
+    match = re.search(r"-(\d{4,20})/p/?$", path, flags=re.IGNORECASE)
+    if match:
+        return match.group(1)
+
     # Walmart Mexico product URLs end in /ip/<slug>/<numeric-id>
     match = re.search(r"/(\d{8,20})/?$", path)
     return match.group(1) if match else None

@@ -1,4 +1,4 @@
-from scraper.config import load_categories
+from scraper.config import load_categories, load_locations
 
 
 def test_soriana_detergentes_hierarchy():
@@ -39,3 +39,28 @@ def test_walmart_depilacion_y_rasurado_hierarchy():
     assert depilacion.subcategory is None
     assert depilacion.sub_subcategory is None
     assert depilacion.url.endswith("/browse/belleza/depilacion-y-rasurado/930017_264512")
+
+
+def test_chedraui_hierarchy():
+    categories = {x.id: x for x in load_categories("config/chedraui/categories.yaml")}
+
+    oral = categories["higiene-bucal"]
+    assert oral.department == "Cuidado e higiene personal"
+    assert oral.name == "Higiene bucal"
+    assert oral.subcategory is None
+    assert oral.url.endswith("/cuidado-e-higiene-personal/higiene-bucal")
+
+    laundry = categories["lavanderia"]
+    assert laundry.department == "Supermercado"
+    assert laundry.name == "Limpieza del hogar"
+    assert laundry.subcategory == "Lavandería"
+    assert laundry.url.endswith("/supermercado/limpieza-del-hogar/lavanderia")
+
+
+def test_chedraui_polanco_store():
+    locations = {x.id: x for x in load_locations()}
+    store = locations["chedraui-polanco"]
+    assert store.store_id == "232"
+    assert store.store == "Chedraui Selecto México Polanco"
+    assert store.postal_code == "11500"
+    assert store.city == "Miguel Hidalgo"

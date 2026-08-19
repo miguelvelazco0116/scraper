@@ -1,0 +1,17 @@
+retailer: chedraui
+categories:
+  - id: higiene-bucal
+    department: Cuidado e higiene personal
+    name: Higiene bucal
+    subcategory: null
+    sub_subcategory: null
+    url: https://www.chedraui.com.mx/cuidado-e-higiene-personal/higiene-bucal
+    enabled: true
+
+  - id: lavanderia
+    department: Supermercado
+    name: Limpieza del hogar
+    subcategory: Lavandería
+    sub_subcategory: null
+    url: https://www.chedraui.com.mx/supermercado/limpieza-del-hogar/lavanderia
+    enabled: true

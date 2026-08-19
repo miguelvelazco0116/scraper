@@ -16,3 +16,12 @@ locations:
     store: SC Toreo
     store_id: "2344"
     enabled: true
+
+  - id: chedraui-polanco
+    city: Miguel Hidalgo
+    state: CDMX
+    country: México
+    postal_code: "11500"
+    store: Chedraui Selecto México Polanco
+    store_id: "232"
+    enabled: true
