@@ -71,6 +71,19 @@ def run_case(
         ]
         location = "chedraui-polanco"
         store = "Chedraui Selecto México Polanco"
+    elif retailer == "farmacias-guadalajara":
+        cmd = [
+            sys.executable,
+            "main.py",
+            "--retailer",
+            "farmacias-guadalajara",
+            "--category",
+            category_id,
+            "--location",
+            "fg-online",
+        ]
+        location = "fg-online"
+        store = None
     else:
         cmd = [
             sys.executable,
@@ -98,9 +111,15 @@ def run_case(
 
     match = re.search(r"Productos únicos:\s*(\d+)", text)
     reported_products = int(match.group(1)) if match else 0
+    display_names = {
+        "soriana": "Soriana",
+        "chedraui": "Chedraui",
+        "walmart": "Walmart",
+        "farmacias-guadalajara": "Farmacias Guadalajara",
+    }
 
     return {
-        "retailer": retailer.capitalize(),
+        "retailer": display_names.get(retailer, retailer),
         "department": category.get("department"),
         "category": category.get("name"),
         "subcategory": category.get("subcategory"),
@@ -196,7 +215,7 @@ def main() -> int:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
     cases: list[tuple[str, dict]] = []
-    for retailer in ("soriana", "chedraui", "walmart"):
+    for retailer in ("soriana", "chedraui", "farmacias-guadalajara", "walmart"):
         cases.extend((retailer, category) for category in load_enabled_categories(retailer))
 
     results: list[dict] = []
