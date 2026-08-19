@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from scraper.config import load_categories, load_locations
-from scraper.retailers.chedraui import ChedrauiBlocked, ChedrauiScraper, ChedrauiStoreContextError
+from scraper.retailers.chedraui_polanco import ChedrauiBlocked, ChedrauiScraper, ChedrauiStoreContextError
 from scraper.retailers.soriana import SorianaBlocked, SorianaScraper
 from scraper.retailers.walmart import WalmartBlocked, WalmartScraper, WalmartStoreContextError
 from scraper.retailers.walmart_persistent import WalmartPersistentScraper
