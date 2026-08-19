@@ -28,7 +28,7 @@ jobs:
             URL="$2"
             set +e
             curl --http1.1 -L \
-              --connect-timeout 10 --max-time 20 \
+              --connect-timeout 8 --max-time 20 \
               -A "$UA" \
               -D "diagnostics/${NAME}_headers.txt" \
               -o "diagnostics/${NAME}_body.txt" \
@@ -36,16 +36,19 @@ jobs:
               "$URL" > "diagnostics/${NAME}_meta.txt" 2> "diagnostics/${NAME}_stderr.txt"
             CODE=$?
             echo "curl_exit=$CODE" >> "diagnostics/${NAME}_meta.txt"
-            echo "===== $NAME ====="
-            cat "diagnostics/${NAME}_meta.txt"
           }
 
-          probe homepage 'https://www.farmaciasguadalajara.com/'
-          probe category_new 'https://www.farmaciasguadalajara.com/farmacia/salud-sexual/preservativos'
-          probe category_legacy 'https://www.farmaciasguadalajara.com/preservativos-es'
-          probe product_legacy 'https://www.farmaciasguadalajara.com/ProductDisplay?catalogId=10052&categoryId=3074457345616680003&langId=-24&productId=3074457345616846148&storeId=10151&urlLangId=-24&urlRequestType=Base'
-          probe rest_category 'https://www.farmaciasguadalajara.com/search/resources/store/10151/productview/byCategory/3074457345616680003?catalogId=10052&langId=-24&currency=MXN&responseFormat=json&pageNumber=1&pageSize=20'
+          probe homepage 'https://www.farmaciasguadalajara.com/' &
+          probe category_new 'https://www.farmaciasguadalajara.com/farmacia/salud-sexual/preservativos' &
+          probe category_legacy 'https://www.farmaciasguadalajara.com/preservativos-es' &
+          probe product_legacy 'https://www.farmaciasguadalajara.com/ProductDisplay?catalogId=10052&categoryId=3074457345616680003&langId=-24&productId=3074457345616846148&storeId=10151&urlLangId=-24&urlRequestType=Base' &
+          probe rest_category 'https://www.farmaciasguadalajara.com/search/resources/store/10151/productview/byCategory/3074457345616680003?catalogId=10052&langId=-24&currency=MXN&responseFormat=json&pageNumber=1&pageSize=20' &
+          wait || true
 
+          for meta in diagnostics/*_meta.txt; do
+            echo "===== $meta ====="
+            cat "$meta"
+          done
           for f in diagnostics/*_body.txt; do
             [[ -f "$f" ]] || continue
             grep -Eio '[A-Za-z0-9_/?&=.-]*(Search|search|product|Product|Ajax|ajax|beginIndex|pageSize)[A-Za-z0-9_/?&=.-]*' "$f" \
