@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import math
+import re
+
 from .chedraui import (
+    PRODUCT_SELECTOR,
     ChedrauiBlocked,
     ChedrauiScraper as BaseChedrauiScraper,
     ChedrauiStoreContextError,
@@ -162,7 +166,6 @@ class ChedrauiScraper(BaseChedrauiScraper):
         self.run_meta["city_selected"] = city_selected
         self.run_meta["city_options"] = city_options[:80]
 
-        # Selecting the state alone may already populate every CDMX store.
         store_clicked = self._click_polanco(page)
         self.run_meta["store_clicked"] = store_clicked
         page.wait_for_timeout(500)
@@ -184,6 +187,136 @@ class ChedrauiScraper(BaseChedrauiScraper):
         self.run_meta["store_modal_text"] = self._body_text(page)[:14_000]
         self._save_diagnostics(page, "store_directory_selection_unverified")
         return False, None
+
+    def _store_specific_total(self, page) -> int | None:
+        """Read the product count after Polanco has been selected."""
+        text = self._body_text(page)
+        match = re.search(r"\b([\d,]+)\s+Productos\b", text, flags=re.IGNORECASE)
+        if not match:
+            return None
+        try:
+            return int(match.group(1).replace(",", ""))
+        except ValueError:
+            return None
+
+    def _load_page_rows(self, page, category, location, page_number: int, target_rows: int | None):
+        """Retry a VTEX result page and retain the most complete render."""
+        url = self._paged_url(category.url, page_number)
+        best: dict[str, dict] = {}
+        attempts: list[dict] = []
+
+        for attempt in range(1, 5):
+            response = page.goto(url, wait_until="domcontentloaded", timeout=120_000)
+            self._assert_not_blocked(page, response.status if response else None)
+            page.wait_for_timeout(max(self.wait_ms, 1_100))
+
+            # Product cards are lazy-rendered; force the complete grid into view.
+            try:
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.wait_for_timeout(700)
+                page.evaluate("window.scrollTo(0, 0)")
+                page.wait_for_timeout(350)
+            except Exception:
+                pass
+
+            try:
+                page.wait_for_selector(PRODUCT_SELECTOR, timeout=12_000)
+            except Exception:
+                attempts.append({"attempt": attempt, "rows": 0, "reason": "selector_timeout"})
+                continue
+
+            rows = self._extract_cards(page, category, location)
+            for row in rows:
+                key = str(row.get("sku") or row.get("url"))
+                if key:
+                    best[key] = row
+            attempts.append({"attempt": attempt, "rows": len(rows), "best": len(best)})
+
+            if target_rows is None:
+                if best:
+                    break
+            elif len(best) >= target_rows:
+                break
+
+        return url, list(best.values()), attempts
+
+    def _collect_pages(self, page, category, location):
+        rows_by_key: dict[str, dict] = {}
+        max_pages = self.max_pages if self.max_pages > 0 else 100
+
+        expected_total = self._store_specific_total(page)
+        self.run_meta["expected_store_products"] = expected_total
+        page_size: int | None = None
+        expected_pages: int | None = None
+        consecutive_empty = 0
+
+        for page_number in range(1, max_pages + 1):
+            if expected_total is not None and len(rows_by_key) >= expected_total:
+                break
+            if expected_pages is not None and page_number > expected_pages + 1:
+                break
+
+            if page_size and expected_total:
+                if expected_pages is None:
+                    expected_pages = math.ceil(expected_total / page_size)
+                if page_number < expected_pages:
+                    target_rows = page_size
+                elif page_number == expected_pages:
+                    target_rows = max(1, expected_total - page_size * (expected_pages - 1))
+                else:
+                    target_rows = None
+            else:
+                target_rows = None
+
+            url, page_rows, attempts = self._load_page_rows(
+                page, category, location, page_number, target_rows
+            )
+
+            if page_size is None and page_rows:
+                page_size = len(page_rows)
+                if expected_total:
+                    expected_pages = math.ceil(expected_total / page_size)
+                    self.run_meta["page_size"] = page_size
+                    self.run_meta["expected_pages"] = expected_pages
+
+            before = len(rows_by_key)
+            for row in page_rows:
+                key = str(row.get("sku") or row.get("url"))
+                if key:
+                    rows_by_key[key] = row
+            new_count = len(rows_by_key) - before
+
+            self.run_meta.setdefault("pages", []).append(
+                {
+                    "page": page_number,
+                    "url": page.url or url,
+                    "rows": len(page_rows),
+                    "new": new_count,
+                    "attempts": attempts,
+                }
+            )
+
+            if not page_rows:
+                consecutive_empty += 1
+            else:
+                consecutive_empty = 0
+
+            # With a known store-specific count, do not stop on one transient
+            # empty VTEX page. Without a count, two empty pages remain the guard.
+            if expected_total is None and consecutive_empty >= 2:
+                break
+            if expected_total is not None and expected_pages is not None:
+                if page_number >= expected_pages and len(rows_by_key) >= expected_total:
+                    break
+                if consecutive_empty >= 2 and page_number >= expected_pages:
+                    break
+
+        self.run_meta["collected_products"] = len(rows_by_key)
+        if expected_total is not None:
+            self.run_meta["coverage_ratio"] = round(
+                len(rows_by_key) / expected_total, 4
+            ) if expected_total else None
+        return list(rows_by_key.values())
 
 
 __all__ = [
