@@ -18,6 +18,11 @@ from scraper.retailers.farmacias_guadalajara import (
     FarmaciasGuadalajaraNetworkUnavailable,
     FarmaciasGuadalajaraScraper,
 )
+from scraper.retailers.farmacias_san_pablo import (
+    FarmaciasSanPabloBlocked,
+    FarmaciasSanPabloNetworkUnavailable,
+    FarmaciasSanPabloScraper,
+)
 from scraper.retailers.soriana import SorianaBlocked, SorianaScraper
 from scraper.retailers.walmart import WalmartBlocked, WalmartScraper, WalmartStoreContextError
 from scraper.retailers.walmart_persistent import WalmartPersistentScraper
@@ -127,7 +132,10 @@ def main() -> int:
     parser.add_argument(
         "--retailer",
         default="soriana",
-        choices=["soriana", "walmart", "chedraui", "farmacias-guadalajara", "farmacias-del-ahorro"],
+        choices=[
+            "soriana", "walmart", "chedraui", "farmacias-guadalajara",
+            "farmacias-del-ahorro", "farmacias-san-pablo",
+        ],
     )
     parser.add_argument("--category", default="cuidado-bucal")
     parser.add_argument("--location", default=None)
@@ -148,6 +156,8 @@ def main() -> int:
         default_location = "fg-online"
     elif args.retailer == "farmacias-del-ahorro":
         default_location = "fahorro-online"
+    elif args.retailer == "farmacias-san-pablo":
+        default_location = "san-pablo-online"
     else:
         default_location = "cdmx"
     location_id = args.store or args.location or default_location
@@ -223,6 +233,19 @@ def main() -> int:
             print(f"BLOCKED: {exc}")
             return 2
         except FarmaciasDelAhorroNetworkUnavailable as exc:
+            print(f"NETWORK_UNAVAILABLE: {exc}")
+            return 5
+    elif args.retailer == "farmacias-san-pablo":
+        scraper = FarmaciasSanPabloScraper(
+            headless=not args.headed,
+            max_pages=args.max_load_more,
+        )
+        try:
+            rows = scraper.scrape_category(category, location)
+        except FarmaciasSanPabloBlocked as exc:
+            print(f"BLOCKED: {exc}")
+            return 2
+        except FarmaciasSanPabloNetworkUnavailable as exc:
             print(f"NETWORK_UNAVAILABLE: {exc}")
             return 5
     else:

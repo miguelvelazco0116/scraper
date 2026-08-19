@@ -14,6 +14,7 @@ on:
           - chedraui
           - farmacias-guadalajara
           - farmacias-del-ahorro
+          - farmacias-san-pablo
       category:
         description: Categoria configurada
         required: true
@@ -79,6 +80,8 @@ jobs:
             LOCATION="${LOCATION:-fg-online}"
           elif [[ "$RETAILER" == "farmacias-del-ahorro" ]]; then
             LOCATION="${LOCATION:-fahorro-online}"
+          elif [[ "$RETAILER" == "farmacias-san-pablo" ]]; then
+            LOCATION="${LOCATION:-san-pablo-online}"
           else
             LOCATION="${LOCATION:-cdmx}"
           fi
@@ -116,6 +119,8 @@ jobs:
             python main.py --retailer farmacias-guadalajara --category "${{ steps.params.outputs.category }}" --location "${{ steps.params.outputs.location }}"
           elif [[ "${{ steps.params.outputs.retailer }}" == "farmacias-del-ahorro" ]]; then
             python main.py --retailer farmacias-del-ahorro --category "${{ steps.params.outputs.category }}" --location "${{ steps.params.outputs.location }}"
+          elif [[ "${{ steps.params.outputs.retailer }}" == "farmacias-san-pablo" ]]; then
+            python main.py --retailer farmacias-san-pablo --category "${{ steps.params.outputs.category }}" --location "${{ steps.params.outputs.location }}"
           else
             python main.py --retailer soriana --category "${{ steps.params.outputs.category }}" --location "${{ steps.params.outputs.location }}"
           fi

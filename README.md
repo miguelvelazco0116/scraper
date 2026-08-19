@@ -11,15 +11,60 @@ Base modular para extraer catálogos públicos de retailers de México, generar 
 | Chedraui | Implementado para Chedraui Selecto México Polanco (232) | Higiene bucal; Lavandería |
 | Farmacias Guadalajara | Código/configuración implementados; el dominio no respondió desde GitHub-hosted durante la validación | Vías respiratorias; Lavandería; Cuidado bucal; Preservativos |
 | Farmacias del Ahorro | Implementado y validado como catálogo online nacional | Farmacia > Gripa y tos > Congestión nasal; Bienestar sexual > Preservativos; Cuidado personal > Higiene bucal > Enjuagues bucales; Cuidado personal > Higiene bucal > Cremas dentales |
+| Farmacias San Pablo | Implementado como catálogo online; GitHub-hosted recibe 403 Access Denied de Akamai | Medicamentos > Gripe y tos > Descongestionantes; Salud sexual > Bienestar sexual > Preservativos; Cuidado personal y belleza > Cuidado bucal > Enjuagues bucales; Cuidado personal y belleza > Cuidado bucal > Pastas dentales |
 
 ## Ejecución recomendada
 
 - **Soriana:** GitHub-hosted Actions.
 - **Chedraui:** GitHub-hosted Actions con Chedraui Selecto México Polanco / tienda 232.
-- **Farmacias del Ahorro:** GitHub-hosted Actions, contexto `fahorro-online`. El storefront usa Empathy Search; el scraper obtiene el `categoryId` vigente desde la página oficial y pagina la misma API pública del storefront hasta `catalog.pagination.total`.
+- **Farmacias del Ahorro:** GitHub-hosted Actions, contexto `fahorro-online`.
 - **Farmacias Guadalajara:** contexto `fg-online`; si la red no recibe respuesta del dominio oficial se clasifica `NETWORK_UNAVAILABLE`.
+- **Farmacias San Pablo:** contexto `san-pablo-online`. La implementación usa navegador y ficha individual; si Akamai devuelve 403 se clasifica `BLOCKED`. Debe ejecutarse desde una red que tenga acceso normal al sitio oficial.
 - **Walmart:** GitHub-hosted Actions reutilizando una sesión Playwright verificada manualmente.
-- No se automatizan CAPTCHAs ni desafíos de identidad.
+- No se automatizan CAPTCHAs ni desafíos de identidad y no se evaden controles de acceso.
+
+## Farmacias San Pablo
+
+Contexto:
+
+```text
+id: san-pablo-online
+city: Catálogo online
+state: Nacional
+store: null
+store_id: null
+postal_code: null
+```
+
+Categorías:
+
+```text
+descongestionantes -> Medicamentos > Gripe y tos > Descongestionantes
+preservativos      -> Salud sexual > Bienestar sexual > Preservativos
+enjuagues-bucales  -> Cuidado personal y belleza > Cuidado bucal > Enjuagues bucales
+pastas-dentales    -> Cuidado personal y belleza > Cuidado bucal > Pastas dentales
+```
+
+Identificadores conocidos del storefront:
+
+```text
+Descongestionantes: 060070004
+Enjuagues bucales:  030040003
+Pastas dentales:    030040007
+```
+
+Ejemplos:
+
+```bash
+python main.py --retailer farmacias-san-pablo --category descongestionantes --location san-pablo-online
+python main.py --retailer farmacias-san-pablo --category preservativos --location san-pablo-online
+python main.py --retailer farmacias-san-pablo --category enjuagues-bucales --location san-pablo-online
+python main.py --retailer farmacias-san-pablo --category pastas-dentales --location san-pablo-online
+```
+
+La categoría se recorre con `currentPage`. Cuando existe una ficha individual `/p/`, se utiliza como fuente preferida para SKU, nombre, marca y precio. El precio vigente prioriza `h3.priceTotal`; los precios de recomendaciones no se usan como sustituto. Si una cuadrícula no expone enlaces individuales, existe un fallback conservador a tarjeta de categoría. El contexto queda con `store_context_verified=False`, porque no se solicitó una sucursal física.
+
+Validación de conectividad del 19 de agosto de 2026: el runner GitHub-hosted de Ubuntu recibió HTTP 403 `Access Denied` en las cuatro rutas probadas, incluida la categoría conocida `030040003`. El scraper reporta este caso como `BLOCKED` y no crea filas parciales ni inventadas.
 
 ## Farmacias del Ahorro
 
@@ -80,10 +125,6 @@ URL:            280 / 280
 Tests:           48 / 48
 ```
 
-Los conteos del catálogo son dinámicos. Durante la implementación, Preservativos cambió de 73 a 72 productos entre dos corridas; el scraper siempre utiliza el `catalog.pagination.total` vigente en lugar de fijar cantidades manualmente.
-
-La integración genérica también fue validada en el workflow Retailer Scraper #157 (`32302275218`): `main.py --retailer farmacias-del-ahorro --category enjuagues-bucales --location fahorro-online` devolvió 41 productos y omitió correctamente la instalación de Chromium.
-
 ## Farmacias Guadalajara
 
 Contexto `fg-online`, sin sucursal asignada. En las pruebas del 19 de agosto de 2026, runners hospedados oficiales de GitHub resolvieron el dominio/Akamai pero no recibieron respuesta HTTP. El scraper distingue ese caso como `NETWORK_UNAVAILABLE` y no crea datos parciales o inventados.
@@ -135,7 +176,7 @@ Con una sesión Walmart disponible:
 python scripts/run_all_retailers.py --walmart-profile-dir .walmart_profile
 ```
 
-El runner incluye Soriana, Chedraui, Farmacias Guadalajara, Farmacias del Ahorro y Walmart. Continúa procesando los casos, concentra las categorías exitosas y distingue `SUCCESS`, `BLOCKED`, `NETWORK_UNAVAILABLE`, `STORE_CONTEXT_ERROR`, `EMPTY` y `ERROR`.
+El runner incluye Soriana, Chedraui, Farmacias Guadalajara, Farmacias del Ahorro, Farmacias San Pablo y Walmart. Continúa procesando los casos, concentra las categorías exitosas y distingue `SUCCESS`, `BLOCKED`, `NETWORK_UNAVAILABLE`, `STORE_CONTEXT_ERROR`, `EMPTY` y `ERROR`.
 
 ## Output
 
