@@ -21,6 +21,10 @@ class FarmaciasGuadalajaraBlocked(RuntimeError):
     pass
 
 
+class FarmaciasGuadalajaraNetworkUnavailable(RuntimeError):
+    pass
+
+
 class FarmaciasGuadalajaraScraper:
     """Scraper del catálogo online público de Farmacias Guadalajara.
 
@@ -55,8 +59,14 @@ class FarmaciasGuadalajaraScraper:
                 idx = -1
             if idx > 0:
                 candidate = lines[idx - 1]
-                if candidate and len(candidate) <= 40 and candidate.upper() == candidate and any(ch.isalpha() for ch in candidate):
+                if (
+                    candidate
+                    and len(candidate) <= 40
+                    and candidate.upper() == candidate
+                    and any(ch.isalpha() for ch in candidate)
+                ):
                     return candidate.title() if len(candidate) > 4 else candidate
+
         brands = [
             "Colgate", "Oral-B", "Sensodyne", "Listerine", "Gum", "Curaprox",
             "Prudence", "Sico", "Trojan", "Durex", "Playboy",
@@ -70,9 +80,13 @@ class FarmaciasGuadalajaraScraper:
         return None
 
     @classmethod
-    def _prices_from_text(cls, text: str | None) -> tuple[float | None, float | None, str | None]:
+    def _prices_from_text(
+        cls,
+        text: str | None,
+    ) -> tuple[float | None, float | None, str | None]:
         if not text:
             return None, None, None
+
         values: list[float] = []
         for raw in cls.MONEY_RE.findall(text):
             try:
@@ -90,12 +104,16 @@ class FarmaciasGuadalajaraScraper:
             current, regular = regular, current
 
         promo_parts: list[str] = []
-        for pattern in (r"\b\d+\s*x\s*\d+\b", r"\b\d+\s*x\s*\$\s*\d+(?:\.\d+)?"):
+        for pattern in (
+            r"\b\d+\s*x\s*\d+\b",
+            r"\b\d+\s*x\s*\$\s*\d+(?:\.\d+)?",
+        ):
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 promo_parts.append(match.group(0))
         if current < regular:
             promo_parts.append("Precio promocional")
+
         promotion = " | ".join(dict.fromkeys(promo_parts)) if promo_parts else None
         return current, regular, promotion
 
@@ -110,7 +128,9 @@ class FarmaciasGuadalajaraScraper:
             "request rejected",
         ]
         if any(marker in text for marker in markers):
-            raise FarmaciasGuadalajaraBlocked("Farmacias Guadalajara presentó un bloqueo o verificación")
+            raise FarmaciasGuadalajaraBlocked(
+                "Farmacias Guadalajara presentó un bloqueo o verificación"
+            )
 
     @staticmethod
     def _target_count(page) -> int | None:
@@ -118,7 +138,11 @@ class FarmaciasGuadalajaraScraper:
             text = page.locator("body").inner_text(timeout=10_000)
         except Exception:
             return None
-        matches = re.findall(r"\(?\b(\d{1,5})\s+productos?\b\)?", text, flags=re.IGNORECASE)
+        matches = re.findall(
+            r"\(?\b(\d{1,5})\s+productos?\b\)?",
+            text,
+            flags=re.IGNORECASE,
+        )
         if not matches:
             return None
         values = [int(x) for x in matches]
@@ -138,23 +162,26 @@ class FarmaciasGuadalajaraScraper:
     @staticmethod
     def _goto_with_retries(page, url: str):
         last_error: Exception | None = None
-        for attempt in range(1, 4):
+        for attempt in range(1, 3):
             try:
-                response = page.goto(url, wait_until="commit", timeout=30_000)
-                page.wait_for_selector("body", state="attached", timeout=15_000)
+                response = page.goto(url, wait_until="commit", timeout=20_000)
+                page.wait_for_selector("body", state="attached", timeout=10_000)
                 return response
             except PlaywrightError as exc:
                 last_error = exc
-                if attempt >= 3:
+                if attempt >= 2:
                     break
                 try:
                     page.goto("about:blank", wait_until="commit", timeout=5_000)
                 except Exception:
                     pass
-                page.wait_for_timeout(1_000 * attempt)
-        if last_error is not None:
-            raise last_error
-        return None
+                page.wait_for_timeout(1_000)
+
+        detail = f"{type(last_error).__name__}: {last_error}" if last_error else "sin respuesta"
+        raise FarmaciasGuadalajaraNetworkUnavailable(
+            "No se pudo establecer conexión con Farmacias Guadalajara desde esta red. "
+            f"Detalle: {detail}"
+        )
 
     def _expand_all_products(self, page, target: int | None) -> None:
         stable_rounds = 0
@@ -163,7 +190,12 @@ class FarmaciasGuadalajaraScraper:
             if target and previous >= target:
                 break
 
-            button = page.get_by_text(re.compile(r"^(Ver más productos|Mostrar los siguientes .*productos)$", re.IGNORECASE)).last
+            button = page.get_by_text(
+                re.compile(
+                    r"^(Ver más productos|Mostrar los siguientes .*productos)$",
+                    re.IGNORECASE,
+                )
+            ).last
             try:
                 if button.count() == 0 or not button.is_visible(timeout=1_500):
                     break
@@ -229,6 +261,24 @@ class FarmaciasGuadalajaraScraper:
             """
         )
 
+    def _write_network_diagnostic(self, category: Category, exc: Exception) -> None:
+        meta = {
+            "retailer": "Farmacias Guadalajara",
+            "category_id": category.id,
+            "url": category.url,
+            "status": "NETWORK_UNAVAILABLE",
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+            "note": (
+                "La configuración y parser están disponibles, pero la red actual no pudo "
+                "establecer una respuesta HTTP con el dominio oficial."
+            ),
+        }
+        (DIAGNOSTICS / f"farmacias_guadalajara_{category.id}.json").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
     def scrape_category(self, category: Category, location: Location) -> list[dict]:
         DIAGNOSTICS.mkdir(parents=True, exist_ok=True)
         slug = category.id
@@ -245,9 +295,15 @@ class FarmaciasGuadalajaraScraper:
             )
             page = context.new_page()
             try:
-                response = self._goto_with_retries(page, category.url)
+                try:
+                    response = self._goto_with_retries(page, category.url)
+                except FarmaciasGuadalajaraNetworkUnavailable as exc:
+                    self._write_network_diagnostic(category, exc)
+                    raise
+
                 if response and response.status >= 400:
                     raise RuntimeError(f"HTTP {response.status} en {category.url}")
+
                 page.wait_for_timeout(3_000)
                 self._assert_not_blocked(page)
                 target = self._target_count(page)
@@ -262,10 +318,15 @@ class FarmaciasGuadalajaraScraper:
                     product = clean_text(card.get("name"))
                     if not sku or not product:
                         continue
+
                     current, regular, promotion = self._prices_from_text(card.get("text"))
                     if current is None:
                         continue
-                    brand = clean_text(card.get("brand")) or self._infer_brand(product, card.get("text"))
+                    brand = clean_text(card.get("brand")) or self._infer_brand(
+                        product,
+                        card.get("text"),
+                    )
+
                     rows.append(
                         {
                             "scrape_timestamp": now,
@@ -305,13 +366,25 @@ class FarmaciasGuadalajaraScraper:
                     "store_context": "online_catalog_no_store_requested",
                 }
                 (DIAGNOSTICS / f"farmacias_guadalajara_{slug}.json").write_text(
-                    json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+                    json.dumps(meta, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
                 )
                 (DIAGNOSTICS / f"farmacias_guadalajara_{slug}.html").write_text(
-                    page.content(), encoding="utf-8"
+                    page.content(),
+                    encoding="utf-8",
                 )
-                page.screenshot(path=str(DIAGNOSTICS / f"farmacias_guadalajara_{slug}.png"), full_page=True)
+                page.screenshot(
+                    path=str(DIAGNOSTICS / f"farmacias_guadalajara_{slug}.png"),
+                    full_page=True,
+                )
                 return rows
             finally:
                 context.close()
                 browser.close()
+
+
+__all__ = [
+    "FarmaciasGuadalajaraBlocked",
+    "FarmaciasGuadalajaraNetworkUnavailable",
+    "FarmaciasGuadalajaraScraper",
+]
