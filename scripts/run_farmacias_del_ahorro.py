@@ -64,7 +64,7 @@ def main() -> int:
     parser.add_argument("--fresh", action="store_true", help="Borra el concentrado antes de iniciar")
     args = parser.parse_args()
 
-    categories = [x for x in load_categories("config/farmacias-del-ahorro/categories.yaml") if x.enabled]
+    categories = load_categories("config/farmacias-del-ahorro/categories.yaml")
     if args.category != "all":
         categories = [x for x in categories if x.id == args.category]
     if not categories:
