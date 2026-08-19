@@ -43,3 +43,12 @@ locations:
     store: null
     store_id: null
     enabled: true
+
+  - id: san-pablo-online
+    city: Catálogo online
+    state: Nacional
+    country: México
+    postal_code: null
+    store: null
+    store_id: null
+    enabled: true
