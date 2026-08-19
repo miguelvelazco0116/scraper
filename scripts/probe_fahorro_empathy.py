@@ -7,29 +7,12 @@ from urllib.parse import urlencode
 from playwright.sync_api import sync_playwright
 
 BROWSE_ENDPOINT = "https://api.empathy.co/search/v1/query/fda/browse"
-CATEGORIES = {
-    "congestion-nasal": "https://www.fahorro.com/farmacia/gripa-y-tos/congestion-nasal.html",
-    "preservativos": "https://www.fahorro.com/bienestar-sexual/preservativos.html",
-    "enjuagues-bucales": "https://www.fahorro.com/cuidado-personal/higiene-bucal/enjuagues-bucales.html",
-    "cremas-dentales": "https://www.fahorro.com/cuidado-personal/higiene-bucal/cremas-dentales.html",
-}
-KNOWN_SKU = "7896009419324"  # Sensodyne Original, ficha oficial usada como control de precio.
+CATEGORY_ID = "8196"
+KNOWN_SKU = "7896009419324"
+KNOWN_PAGE = "https://www.fahorro.com/crema-dental-sensodyne-original-90-g.html"
 
 
-def extract_category_id(html: str) -> str | None:
-    patterns = [
-        r'"categoryId"\s*:\s*"?(\d+)"?',
-        r'categoryId\\?"?\s*:\s*\\?"?(\d+)',
-    ]
-    for pattern in patterns:
-        matches = re.findall(pattern, html, flags=re.IGNORECASE)
-        if matches:
-            # La configuración de Empathy aparece cerca del final; el ID hoja suele ser el último.
-            return matches[-1]
-    return None
-
-
-def browse_url(category_id: str, start: int = 0, rows: int = 50) -> str:
+def browse_url(start: int = 0, rows: int = 50) -> str:
     params = {
         "origin": "search_box",
         "start": str(start),
@@ -39,7 +22,7 @@ def browse_url(category_id: str, start: int = 0, rows: int = 50) -> str:
         "channel": "tl",
         "region": "NACIONAL",
         "browseField": "categoryIds",
-        "browseValue": category_id,
+        "browseValue": CATEGORY_ID,
     }
     return BROWSE_ENDPOINT + "?" + urlencode(params)
 
@@ -50,63 +33,26 @@ def main() -> int:
             "Accept": "application/json,text/html,*/*;q=0.8",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/139.0.0.0 Safari/537.36",
         })
+        response = request.get(browse_url(0, 150), timeout=45_000)
+        data = response.json() if response.ok else {}
+        content = ((data.get("catalog") or {}).get("content") or [])
+        item = next((x for x in content if str(x.get("sku")) == KNOWN_SKU), None)
+        print(json.dumps({"empathy_status": response.status, "empathy_item": item}, ensure_ascii=False))
 
-        category_ids: dict[str, str] = {}
-        for category_key, page_url in CATEGORIES.items():
-            response = request.get(page_url, timeout=45_000)
-            html = response.text()
-            category_id = extract_category_id(html)
-            print(json.dumps({
-                "category": category_key,
-                "page_status": response.status,
-                "html_bytes": len(html),
-                "category_id": category_id,
-            }, ensure_ascii=False))
-            if category_id:
-                category_ids[category_key] = category_id
-
-        all_items: dict[str, list[dict]] = {}
-        for category_key, category_id in category_ids.items():
-            first = request.get(browse_url(category_id, 0, 50), timeout=45_000)
-            data = first.json() if first.ok else {}
-            catalog = data.get("catalog") or {}
-            pagination = catalog.get("pagination") or {}
-            content = list(catalog.get("content") or [])
-            total = int(pagination.get("total") or len(content))
-            start = len(content)
-            while start < total:
-                response = request.get(browse_url(category_id, start, 50), timeout=45_000)
-                page_data = response.json() if response.ok else {}
-                page_content = ((page_data.get("catalog") or {}).get("content") or [])
-                if not page_content:
-                    break
-                content.extend(page_content)
-                start += len(page_content)
-            all_items[category_key] = content
-            print(json.dumps({
-                "category": category_key,
-                "category_id": category_id,
-                "api_status": first.status,
-                "api_total": total,
-                "downloaded": len(content),
-                "sku_complete": sum(bool(x.get("sku")) for x in content),
-                "current_price_complete": sum(x.get("currentPrice") is not None for x in content),
-                "previous_price_complete": sum(x.get("previousPrice") is not None for x in content),
-                "url_key_complete": sum(bool(x.get("ecommUrlKey")) for x in content),
-            }, ensure_ascii=False))
-
-        control = None
-        for item in all_items.get("cremas-dentales", []):
-            if str(item.get("sku")) == KNOWN_SKU:
-                control = {
-                    "sku": item.get("sku"),
-                    "title": item.get("ecommTitle"),
-                    "currentPrice": item.get("currentPrice"),
-                    "previousPrice": item.get("previousPrice"),
-                    "urlKey": item.get("ecommUrlKey"),
-                }
-                break
-        print(json.dumps({"known_sku_control": control}, ensure_ascii=False))
+        page_response = request.get(KNOWN_PAGE, timeout=45_000)
+        html = page_response.text()
+        snippets = []
+        for needle in ("67.50", "79.00", "79", "90.00", KNOWN_SKU):
+            pos = html.find(needle)
+            if pos >= 0:
+                snippets.append({"needle": needle, "snippet": html[max(0, pos-800):pos+1200]})
+        price_amounts = sorted(set(re.findall(r'"amount"\s*:\s*([0-9]+(?:\.[0-9]+)?)', html)))
+        print(json.dumps({
+            "page_status": page_response.status,
+            "html_bytes": len(html),
+            "amount_values": price_amounts[:30],
+            "snippets": snippets,
+        }, ensure_ascii=False))
         request.dispose()
     return 0
 
