@@ -8,7 +8,11 @@ import pandas as pd
 
 from scraper.config import load_categories, load_locations
 from scraper.retailers.chedraui_polanco_api import ChedrauiBlocked, ChedrauiScraper, ChedrauiStoreContextError
-from scraper.retailers.farmacias_guadalajara import FarmaciasGuadalajaraBlocked, FarmaciasGuadalajaraScraper
+from scraper.retailers.farmacias_guadalajara import (
+    FarmaciasGuadalajaraBlocked,
+    FarmaciasGuadalajaraNetworkUnavailable,
+    FarmaciasGuadalajaraScraper,
+)
 from scraper.retailers.soriana import SorianaBlocked, SorianaScraper
 from scraper.retailers.walmart import WalmartBlocked, WalmartScraper, WalmartStoreContextError
 from scraper.retailers.walmart_persistent import WalmartPersistentScraper
@@ -198,6 +202,9 @@ def main() -> int:
         except FarmaciasGuadalajaraBlocked as exc:
             print(f"BLOCKED: {exc}")
             return 2
+        except FarmaciasGuadalajaraNetworkUnavailable as exc:
+            print(f"NETWORK_UNAVAILABLE: {exc}")
+            return 5
     else:
         raise SystemExit(f"Retailer no implementado: {args.retailer}")
 
