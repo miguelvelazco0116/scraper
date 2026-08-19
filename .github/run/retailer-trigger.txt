@@ -1,5 +1,5 @@
-run=2026-08-19T15:33:00-06:00
-retailer=chedraui
-category=higiene-bucal
-location=chedraui-polanco
+run=2026-08-19T15:34:00-06:00
+retailer=farmacias-guadalajara
+category=vias-respiratorias
+location=fg-online
 mode=connectivity-test
