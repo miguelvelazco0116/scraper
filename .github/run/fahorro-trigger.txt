@@ -1,4 +1,4 @@
-run=2026-08-19T14:39:00-06:00
+run=2026-08-19T14:44:00-06:00
 category=cremas-dentales
 location=fahorro-online
-mode=probe-empathy-request
+mode=probe-empathy-direct
