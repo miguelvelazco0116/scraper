@@ -8,6 +8,11 @@ import pandas as pd
 
 from scraper.config import load_categories, load_locations
 from scraper.retailers.chedraui_polanco_api import ChedrauiBlocked, ChedrauiScraper, ChedrauiStoreContextError
+from scraper.retailers.farmacias_del_ahorro import (
+    FarmaciasDelAhorroBlocked,
+    FarmaciasDelAhorroNetworkUnavailable,
+    FarmaciasDelAhorroScraper,
+)
 from scraper.retailers.farmacias_guadalajara import (
     FarmaciasGuadalajaraBlocked,
     FarmaciasGuadalajaraNetworkUnavailable,
@@ -122,7 +127,7 @@ def main() -> int:
     parser.add_argument(
         "--retailer",
         default="soriana",
-        choices=["soriana", "walmart", "chedraui", "farmacias-guadalajara"],
+        choices=["soriana", "walmart", "chedraui", "farmacias-guadalajara", "farmacias-del-ahorro"],
     )
     parser.add_argument("--category", default="cuidado-bucal")
     parser.add_argument("--location", default=None)
@@ -141,6 +146,8 @@ def main() -> int:
         default_location = "chedraui-polanco"
     elif args.retailer == "farmacias-guadalajara":
         default_location = "fg-online"
+    elif args.retailer == "farmacias-del-ahorro":
+        default_location = "fahorro-online"
     else:
         default_location = "cdmx"
     location_id = args.store or args.location or default_location
@@ -203,6 +210,19 @@ def main() -> int:
             print(f"BLOCKED: {exc}")
             return 2
         except FarmaciasGuadalajaraNetworkUnavailable as exc:
+            print(f"NETWORK_UNAVAILABLE: {exc}")
+            return 5
+    elif args.retailer == "farmacias-del-ahorro":
+        scraper = FarmaciasDelAhorroScraper(
+            headless=not args.headed,
+            max_pages=args.max_load_more,
+        )
+        try:
+            rows = scraper.scrape_category(category, location)
+        except FarmaciasDelAhorroBlocked as exc:
+            print(f"BLOCKED: {exc}")
+            return 2
+        except FarmaciasDelAhorroNetworkUnavailable as exc:
             print(f"NETWORK_UNAVAILABLE: {exc}")
             return 5
     else:
