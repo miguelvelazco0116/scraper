@@ -13,6 +13,7 @@ on:
           - walmart
           - chedraui
           - farmacias-guadalajara
+          - farmacias-del-ahorro
       category:
         description: Categoria configurada
         required: true
@@ -76,6 +77,8 @@ jobs:
             LOCATION="${LOCATION:-chedraui-polanco}"
           elif [[ "$RETAILER" == "farmacias-guadalajara" ]]; then
             LOCATION="${LOCATION:-fg-online}"
+          elif [[ "$RETAILER" == "farmacias-del-ahorro" ]]; then
+            LOCATION="${LOCATION:-fahorro-online}"
           else
             LOCATION="${LOCATION:-cdmx}"
           fi
@@ -97,6 +100,7 @@ jobs:
         run: pytest -q
 
       - name: Install Chromium
+        if: steps.params.outputs.retailer != 'farmacias-del-ahorro'
         run: playwright install chromium
 
       - name: Run scraper
@@ -110,6 +114,8 @@ jobs:
             python main.py --retailer chedraui --category "${{ steps.params.outputs.category }}" --store "${{ steps.params.outputs.location }}"
           elif [[ "${{ steps.params.outputs.retailer }}" == "farmacias-guadalajara" ]]; then
             python main.py --retailer farmacias-guadalajara --category "${{ steps.params.outputs.category }}" --location "${{ steps.params.outputs.location }}"
+          elif [[ "${{ steps.params.outputs.retailer }}" == "farmacias-del-ahorro" ]]; then
+            python main.py --retailer farmacias-del-ahorro --category "${{ steps.params.outputs.category }}" --location "${{ steps.params.outputs.location }}"
           else
             python main.py --retailer soriana --category "${{ steps.params.outputs.category }}" --location "${{ steps.params.outputs.location }}"
           fi
