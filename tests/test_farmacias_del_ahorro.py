@@ -69,3 +69,63 @@ def test_farmacias_del_ahorro_page_url():
 def test_farmacias_del_ahorro_sku_from_html():
     html = '<div class="product attribute sku"><div class="value" itemprop="sku">7509546000343</div></div>'
     assert FarmaciasDelAhorroScraper._sku_from_html(html) == "7509546000343"
+
+
+def test_farmacias_del_ahorro_extracts_empathy_category_id():
+    html = '''
+    <script type="text/x-magento-init">
+    {"component":"Infinite_EmpathySearch/js/view/search-list-component",
+     "searchResultsEndpointUrl":"https://api.empathy.co/search/v1/query/fda/browse",
+     "categoryId":"8196"}
+    </script>
+    '''
+    assert FarmaciasDelAhorroScraper._extract_category_id(html) == "8196"
+
+
+def test_farmacias_del_ahorro_does_not_false_positive_magento_captcha_module():
+    normal_html = '<script src="Magento_Captcha/js/captcha.js"></script><h1>Cremas Dentales</h1>'
+    blocked_html = '<html><body>Verify you are human. Press and hold.</body></html>'
+    assert FarmaciasDelAhorroScraper._looks_blocked(normal_html) is False
+    assert FarmaciasDelAhorroScraper._looks_blocked(blocked_html) is True
+
+
+def test_farmacias_del_ahorro_maps_empathy_item():
+    categories = {x.id: x for x in load_categories("config/farmacias-del-ahorro/categories.yaml")}
+    locations = {x.id: x for x in load_locations()}
+    item = {
+        "sku": "7896009419324",
+        "ecommTitle": "Crema Dental Sensodyne Original 90 g",
+        "ecommBrand": "SENSODYNE",
+        "ecommUrlKey": "crema-dental-sensodyne-original-90-g",
+        "currentPrice": 79.0,
+        "previousPrice": 90.0,
+    }
+    row = FarmaciasDelAhorroScraper._row_from_item(
+        item, categories["cremas-dentales"], locations["fahorro-online"], "2026-08-19T15:00:00-06:00"
+    )
+    assert row is not None
+    assert row["sku"] == "7896009419324"
+    assert row["price_current"] == 79.0
+    assert row["price_regular"] == 90.0
+    assert row["promotion"] == "12% de descuento | Precio promocional"
+    assert row["url"].endswith("/crema-dental-sensodyne-original-90-g.html")
+    assert row["store_context_method"] == "online_catalog_empathy_nacional"
+
+
+def test_farmacias_del_ahorro_missing_previous_price_uses_current():
+    categories = {x.id: x for x in load_categories("config/farmacias-del-ahorro/categories.yaml")}
+    locations = {x.id: x for x in load_locations()}
+    item = {
+        "sku": "123",
+        "ecommTitle": "Producto",
+        "ecommBrand": "Marca",
+        "ecommUrlKey": "producto",
+        "currentPrice": 100,
+        "previousPrice": None,
+    }
+    row = FarmaciasDelAhorroScraper._row_from_item(
+        item, categories["preservativos"], locations["fahorro-online"], "2026-08-19T15:00:00-06:00"
+    )
+    assert row is not None
+    assert row["price_regular"] == 100.0
+    assert row["promotion"] is None
