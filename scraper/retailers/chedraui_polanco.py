@@ -17,24 +17,28 @@ class ChedrauiScraper(BaseChedrauiScraper):
     )
 
     def _try_select_store_ui(self, page, location: Location):
+        cookie_clicked = False
         try:
             cookie = page.locator(
                 ".chedrauimx-frontend-applications-5-x-cookiesButtonAccept"
             ).first
             if cookie.count() and cookie.is_visible():
                 cookie.click(timeout=4_000)
-                page.wait_for_timeout(300)
+                cookie_clicked = True
         except Exception:
-            self._click_text(page, ("Aceptar",), timeout=2_000)
+            pass
+        if not cookie_clicked:
+            cookie_clicked = self._click_text(page, ("Aceptar",), timeout=4_000)
+        self.run_meta["cookie_clicked"] = cookie_clicked
+        page.wait_for_timeout(900)
 
         opened = False
+        locator_selector = "button.chedrauimx-locator-2-x-labelTextAddress"
         try:
-            button = page.locator(
-                "button.chedrauimx-locator-2-x-labelTextAddress"
-            ).first
-            if button.count() and button.is_visible():
-                button.click(timeout=5_000)
-                opened = True
+            page.locator(locator_selector).first.wait_for(state="visible", timeout=7_000)
+            button = page.locator(locator_selector).first
+            button.click(timeout=5_000)
+            opened = True
         except Exception:
             pass
         if not opened:
@@ -44,13 +48,15 @@ class ChedrauiScraper(BaseChedrauiScraper):
                     "Agregar una Dirección",
                     "Agregar una Direccion",
                     "Agregar dirección",
+                    "Agregar una",
                 ),
+                timeout=5_000,
             )
         self.run_meta["location_button_opened"] = opened
         if not opened:
             self._save_diagnostics(page, "store_location_button_not_found")
             return False, None
-        page.wait_for_timeout(600)
+        page.wait_for_timeout(700)
 
         pickup_clicked = self._click_text(
             page,
@@ -97,9 +103,6 @@ class ChedrauiScraper(BaseChedrauiScraper):
         if address_filled and address_input is not None:
             page.wait_for_timeout(1_500)
             suggestion_clicked = False
-
-            # Chedraui VTEX does not expose role=option. The live suggestions use
-            # InputSelect__content_select_list_item.
             try:
                 options = page.locator(
                     ".chedrauimx-locator-2-x-InputSelect__content_select_list_item"
@@ -122,8 +125,6 @@ class ChedrauiScraper(BaseChedrauiScraper):
                         break
             except Exception:
                 pass
-
-            # Keep a normal keyboard fallback for storefront variations.
             if not suggestion_clicked:
                 try:
                     address_input.press("ArrowDown")
@@ -133,7 +134,7 @@ class ChedrauiScraper(BaseChedrauiScraper):
                 except Exception:
                     pass
             self.run_meta["address_suggestion_selected"] = suggestion_clicked
-            page.wait_for_timeout(2_000)
+            page.wait_for_timeout(2_200)
 
         store_clicked = False
         store_patterns = (
