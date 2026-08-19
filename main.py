@@ -8,6 +8,7 @@ import pandas as pd
 
 from scraper.config import load_categories, load_locations
 from scraper.retailers.chedraui_polanco_api import ChedrauiBlocked, ChedrauiScraper, ChedrauiStoreContextError
+from scraper.retailers.farmacias_guadalajara import FarmaciasGuadalajaraBlocked, FarmaciasGuadalajaraScraper
 from scraper.retailers.soriana import SorianaBlocked, SorianaScraper
 from scraper.retailers.walmart import WalmartBlocked, WalmartScraper, WalmartStoreContextError
 from scraper.retailers.walmart_persistent import WalmartPersistentScraper
@@ -114,7 +115,11 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Scraper multi-retailer")
-    parser.add_argument("--retailer", default="soriana", choices=["soriana", "walmart", "chedraui"])
+    parser.add_argument(
+        "--retailer",
+        default="soriana",
+        choices=["soriana", "walmart", "chedraui", "farmacias-guadalajara"],
+    )
     parser.add_argument("--category", default="cuidado-bucal")
     parser.add_argument("--location", default=None)
     parser.add_argument("--store", default=None, help="Alias de ubicación para una tienda configurada")
@@ -130,6 +135,8 @@ def main() -> int:
         default_location = "sc-toreo"
     elif args.retailer == "chedraui":
         default_location = "chedraui-polanco"
+    elif args.retailer == "farmacias-guadalajara":
+        default_location = "fg-online"
     else:
         default_location = "cdmx"
     location_id = args.store or args.location or default_location
@@ -181,6 +188,16 @@ def main() -> int:
         except ChedrauiStoreContextError as exc:
             print(f"STORE_CONTEXT_ERROR: {exc}")
             return 4
+    elif args.retailer == "farmacias-guadalajara":
+        scraper = FarmaciasGuadalajaraScraper(
+            headless=not args.headed,
+            max_load_more=args.max_load_more,
+        )
+        try:
+            rows = scraper.scrape_category(category, location)
+        except FarmaciasGuadalajaraBlocked as exc:
+            print(f"BLOCKED: {exc}")
+            return 2
     else:
         raise SystemExit(f"Retailer no implementado: {args.retailer}")
 
