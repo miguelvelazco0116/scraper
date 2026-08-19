@@ -28,6 +28,8 @@ def classify_result(code: int, text: str) -> str:
         return "BLOCKED"
     if code == 4 or "store_context_error" in lower:
         return "STORE_CONTEXT_ERROR"
+    if code == 5 or "network_unavailable:" in lower:
+        return "NETWORK_UNAVAILABLE"
     if code == 3:
         return "EMPTY"
     return "ERROR"
