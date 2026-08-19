@@ -23,7 +23,6 @@ on:
       - "config/locations.yaml"
       - "scraper/retailers/farmacias_del_ahorro.py"
       - "scripts/run_farmacias_del_ahorro.py"
-      - "scripts/probe_fahorro_empathy.py"
       - "tests/test_farmacias_del_ahorro.py"
       - ".github/workflows/farmacias-del-ahorro.yml"
 
@@ -33,7 +32,7 @@ permissions:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -45,21 +44,17 @@ jobs:
         run: |
           CATEGORY="${{ inputs.category }}"
           LOCATION="${{ inputs.location }}"
-          MODE="run"
           if [[ "${{ github.event_name }}" != "workflow_dispatch" && -f ".github/run/fahorro-trigger.txt" ]]; then
             FILE_CATEGORY=$(grep -E '^category=' .github/run/fahorro-trigger.txt | tail -1 | cut -d= -f2- || true)
             FILE_LOCATION=$(grep -E '^location=' .github/run/fahorro-trigger.txt | tail -1 | cut -d= -f2- || true)
-            FILE_MODE=$(grep -E '^mode=' .github/run/fahorro-trigger.txt | tail -1 | cut -d= -f2- || true)
             CATEGORY="${FILE_CATEGORY:-$CATEGORY}"
             LOCATION="${FILE_LOCATION:-$LOCATION}"
-            MODE="${FILE_MODE:-$MODE}"
           fi
           CATEGORY="${CATEGORY:-all}"
           LOCATION="${LOCATION:-fahorro-online}"
           echo "category=$CATEGORY" >> "$GITHUB_OUTPUT"
           echo "location=$LOCATION" >> "$GITHUB_OUTPUT"
-          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
-          echo "Ejecutando Farmacias del Ahorro category=$CATEGORY location=$LOCATION mode=$MODE"
+          echo "Ejecutando Farmacias del Ahorro category=$CATEGORY location=$LOCATION"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -73,16 +68,7 @@ jobs:
       - name: Run unit tests
         run: pytest -q
 
-      - name: Probe Empathy internals
-        if: startsWith(steps.params.outputs.mode, 'probe')
-        run: python scripts/probe_fahorro_empathy.py
-
-      - name: Install Chromium
-        if: ${{ !startsWith(steps.params.outputs.mode, 'probe') }}
-        run: playwright install chromium
-
       - name: Run scraper
-        if: ${{ !startsWith(steps.params.outputs.mode, 'probe') }}
         id: scrape
         continue-on-error: true
         shell: bash
