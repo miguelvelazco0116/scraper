@@ -1,5 +1,5 @@
-run=2026-08-19T15:10:00-06:00
-retailer=farmacias-del-ahorro
-category=enjuagues-bucales
-location=fahorro-online
-mode=final-validate-main-cli
+run=2026-08-19T15:55:00-06:00
+retailer=farmacias-san-pablo
+category=descongestionantes
+location=san-pablo-online
+mode=validate-new-retailer
