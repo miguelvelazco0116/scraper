@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import re
-
 from .chedraui import (
     ChedrauiBlocked,
     ChedrauiScraper as BaseChedrauiScraper,
@@ -19,7 +17,6 @@ class ChedrauiScraper(BaseChedrauiScraper):
     )
 
     def _try_select_store_ui(self, page, location: Location):
-        # Cookie banner can cover the locator button.
         try:
             cookie = page.locator(
                 ".chedrauimx-frontend-applications-5-x-cookiesButtonAccept"
@@ -55,7 +52,6 @@ class ChedrauiScraper(BaseChedrauiScraper):
             return False, None
         page.wait_for_timeout(600)
 
-        # The live modal uses tabs "Enviar a" / "Recoger en".
         pickup_clicked = self._click_text(
             page,
             ("Recoger en una tienda", "Recoger en tienda", "Recoger en"),
@@ -63,7 +59,6 @@ class ChedrauiScraper(BaseChedrauiScraper):
         self.run_meta["pickup_clicked"] = pickup_clicked
         page.wait_for_timeout(500)
 
-        # The live UI asks for a full address, not a postal code.
         address_filled = False
         address_input = None
         try:
@@ -100,44 +95,50 @@ class ChedrauiScraper(BaseChedrauiScraper):
         self.run_meta["address_filled"] = address_filled
 
         if address_filled and address_input is not None:
-            page.wait_for_timeout(1_400)
-            # Google/VTEX autocomplete normally exposes role=option/listbox. Prefer
-            # a real suggestion; keyboard fallback follows normal UI behaviour.
+            page.wait_for_timeout(1_500)
             suggestion_clicked = False
+
+            # Chedraui VTEX does not expose role=option. The live suggestions use
+            # InputSelect__content_select_list_item.
             try:
-                options = page.locator('[role="option"]')
+                options = page.locator(
+                    ".chedrauimx-locator-2-x-InputSelect__content_select_list_item"
+                )
                 for i in range(min(options.count(), 20)):
                     option = options.nth(i)
-                    if option.is_visible():
-                        text = self._normalize(option.inner_text(timeout=1_500))
-                        if any(
-                            token in text
-                            for token in (
-                                "miguel de cervantes",
-                                "irrigacion",
-                                "polanco",
-                                "11500",
-                            )
-                        ):
-                            option.click(timeout=4_000)
-                            suggestion_clicked = True
-                            break
+                    if not option.is_visible():
+                        continue
+                    text = self._normalize(option.inner_text(timeout=1_500))
+                    if any(
+                        token in text
+                        for token in (
+                            "miguel de cervantes",
+                            "irrigacion",
+                            "11500",
+                        )
+                    ):
+                        option.click(timeout=5_000)
+                        suggestion_clicked = True
+                        break
             except Exception:
                 pass
+
+            # Keep a normal keyboard fallback for storefront variations.
             if not suggestion_clicked:
                 try:
                     address_input.press("ArrowDown")
+                    page.wait_for_timeout(200)
                     address_input.press("Enter")
                     suggestion_clicked = True
                 except Exception:
                     pass
             self.run_meta["address_suggestion_selected"] = suggestion_clicked
-            page.wait_for_timeout(1_800)
+            page.wait_for_timeout(2_000)
 
-        # Once the address is confirmed Chedraui lists nearby Pickup stores.
         store_clicked = False
         store_patterns = (
             "Chedraui Selecto México Polanco",
+            "CHEDRAUI SELECTO MEXICO POLANCO",
             "Selecto México Polanco",
             "Selecto Mexico Polanco",
             "México Polanco",
@@ -146,7 +147,7 @@ class ChedrauiScraper(BaseChedrauiScraper):
         for label in store_patterns:
             try:
                 nodes = page.get_by_text(label, exact=False)
-                for i in range(min(nodes.count(), 20)):
+                for i in range(min(nodes.count(), 30)):
                     node = nodes.nth(i)
                     if node.is_visible():
                         node.click(timeout=4_000)
@@ -157,17 +158,15 @@ class ChedrauiScraper(BaseChedrauiScraper):
             except Exception:
                 continue
 
-        # Fallback: directory is part of Chedraui's normal UI. It is useful if
-        # the address autocomplete does not immediately populate nearby stores.
         if not store_clicked:
             directory_clicked = self._click_text(page, ("Directorio de tiendas",))
             self.run_meta["directory_clicked"] = directory_clicked
             if directory_clicked:
-                page.wait_for_timeout(1_200)
+                page.wait_for_timeout(1_500)
                 for label in store_patterns:
                     try:
                         nodes = page.get_by_text(label, exact=False)
-                        for i in range(min(nodes.count(), 30)):
+                        for i in range(min(nodes.count(), 40)):
                             node = nodes.nth(i)
                             if node.is_visible():
                                 node.click(timeout=4_000)
@@ -181,18 +180,18 @@ class ChedrauiScraper(BaseChedrauiScraper):
         self.run_meta["store_clicked"] = store_clicked
         page.wait_for_timeout(500)
 
-        # The live call-to-action is exactly "Recoger en esta tienda".
         confirmed = False
         try:
-            button = page.get_by_text("Recoger en esta tienda", exact=False).first
-            if button.count() and button.is_visible():
-                parent_button = button.locator("xpath=ancestor::button[1]")
+            labels = page.get_by_text("Recoger en esta tienda", exact=False)
+            for i in range(min(labels.count(), 10)):
+                label = labels.nth(i)
+                if not label.is_visible():
+                    continue
+                parent_button = label.locator("xpath=ancestor::button[1]")
                 if parent_button.count() and parent_button.is_enabled():
                     parent_button.click(timeout=5_000)
                     confirmed = True
-                elif button.is_enabled():
-                    button.click(timeout=5_000)
-                    confirmed = True
+                    break
         except Exception:
             pass
         if not confirmed and store_clicked:
@@ -202,13 +201,13 @@ class ChedrauiScraper(BaseChedrauiScraper):
                 timeout=4_000,
             )
         self.run_meta["pickup_confirmed"] = confirmed
-        page.wait_for_timeout(1_200)
+        page.wait_for_timeout(1_300)
 
         verified, method = self._verify_store_context(page, location)
         if verified:
             return True, f"{method}_after_address_ui"
 
-        self.run_meta["store_modal_text"] = self._body_text(page)[:10_000]
+        self.run_meta["store_modal_text"] = self._body_text(page)[:12_000]
         self._save_diagnostics(page, "store_address_selection_unverified")
         return False, None
 
