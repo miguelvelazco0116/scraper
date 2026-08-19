@@ -1,2 +1,2 @@
-run=2026-08-19T13:55:00-06:00
-mode=http1-diagnostic
+run=2026-08-19T13:58:00-06:00
+mode=http1-diagnostic-pr
