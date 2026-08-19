@@ -1,5 +1,5 @@
-run=2026-08-18T17:55:00-06:00
+run=2026-08-18T18:23:00-06:00
 retailer=chedraui
-category=higiene-bucal
+category=lavanderia
 location=chedraui-polanco
 mode=validate-new-retailer
