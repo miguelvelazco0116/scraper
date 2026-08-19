@@ -1,61 +1,32 @@
 # Scraper multi-retailer
 
-Base modular para extraer catálogos públicos de retailers de México mediante **Python + Playwright**, generar un único Excel consolidado y ejecutar pruebas desde GitHub Actions.
+Base modular para extraer catálogos públicos de retailers de México, generar un único Excel consolidado y ejecutar validaciones desde GitHub Actions.
 
 ## Retailers
 
 | Retailer | Estado | Categorías implementadas |
 |---|---|---|
 | Soriana | Implementado y validado | Cuidado bucal; Cuidado del hogar > Limpiadores; Cuidado del hogar > Limpiadores > Detergentes; Cuidado personal > Afeitado y depilación > Afeitado y depilación para dama |
-| Walmart | Implementado; requiere una sesión verificada portable para SC Toreo | Belleza y cuidado personal > Higiene y cuidado personal > Cuidado bucal; Limpieza del hogar y cuidado personal > Cuidado de la ropa; Belleza y cuidado personal > Depilación y rasurado |
-| Chedraui | Implementado para Chedraui Selecto México Polanco (232) | Cuidado e higiene personal > Higiene bucal; Supermercado > Limpieza del hogar > Lavandería |
-| Farmacias Guadalajara | Código y configuración implementados; requiere una red que pueda recibir respuesta del dominio oficial | Medicina > Respiratorio > Vías respiratorias; Super > Hogar > Lavandería; Super > Higiene y belleza > Cuidado bucal; Farmacia > Salud sexual > Preservativos |
+| Walmart | Implementado; requiere sesión verificada portable para SC Toreo | Cuidado bucal; Cuidado de la ropa; Depilación y rasurado |
+| Chedraui | Implementado para Chedraui Selecto México Polanco (232) | Higiene bucal; Lavandería |
+| Farmacias Guadalajara | Código/configuración implementados; el dominio no respondió desde GitHub-hosted durante la validación | Vías respiratorias; Lavandería; Cuidado bucal; Preservativos |
+| Farmacias del Ahorro | Implementado y validado como catálogo online nacional | Farmacia > Gripa y tos > Congestión nasal; Bienestar sexual > Preservativos; Cuidado personal > Higiene bucal > Enjuagues bucales; Cuidado personal > Higiene bucal > Cremas dentales |
 
 ## Ejecución recomendada
 
 - **Soriana:** GitHub-hosted Actions.
-- **Chedraui:** GitHub-hosted Actions con selección obligatoria de Chedraui Selecto México Polanco / tienda 232.
-- **Farmacias Guadalajara:** contexto `fg-online`, sin sucursal asignada. En las pruebas del 19 de agosto de 2026, los runners hospedados oficiales de GitHub en Linux, macOS y Windows resolvieron el dominio/Akamai pero no recibieron respuesta HTTP. El scraper clasifica este caso como `NETWORK_UNAVAILABLE` y debe ejecutarse desde una red que sí pueda acceder al sitio oficial. No se utilizan proxies ni mecanismos de evasión.
-- **Walmart:** GitHub-hosted Actions reutilizando una sesión Playwright verificada manualmente y guardada como GitHub Secret.
-- **No se automatizan CAPTCHAs ni desafíos de identidad.**
+- **Chedraui:** GitHub-hosted Actions con Chedraui Selecto México Polanco / tienda 232.
+- **Farmacias del Ahorro:** GitHub-hosted Actions, contexto `fahorro-online`. El storefront usa Empathy Search; el scraper obtiene el `categoryId` vigente desde la página oficial y pagina la misma API pública del storefront hasta `catalog.pagination.total`.
+- **Farmacias Guadalajara:** contexto `fg-online`; si la red no recibe respuesta del dominio oficial se clasifica `NETWORK_UNAVAILABLE`.
+- **Walmart:** GitHub-hosted Actions reutilizando una sesión Playwright verificada manualmente.
+- No se automatizan CAPTCHAs ni desafíos de identidad.
 
-La guía de sesión Walmart está en [`HOSTED_SESSION.md`](HOSTED_SESSION.md).
+## Farmacias del Ahorro
 
-## Estructura principal
-
-```text
-scraper/
-├── main.py
-├── scraper/retailers/
-│   ├── soriana.py
-│   ├── chedraui.py
-│   ├── chedraui_polanco.py
-│   ├── chedraui_polanco_api.py
-│   ├── farmacias_guadalajara.py
-│   ├── walmart.py
-│   ├── walmart_persistent.py
-│   └── walmart_storage_state.py
-├── scripts/
-│   ├── export_walmart_session.py
-│   ├── walmart_prepare_session.py
-│   └── run_all_retailers.py
-├── config/
-│   ├── locations.yaml
-│   ├── soriana/categories.yaml
-│   ├── chedraui/categories.yaml
-│   ├── farmacias-guadalajara/categories.yaml
-│   └── walmart/categories.yaml
-└── .github/workflows/
-    ├── soriana.yml
-    └── full-cloud.yml
-```
-
-## Farmacias Guadalajara / catálogo online
-
-Contexto configurado:
+Contexto:
 
 ```text
-id: fg-online
+id: fahorro-online
 city: Catálogo online
 state: Nacional
 store: null
@@ -65,27 +36,47 @@ postal_code: null
 
 Categorías:
 
-- `vias-respiratorias`: Medicina > Respiratorio > Vías respiratorias
-- `lavanderia`: Super > Hogar > Lavandería
-- `cuidado-bucal`: Super > Higiene y belleza > Cuidado bucal
-- `preservativos`: Farmacia > Salud sexual > Preservativos
+```text
+congestion-nasal  -> Farmacia > Gripa y tos > Congestión nasal
+preservativos     -> Bienestar sexual > Preservativos
+enjuagues-bucales -> Cuidado personal > Higiene bucal > Enjuagues bucales
+cremas-dentales   -> Cuidado personal > Higiene bucal > Cremas dentales
+```
 
 Ejemplos:
 
 ```bash
-python main.py --retailer farmacias-guadalajara --category vias-respiratorias --location fg-online
-python main.py --retailer farmacias-guadalajara --category lavanderia --location fg-online
-python main.py --retailer farmacias-guadalajara --category cuidado-bucal --location fg-online
-python main.py --retailer farmacias-guadalajara --category preservativos --location fg-online
+python main.py --retailer farmacias-del-ahorro --category congestion-nasal --location fahorro-online
+python main.py --retailer farmacias-del-ahorro --category preservativos --location fahorro-online
+python main.py --retailer farmacias-del-ahorro --category enjuagues-bucales --location fahorro-online
+python main.py --retailer farmacias-del-ahorro --category cremas-dentales --location fahorro-online
 ```
 
-El scraper recorre el catálogo público, expande el control de "Ver más productos", extrae SKU, marca, producto, precio actual, precio regular, promoción y URL, y conserva `store_context_verified=False` mientras no exista una sucursal configurada. Si la red no puede establecer una respuesta con el dominio oficial, termina con exit code `5`, escribe un diagnóstico y reporta `NETWORK_UNAVAILABLE` en lugar de crear datos parciales o inventados.
+Para descargar las cuatro categorías en una sola ejecución y un solo Excel:
 
-Los precios del catálogo online no se atribuyen a una sucursal concreta porque Farmacias Guadalajara indica que precios e inventarios pueden variar según la ubicación seleccionada.
+```bash
+python scripts/run_farmacias_del_ahorro.py --category all --location fahorro-online --fresh
+```
+
+El extractor usa los campos `sku`, `ecommTitle`, `ecommBrand`, `ecommUrlKey`, `currentPrice` y `previousPrice` que utiliza el catálogo online. Si `previousPrice` no está informado, `price_regular` se iguala al precio actual para mantener una salida consistente. El contexto se registra como `online_catalog_empathy_nacional` y no se atribuye a una sucursal física.
+
+Validación live del 19 de agosto de 2026:
+
+```text
+Congestión nasal: 54 productos
+Preservativos: 73 productos
+Enjuagues bucales: 41 productos
+Cremas dentales: 113 productos
+Total: 281 filas de categoría
+```
+
+En esa validación hubo cobertura completa de SKU, precio actual y URL en las cuatro categorías.
+
+## Farmacias Guadalajara
+
+Contexto `fg-online`, sin sucursal asignada. En las pruebas del 19 de agosto de 2026, runners hospedados oficiales de GitHub resolvieron el dominio/Akamai pero no recibieron respuesta HTTP. El scraper distingue ese caso como `NETWORK_UNAVAILABLE` y no crea datos parciales o inventados.
 
 ## Chedraui / Polanco
-
-Tienda configurada:
 
 ```text
 id: chedraui-polanco
@@ -96,11 +87,6 @@ city: Miguel Hidalgo
 state: CDMX
 ```
 
-Categorías:
-
-- `higiene-bucal`: Cuidado e higiene personal > Higiene bucal
-- `lavanderia`: Supermercado > Limpieza del hogar > Lavandería
-
 Ejemplos:
 
 ```bash
@@ -108,11 +94,7 @@ python main.py --retailer chedraui --category higiene-bucal --store chedraui-pol
 python main.py --retailer chedraui --category lavanderia --store chedraui-polanco
 ```
 
-El scraper selecciona Polanco mediante el directorio de tiendas del storefront, valida el contexto antes de escribir filas y recorre exhaustivamente la paginación. Si una página HTML de VTEX queda vacía entre páginas válidas, recupera únicamente ese rango con la misma consulta pública `productSearchV3` generada por el storefront en la misma sesión.
-
 ## Walmart / SC Toreo
-
-Tienda configurada:
 
 ```text
 id: sc-toreo
@@ -123,15 +105,7 @@ city: Miguel Hidalgo
 state: CDMX
 ```
 
-Categorías:
-
-- `cuidado-bucal`
-- `cuidado-de-la-ropa`
-- `depilacion-y-rasurado`
-
-### Crear una sesión portable
-
-En una computadora con navegador visible:
+Para preparar la sesión portable:
 
 ```bash
 pip install -r requirements.txt
@@ -139,36 +113,17 @@ playwright install chromium
 python scripts/export_walmart_session.py
 ```
 
-Completa manualmente cualquier verificación de Walmart y confirma SC Toreo. El script genera localmente:
-
-```text
-walmart_session.json
-walmart_session.secret.txt
-```
-
-Ambos están ignorados por Git y contienen estado sensible.
-
-Copia **todo el contenido** de `walmart_session.secret.txt` a un Repository Secret llamado:
-
-```text
-WALMART_SESSION_GZIP_B64
-```
-
-Luego ejecuta en GitHub Actions:
-
-```text
-Full Scraper - Hosted Session
-```
+Completa manualmente cualquier verificación y confirma SC Toreo. Guarda el contenido de `walmart_session.secret.txt` en el Repository Secret `WALMART_SESSION_GZIP_B64`. No se automatizan verificaciones de identidad.
 
 ## Ejecución completa
 
-Con un perfil Walmart persistente ya preparado y desde una red que también pueda acceder a Farmacias Guadalajara:
+Con una sesión Walmart disponible:
 
 ```bash
 python scripts/run_all_retailers.py --walmart-profile-dir .walmart_profile
 ```
 
-El runner incluye Soriana, Chedraui, Farmacias Guadalajara y Walmart, continúa procesando todos los casos aunque uno falle, concentra las categorías exitosas y registra el estado de cada caso en `Resumen`. `NETWORK_UNAVAILABLE` queda diferenciado de `BLOCKED`, `STORE_CONTEXT_ERROR` y otros errores.
+El runner incluye Soriana, Chedraui, Farmacias Guadalajara, Farmacias del Ahorro y Walmart. Continúa procesando los casos, concentra las categorías exitosas y distingue `SUCCESS`, `BLOCKED`, `NETWORK_UNAVAILABLE`, `STORE_CONTEXT_ERROR`, `EMPTY` y `ERROR`.
 
 ## Output
 

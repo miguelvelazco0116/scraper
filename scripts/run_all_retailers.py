@@ -86,6 +86,19 @@ def run_case(
         ]
         location = "fg-online"
         store = None
+    elif retailer == "farmacias-del-ahorro":
+        cmd = [
+            sys.executable,
+            "main.py",
+            "--retailer",
+            "farmacias-del-ahorro",
+            "--category",
+            category_id,
+            "--location",
+            "fahorro-online",
+        ]
+        location = "fahorro-online"
+        store = None
     else:
         cmd = [
             sys.executable,
@@ -118,6 +131,7 @@ def run_case(
         "chedraui": "Chedraui",
         "walmart": "Walmart",
         "farmacias-guadalajara": "Farmacias Guadalajara",
+        "farmacias-del-ahorro": "Farmacias del Ahorro",
     }
 
     return {
@@ -217,7 +231,7 @@ def main() -> int:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
     cases: list[tuple[str, dict]] = []
-    for retailer in ("soriana", "chedraui", "farmacias-guadalajara", "walmart"):
+    for retailer in ("soriana", "chedraui", "farmacias-guadalajara", "farmacias-del-ahorro", "walmart"):
         cases.extend((retailer, category) for category in load_enabled_categories(retailer))
 
     results: list[dict] = []

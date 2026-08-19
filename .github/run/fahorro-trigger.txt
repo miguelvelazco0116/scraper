@@ -1,0 +1,4 @@
+run=2026-08-19T15:28:00-06:00
+category=all
+location=fahorro-online
+mode=validate-empathy-production-retry

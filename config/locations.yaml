@@ -34,3 +34,12 @@ locations:
     store: null
     store_id: null
     enabled: true
+
+  - id: fahorro-online
+    city: Catálogo online
+    state: Nacional
+    country: México
+    postal_code: null
+    store: null
+    store_id: null
+    enabled: true

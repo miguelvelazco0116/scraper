@@ -1,0 +1,33 @@
+retailer: farmacias-del-ahorro
+categories:
+  - id: congestion-nasal
+    department: Farmacia
+    name: Gripa y tos
+    subcategory: Congestión nasal
+    sub_subcategory: null
+    url: https://www.fahorro.com/farmacia/gripa-y-tos/congestion-nasal.html
+    enabled: true
+
+  - id: preservativos
+    department: Bienestar sexual
+    name: Preservativos
+    subcategory: null
+    sub_subcategory: null
+    url: https://www.fahorro.com/bienestar-sexual/preservativos.html
+    enabled: true
+
+  - id: enjuagues-bucales
+    department: Cuidado personal
+    name: Higiene bucal
+    subcategory: Enjuagues bucales
+    sub_subcategory: null
+    url: https://www.fahorro.com/cuidado-personal/higiene-bucal/enjuagues-bucales.html
+    enabled: true
+
+  - id: cremas-dentales
+    department: Cuidado personal
+    name: Higiene bucal
+    subcategory: Cremas dentales
+    sub_subcategory: null
+    url: https://www.fahorro.com/cuidado-personal/higiene-bucal/cremas-dentales.html
+    enabled: true
