@@ -45,14 +45,8 @@ def run_case(
     category_id = category["id"]
     if retailer == "walmart":
         cmd = [
-            sys.executable,
-            "main.py",
-            "--retailer",
-            "walmart",
-            "--category",
-            category_id,
-            "--store",
-            "sc-toreo",
+            sys.executable, "main.py", "--retailer", "walmart", "--category", category_id,
+            "--store", "sc-toreo",
         ]
         if walmart_storage_state is not None:
             cmd.extend(["--storage-state", str(walmart_storage_state)])
@@ -62,53 +56,36 @@ def run_case(
         store = "SC Toreo"
     elif retailer == "chedraui":
         cmd = [
-            sys.executable,
-            "main.py",
-            "--retailer",
-            "chedraui",
-            "--category",
-            category_id,
-            "--store",
-            "chedraui-polanco",
+            sys.executable, "main.py", "--retailer", "chedraui", "--category", category_id,
+            "--store", "chedraui-polanco",
         ]
         location = "chedraui-polanco"
         store = "Chedraui Selecto México Polanco"
     elif retailer == "farmacias-guadalajara":
         cmd = [
-            sys.executable,
-            "main.py",
-            "--retailer",
-            "farmacias-guadalajara",
-            "--category",
-            category_id,
-            "--location",
-            "fg-online",
+            sys.executable, "main.py", "--retailer", "farmacias-guadalajara", "--category", category_id,
+            "--location", "fg-online",
         ]
         location = "fg-online"
         store = None
     elif retailer == "farmacias-del-ahorro":
         cmd = [
-            sys.executable,
-            "main.py",
-            "--retailer",
-            "farmacias-del-ahorro",
-            "--category",
-            category_id,
-            "--location",
-            "fahorro-online",
+            sys.executable, "main.py", "--retailer", "farmacias-del-ahorro", "--category", category_id,
+            "--location", "fahorro-online",
         ]
         location = "fahorro-online"
         store = None
+    elif retailer == "farmacias-san-pablo":
+        cmd = [
+            sys.executable, "main.py", "--retailer", "farmacias-san-pablo", "--category", category_id,
+            "--location", "san-pablo-online",
+        ]
+        location = "san-pablo-online"
+        store = None
     else:
         cmd = [
-            sys.executable,
-            "main.py",
-            "--retailer",
-            "soriana",
-            "--category",
-            category_id,
-            "--location",
-            "cdmx",
+            sys.executable, "main.py", "--retailer", "soriana", "--category", category_id,
+            "--location", "cdmx",
         ]
         location = "cdmx"
         store = None
@@ -132,6 +109,7 @@ def run_case(
         "walmart": "Walmart",
         "farmacias-guadalajara": "Farmacias Guadalajara",
         "farmacias-del-ahorro": "Farmacias del Ahorro",
+        "farmacias-san-pablo": "Farmacias San Pablo",
     }
 
     return {
@@ -163,9 +141,7 @@ def count_nonempty(series: pd.Series) -> int:
 def apply_quality(results: list[dict]) -> tuple[pd.DataFrame, pd.DataFrame]:
     if OUTPUT.exists():
         concentrated = pd.read_excel(
-            OUTPUT,
-            sheet_name="Concentrado",
-            dtype={"sku": str, "store_id": str},
+            OUTPUT, sheet_name="Concentrado", dtype={"sku": str, "store_id": str},
         )
     else:
         concentrated = pd.DataFrame()
@@ -231,7 +207,10 @@ def main() -> int:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
     cases: list[tuple[str, dict]] = []
-    for retailer in ("soriana", "chedraui", "farmacias-guadalajara", "farmacias-del-ahorro", "walmart"):
+    for retailer in (
+        "soriana", "chedraui", "farmacias-guadalajara", "farmacias-del-ahorro",
+        "farmacias-san-pablo", "walmart",
+    ):
         cases.extend((retailer, category) for category in load_enabled_categories(retailer))
 
     results: list[dict] = []
