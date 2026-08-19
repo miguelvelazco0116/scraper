@@ -1,0 +1,45 @@
+name: FG HTTP Diagnostic
+
+on:
+  push:
+    paths:
+      - ".github/run/fg-debug-trigger.txt"
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch category over HTTP/1.1
+        shell: bash
+        run: |
+          mkdir -p diagnostics
+          set +e
+          curl --http1.1 -L \
+            --retry 2 --retry-all-errors \
+            --connect-timeout 20 --max-time 90 \
+            -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36' \
+            -D diagnostics/fg_headers.txt \
+            -o diagnostics/fg_preservativos.html \
+            -w 'http_code=%{http_code}\nremote_ip=%{remote_ip}\nsize_download=%{size_download}\ntime_total=%{time_total}\n' \
+            'https://www.farmaciasguadalajara.com/farmacia/salud-sexual/preservativos' \
+            > diagnostics/fg_curl_meta.txt 2> diagnostics/fg_curl_stderr.txt
+          CURL_CODE=$?
+          echo "curl_exit=$CURL_CODE" >> diagnostics/fg_curl_meta.txt
+          if [[ -f diagnostics/fg_preservativos.html ]]; then
+            echo "html_bytes=$(wc -c < diagnostics/fg_preservativos.html)" >> diagnostics/fg_curl_meta.txt
+            grep -Eio 'https?[^" ]+|[A-Za-z0-9_/?&=.-]*(Search|search|product|Product|Ajax|ajax)[A-Za-z0-9_/?&=.-]*' diagnostics/fg_preservativos.html \
+              | head -n 300 > diagnostics/fg_endpoint_hints.txt || true
+          fi
+          cat diagnostics/fg_curl_meta.txt
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fg-http-diagnostic-${{ github.run_number }}
+          path: diagnostics/
+          retention-days: 2
+          if-no-files-found: warn
