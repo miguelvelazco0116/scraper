@@ -9,15 +9,14 @@ Base modular para extraer catálogos públicos de retailers de México mediante 
 | Soriana | Implementado y validado | Cuidado bucal; Cuidado del hogar > Limpiadores; Cuidado del hogar > Limpiadores > Detergentes; Cuidado personal > Afeitado y depilación > Afeitado y depilación para dama |
 | Walmart | Implementado; requiere una sesión verificada portable para SC Toreo | Belleza y cuidado personal > Higiene y cuidado personal > Cuidado bucal; Limpieza del hogar y cuidado personal > Cuidado de la ropa; Belleza y cuidado personal > Depilación y rasurado |
 | Chedraui | Implementado para Chedraui Selecto México Polanco (232) | Cuidado e higiene personal > Higiene bucal; Supermercado > Limpieza del hogar > Lavandería |
-| Farmacias Guadalajara | Implementado como catálogo online sin sucursal asignada | Medicina > Respiratorio > Vías respiratorias; Super > Hogar > Lavandería; Super > Higiene y belleza > Cuidado bucal; Farmacia > Salud sexual > Preservativos |
+| Farmacias Guadalajara | Código y configuración implementados; requiere una red que pueda recibir respuesta del dominio oficial | Medicina > Respiratorio > Vías respiratorias; Super > Hogar > Lavandería; Super > Higiene y belleza > Cuidado bucal; Farmacia > Salud sexual > Preservativos |
 
 ## Ejecución recomendada
 
 - **Soriana:** GitHub-hosted Actions.
 - **Chedraui:** GitHub-hosted Actions con selección obligatoria de Chedraui Selecto México Polanco / tienda 232.
-- **Farmacias Guadalajara:** GitHub-hosted Actions en contexto `fg-online`. No se atribuyen precios ni disponibilidad a una sucursal mientras no se configure una ubicación específica.
+- **Farmacias Guadalajara:** contexto `fg-online`, sin sucursal asignada. En las pruebas del 19 de agosto de 2026, los runners hospedados oficiales de GitHub en Linux, macOS y Windows resolvieron el dominio/Akamai pero no recibieron respuesta HTTP. El scraper clasifica este caso como `NETWORK_UNAVAILABLE` y debe ejecutarse desde una red que sí pueda acceder al sitio oficial. No se utilizan proxies ni mecanismos de evasión.
 - **Walmart:** GitHub-hosted Actions reutilizando una sesión Playwright verificada manualmente y guardada como GitHub Secret.
-- **No se requiere VM ni self-hosted runner.**
 - **No se automatizan CAPTCHAs ni desafíos de identidad.**
 
 La guía de sesión Walmart está en [`HOSTED_SESSION.md`](HOSTED_SESSION.md).
@@ -80,7 +79,9 @@ python main.py --retailer farmacias-guadalajara --category cuidado-bucal --locat
 python main.py --retailer farmacias-guadalajara --category preservativos --location fg-online
 ```
 
-El scraper recorre el catálogo público, expande el control de "Ver más productos", extrae SKU, marca, producto, precio actual, precio regular, promoción y URL, y conserva `store_context_verified=False` mientras no exista una sucursal configurada.
+El scraper recorre el catálogo público, expande el control de "Ver más productos", extrae SKU, marca, producto, precio actual, precio regular, promoción y URL, y conserva `store_context_verified=False` mientras no exista una sucursal configurada. Si la red no puede establecer una respuesta con el dominio oficial, termina con exit code `5`, escribe un diagnóstico y reporta `NETWORK_UNAVAILABLE` en lugar de crear datos parciales o inventados.
+
+Los precios del catálogo online no se atribuyen a una sucursal concreta porque Farmacias Guadalajara indica que precios e inventarios pueden variar según la ubicación seleccionada.
 
 ## Chedraui / Polanco
 
@@ -159,15 +160,15 @@ Luego ejecuta en GitHub Actions:
 Full Scraper - Hosted Session
 ```
 
-## Ejecución completa local
+## Ejecución completa
 
-Con un perfil Walmart persistente ya preparado:
+Con un perfil Walmart persistente ya preparado y desde una red que también pueda acceder a Farmacias Guadalajara:
 
 ```bash
 python scripts/run_all_retailers.py --walmart-profile-dir .walmart_profile
 ```
 
-El runner incluye Soriana, Chedraui, Farmacias Guadalajara y Walmart y consolida todas las categorías habilitadas.
+El runner incluye Soriana, Chedraui, Farmacias Guadalajara y Walmart, continúa procesando todos los casos aunque uno falle, concentra las categorías exitosas y registra el estado de cada caso en `Resumen`. `NETWORK_UNAVAILABLE` queda diferenciado de `BLOCKED`, `STORE_CONTEXT_ERROR` y otros errores.
 
 ## Output
 
