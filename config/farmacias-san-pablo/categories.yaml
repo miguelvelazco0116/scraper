@@ -5,7 +5,7 @@ categories:
     name: Gripe y tos
     subcategory: Descongestionantes
     sub_subcategory: null
-    url: https://www.farmaciasanpablo.com.mx/medicamentos/gripe-y-tos/descongestionantes/
+    url: https://www.farmaciasanpablo.com.mx/medicamentos/gripe-y-tos/descongestionantes/c/060070004
     enabled: true
 
   - id: preservativos
@@ -21,7 +21,7 @@ categories:
     name: Cuidado bucal
     subcategory: Enjuagues bucales
     sub_subcategory: null
-    url: https://www.farmaciasanpablo.com.mx/cuidado-personal-y-belleza/cuidado-bucal/enjuagues-bucales/
+    url: https://www.farmaciasanpablo.com.mx/cuidado-personal-y-belleza/cuidado-bucal/enjuagues-bucales/c/030040003
     enabled: true
 
   - id: pastas-dentales
@@ -29,5 +29,5 @@ categories:
     name: Cuidado bucal
     subcategory: Pastas dentales
     sub_subcategory: null
-    url: https://www.farmaciasanpablo.com.mx/cuidado-personal-y-belleza/cuidado-bucal/pastas-dentales/
+    url: https://www.farmaciasanpablo.com.mx/salud-natural/salud-natural/tes/c/Pastas-dentales0/c/030040007
     enabled: true
