@@ -1,13 +1,7 @@
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
 from urllib.parse import urlencode
-
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 from playwright.sync_api import sync_playwright
 
@@ -15,13 +9,15 @@ ENDPOINT = "https://api.empathy.co/search/v1/query/fda/browse"
 
 
 def main() -> int:
+    base = {"lang": "es", "start": "0", "rows": "3", "sort": ""}
     candidates = [
-        {"lang": "es", "browseField": "categoryId", "browseValue": "8196", "start": "0", "rows": "3"},
-        {"lang": "es", "browseField": "facetCategory", "browseValue": "8196", "start": "0", "rows": "3"},
-        {"lang": "es", "browseField": "category", "browseValue": "8196", "start": "0", "rows": "3"},
-        {"lang": "es", "browseField": "categoryId", "browseValue": "8196", "start": "0", "rows": "3", "scope": "NACIONAL"},
-        {"lang": "es", "browseField": "facetCategory", "browseValue": "8196", "start": "0", "rows": "3", "scope": "NACIONAL"},
-        {"lang": "es", "browseField": "categoryId", "browseValue": "8196", "start": "0", "rows": "3", "customerGroup": "NACIONAL"},
+        {**base, "browseField": "categoryId", "browseValue": "8196"},
+        {**base, "browseField": "facetCategory", "browseValue": "8196"},
+        {**base, "browseField": "category", "browseValue": "8196"},
+        {**base, "browseField": "categoryId", "browseValue": "8196", "scope": "NACIONAL"},
+        {**base, "browseField": "facetCategory", "browseValue": "8196", "scope": "NACIONAL"},
+        {**base, "browseField": "categoryId", "browseValue": "8196", "customerGroup": "NACIONAL"},
+        {"lang": "es", "browseField": "categoryId", "browseValue": "8196", "start": "0", "rows": "3", "sort": "_score desc"},
     ]
 
     with sync_playwright() as p:
@@ -36,7 +32,7 @@ def main() -> int:
                     "candidate": index,
                     "status": response.status,
                     "url": url,
-                    "body": text[:5000],
+                    "body": text[:7000],
                 }, ensure_ascii=False))
             except Exception as exc:
                 print(json.dumps({"candidate": index, "url": url, "error": repr(exc)}, ensure_ascii=False))
