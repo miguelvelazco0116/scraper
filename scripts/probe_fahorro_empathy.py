@@ -7,36 +7,30 @@ from urllib.parse import urljoin
 from playwright.sync_api import sync_playwright
 
 CATEGORY_URL = "https://www.fahorro.com/cuidado-personal/higiene-bucal/cremas-dentales.html"
-MODULE_PATH = "Infinite_EmpathySearch/js/view/search-list-component.js"
 TERMS = [
+    "Infinite_EmpathySearch",
+    "search-list-component",
     "searchResultsEndpointUrl",
     "browseField",
     "browseValue",
     "customerGroup",
     "currentPrice",
-    "sort",
     "facetCategory",
     "categoryId",
-    "scope",
-    "lang",
-    "start",
-    "rows",
     "api.empathy.co",
 ]
 
 
-def context_snippets(text: str, term: str, radius: int = 700) -> list[str]:
+def context_snippets(text: str, term: str, radius: int = 900) -> list[str]:
     snippets: list[str] = []
     lower = text.lower()
     needle = term.lower()
     start = 0
-    while len(snippets) < 6:
+    while len(snippets) < 8:
         pos = lower.find(needle, start)
         if pos < 0:
             break
-        left = max(0, pos - radius)
-        right = min(len(text), pos + len(term) + radius)
-        snippets.append(text[left:right])
+        snippets.append(text[max(0, pos - radius): min(len(text), pos + len(term) + radius)])
         start = pos + len(term)
     return snippets
 
@@ -51,36 +45,32 @@ def main() -> int:
         html = page_response.text()
         print(json.dumps({"page_status": page_response.status, "page_bytes": len(html)}, ensure_ascii=False))
 
-        version_match = re.search(r"(/static/version\d+/frontend/Omnipro/Farma_Theme/default/)", html)
-        candidates: list[str] = []
-        if version_match:
-            candidates.append(urljoin(CATEGORY_URL, version_match.group(1) + MODULE_PATH))
-        candidates.extend([
-            "https://www.fahorro.com/static/frontend/Omnipro/Farma_Theme/default/" + MODULE_PATH,
-            "https://www.fahorro.com/static/version1785883877/frontend/Omnipro/Farma_Theme/default/" + MODULE_PATH,
-        ])
+        script_urls = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', html, flags=re.IGNORECASE)
+        interesting = [
+            urljoin(CATEGORY_URL, src)
+            for src in script_urls
+            if "requirejs-map" in src or "requirejs-min-resolver" in src or "requirejs-config" in src
+        ]
+        print(json.dumps({"requirejs_files": interesting}, ensure_ascii=False))
 
-        seen: set[str] = set()
-        for candidate in candidates:
-            if candidate in seen:
-                continue
-            seen.add(candidate)
+        resolved_candidates: list[str] = []
+        for script_url in interesting:
             try:
-                response = request.get(candidate, timeout=45_000)
+                response = request.get(script_url, timeout=45_000)
                 text = response.text()
-                print("MODULE_CANDIDATE_BEGIN")
-                print(json.dumps({"status": response.status, "url": candidate, "bytes": len(text)}, ensure_ascii=False))
-                if response.ok:
-                    for term in TERMS:
-                        snippets = context_snippets(text, term)
-                        if snippets:
-                            print(json.dumps({"term": term, "snippets": snippets}, ensure_ascii=False))
-                    print("MODULE_HEAD", text[:5000])
-                print("MODULE_CANDIDATE_END")
-                if response.ok and len(text) > 500:
-                    break
+                print("REQUIREJS_FILE_BEGIN")
+                print(json.dumps({"status": response.status, "url": script_url, "bytes": len(text)}, ensure_ascii=False))
+                for term in TERMS:
+                    snippets = context_snippets(text, term)
+                    if snippets:
+                        print(json.dumps({"term": term, "snippets": snippets}, ensure_ascii=False))
+                for match in re.finditer(r'[^"\']*Infinite_EmpathySearch[^"\']*search-list-component[^"\']*', text, re.IGNORECASE):
+                    resolved_candidates.append(match.group(0))
+                print("REQUIREJS_FILE_END")
             except Exception as exc:
-                print(json.dumps({"url": candidate, "error": repr(exc)}, ensure_ascii=False))
+                print(json.dumps({"url": script_url, "error": repr(exc)}, ensure_ascii=False))
+
+        print(json.dumps({"resolved_candidates": resolved_candidates[:20]}, ensure_ascii=False))
         request.dispose()
     return 0
 
