@@ -14,50 +14,46 @@ permissions:
 
 jobs:
   diagnose:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Probe public HTTP/1.1 endpoints
+      - name: Probe Farmacias Guadalajara
         shell: bash
         run: |
           mkdir -p diagnostics
+          SAFE_OS=$(echo '${{ matrix.os }}' | tr -cd '[:alnum:]_-')
           UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36'
           probe() {
             NAME="$1"
-            URL="$2"
+            EXTRA="$2"
             set +e
-            curl --http1.1 -L \
+            curl $EXTRA -L \
               --connect-timeout 8 --max-time 20 \
               -A "$UA" \
-              -D "diagnostics/${NAME}_headers.txt" \
-              -o "diagnostics/${NAME}_body.txt" \
+              -D "diagnostics/${SAFE_OS}_${NAME}_headers.txt" \
+              -o "diagnostics/${SAFE_OS}_${NAME}_body.txt" \
               -w 'http_code=%{http_code}\nremote_ip=%{remote_ip}\nsize_download=%{size_download}\ntime_total=%{time_total}\n' \
-              "$URL" > "diagnostics/${NAME}_meta.txt" 2> "diagnostics/${NAME}_stderr.txt"
-            CODE=$?
-            echo "curl_exit=$CODE" >> "diagnostics/${NAME}_meta.txt"
+              'https://www.farmaciasguadalajara.com/farmacia/salud-sexual/preservativos' \
+              > "diagnostics/${SAFE_OS}_${NAME}_meta.txt" \
+              2> "diagnostics/${SAFE_OS}_${NAME}_stderr.txt"
+            echo "curl_exit=$?" >> "diagnostics/${SAFE_OS}_${NAME}_meta.txt"
           }
-
-          probe homepage 'https://www.farmaciasguadalajara.com/' &
-          probe category_new 'https://www.farmaciasguadalajara.com/farmacia/salud-sexual/preservativos' &
-          probe category_legacy 'https://www.farmaciasguadalajara.com/preservativos-es' &
-          probe product_legacy 'https://www.farmaciasguadalajara.com/ProductDisplay?catalogId=10052&categoryId=3074457345616680003&langId=-24&productId=3074457345616846148&storeId=10151&urlLangId=-24&urlRequestType=Base' &
-          probe rest_category 'https://www.farmaciasguadalajara.com/search/resources/store/10151/productview/byCategory/3074457345616680003?catalogId=10052&langId=-24&currency=MXN&responseFormat=json&pageNumber=1&pageSize=20' &
+          probe default '' &
+          probe http1 '--http1.1' &
           wait || true
-
           for meta in diagnostics/*_meta.txt; do
             echo "===== $meta ====="
             cat "$meta"
           done
-          for f in diagnostics/*_body.txt; do
-            [[ -f "$f" ]] || continue
-            grep -Eio '[A-Za-z0-9_/?&=.-]*(Search|search|product|Product|Ajax|ajax|beginIndex|pageSize)[A-Za-z0-9_/?&=.-]*' "$f" \
-              | head -n 300 > "${f%_body.txt}_hints.txt" || true
-          done
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: fg-http-diagnostic-${{ github.run_number }}
+          name: fg-http-${{ matrix.os }}-${{ github.run_number }}
           path: diagnostics/
           retention-days: 2
           if-no-files-found: warn
