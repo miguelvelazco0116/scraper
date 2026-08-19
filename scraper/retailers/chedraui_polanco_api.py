@@ -56,8 +56,14 @@ class ChedrauiScraper(PolancoUIScraper):
     def _best_offer(product: dict) -> tuple[float | None, float | None, int | None, list[str]]:
         offers: list[tuple[int, float | None, float | None, int | None, list[str]]] = []
         for item in product.get("items") or []:
+            if not isinstance(item, dict):
+                continue
             for seller in item.get("sellers") or []:
+                if not isinstance(seller, dict):
+                    continue
                 offer = seller.get("commertialOffer") or {}
+                if not isinstance(offer, dict):
+                    continue
                 price = offer.get("Price")
                 regular = offer.get("ListPrice")
                 available = offer.get("AvailableQuantity")
@@ -88,8 +94,16 @@ class ChedrauiScraper(PolancoUIScraper):
             )
 
         price_range = product.get("priceRange") or {}
-        selling = (price_range.get("sellingPrice") or {}).get("lowPrice")
-        regular = (price_range.get("listPrice") or {}).get("lowPrice")
+        if not isinstance(price_range, dict):
+            price_range = {}
+        selling_range = price_range.get("sellingPrice") or {}
+        list_range = price_range.get("listPrice") or {}
+        if not isinstance(selling_range, dict):
+            selling_range = {}
+        if not isinstance(list_range, dict):
+            list_range = {}
+        selling = selling_range.get("lowPrice")
+        regular = list_range.get("lowPrice")
         return (
             float(selling) if selling is not None else None,
             float(regular) if regular is not None else None,
@@ -110,6 +124,8 @@ class ChedrauiScraper(PolancoUIScraper):
         rows: list[dict] = []
 
         for product in products:
+            if not isinstance(product, dict):
+                continue
             sku = clean_text(str(product.get("productId") or product.get("productReference") or ""))
             name = clean_text(product.get("productName"))
             url = absolute_url(product.get("link"), "https://www.chedraui.com.mx/")
