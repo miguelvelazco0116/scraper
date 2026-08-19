@@ -1,4 +1,4 @@
-run=2026-08-19T15:14:00-06:00
-category=cremas-dentales
+run=2026-08-19T15:18:00-06:00
+category=all
 location=fahorro-online
-mode=probe-empathy-exact-plus-prices
+mode=probe-empathy-all-categories
