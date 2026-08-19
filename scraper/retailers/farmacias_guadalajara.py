@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urljoin
 
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
@@ -57,7 +58,6 @@ class FarmaciasGuadalajaraScraper:
                 candidate = lines[idx - 1]
                 if candidate and len(candidate) <= 40 and candidate.upper() == candidate and any(ch.isalpha() for ch in candidate):
                     return candidate.title() if len(candidate) > 4 else candidate
-        # fallback conservador para marcas comunes de las categorías objetivo
         brands = [
             "Colgate", "Oral-B", "Sensodyne", "Listerine", "Gum", "Curaprox",
             "Prudence", "Sico", "Trojan", "Durex", "Playboy",
@@ -85,8 +85,6 @@ class FarmaciasGuadalajaraScraper:
         if not values:
             return None, None, None
 
-        # En las tarjetas FG el precio anterior aparece antes del precio actual.
-        # Si sólo existe un precio, actual y regular son iguales.
         current = values[-1]
         regular = values[0] if len(values) > 1 else current
         if current > regular:
@@ -138,6 +136,25 @@ class FarmaciasGuadalajaraScraper:
         except Exception:
             return 0
 
+    @staticmethod
+    def _goto_with_retries(page, url: str):
+        last_error: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                return page.goto(url, wait_until="domcontentloaded", timeout=120_000)
+            except PlaywrightError as exc:
+                last_error = exc
+                if attempt >= 3:
+                    break
+                try:
+                    page.goto("about:blank", wait_until="commit", timeout=10_000)
+                except Exception:
+                    pass
+                page.wait_for_timeout(1_500 * attempt)
+        if last_error is not None:
+            raise last_error
+        return None
+
     def _expand_all_products(self, page, target: int | None) -> None:
         stable_rounds = 0
         previous = self._product_link_count(page)
@@ -152,7 +169,7 @@ class FarmaciasGuadalajaraScraper:
                 button.scroll_into_view_if_needed()
                 button.click(timeout=10_000)
                 page.wait_for_timeout(1_500)
-            except (PlaywrightTimeoutError, Exception):
+            except Exception:
                 break
 
             current = self._product_link_count(page)
@@ -215,11 +232,19 @@ class FarmaciasGuadalajaraScraper:
         DIAGNOSTICS.mkdir(parents=True, exist_ok=True)
         slug = category.id
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=self.headless)
-            context = browser.new_context(locale="es-MX", viewport={"width": 1440, "height": 1000})
+            browser = p.chromium.launch(headless=self.headless, args=["--disable-http2"])
+            context = browser.new_context(
+                locale="es-MX",
+                viewport={"width": 1440, "height": 1000},
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/139.0.0.0 Safari/537.36"
+                ),
+            )
             page = context.new_page()
             try:
-                response = page.goto(category.url, wait_until="domcontentloaded", timeout=120_000)
+                response = self._goto_with_retries(page, category.url)
                 if response and response.status >= 400:
                     raise RuntimeError(f"HTTP {response.status} en {category.url}")
                 page.wait_for_timeout(2_000)
