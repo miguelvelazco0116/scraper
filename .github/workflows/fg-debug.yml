@@ -4,6 +4,10 @@ on:
   push:
     paths:
       - ".github/run/fg-debug-trigger.txt"
+  pull_request:
+    paths:
+      - ".github/run/fg-debug-trigger.txt"
+      - ".github/workflows/fg-debug.yml"
 
 permissions:
   contents: read
