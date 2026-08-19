@@ -1,5 +1,5 @@
-run=2026-08-19T15:10:00-06:00
-retailer=farmacias-del-ahorro
-category=enjuagues-bucales
-location=fahorro-online
-mode=final-validate-main-cli
+run=2026-08-19T15:31:00-06:00
+retailer=soriana
+category=cuidado-bucal
+location=cdmx
+mode=connectivity-test
