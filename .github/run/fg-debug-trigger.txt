@@ -1,2 +1,2 @@
-run=2026-08-19T13:58:00-06:00
-mode=http1-diagnostic-pr
+run=2026-08-19T14:00:00-06:00
+mode=http1-parallel-probes
