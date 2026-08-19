@@ -12,6 +12,7 @@ on:
           - soriana
           - walmart
           - chedraui
+          - farmacias-guadalajara
       category:
         description: Categoria configurada
         required: true
@@ -73,6 +74,8 @@ jobs:
             LOCATION="${LOCATION:-sc-toreo}"
           elif [[ "$RETAILER" == "chedraui" ]]; then
             LOCATION="${LOCATION:-chedraui-polanco}"
+          elif [[ "$RETAILER" == "farmacias-guadalajara" ]]; then
+            LOCATION="${LOCATION:-fg-online}"
           else
             LOCATION="${LOCATION:-cdmx}"
           fi
@@ -105,6 +108,8 @@ jobs:
             python main.py --retailer walmart --category "${{ steps.params.outputs.category }}" --store "${{ steps.params.outputs.location }}"
           elif [[ "${{ steps.params.outputs.retailer }}" == "chedraui" ]]; then
             python main.py --retailer chedraui --category "${{ steps.params.outputs.category }}" --store "${{ steps.params.outputs.location }}"
+          elif [[ "${{ steps.params.outputs.retailer }}" == "farmacias-guadalajara" ]]; then
+            python main.py --retailer farmacias-guadalajara --category "${{ steps.params.outputs.category }}" --location "${{ steps.params.outputs.location }}"
           else
             python main.py --retailer soriana --category "${{ steps.params.outputs.category }}" --location "${{ steps.params.outputs.location }}"
           fi
