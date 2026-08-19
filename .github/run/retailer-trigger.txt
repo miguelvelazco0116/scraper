@@ -1,5 +1,5 @@
-run=2026-08-19T13:43:00-06:00
+run=2026-08-19T13:47:00-06:00
 retailer=farmacias-guadalajara
 category=preservativos
 location=fg-online
-mode=validate-new-retailer
+mode=validate-new-retailer-retry
