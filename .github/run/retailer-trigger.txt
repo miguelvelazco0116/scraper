@@ -1,5 +1,5 @@
-run=2026-08-19T15:32:00-06:00
+run=stopped
 retailer=soriana
 category=cuidado-bucal
 location=cdmx
-mode=connectivity-stop-marker
+mode=stopped
