@@ -1,5 +1,5 @@
-run=2026-08-19T15:35:00-06:00
-retailer=walmart
+run=2026-08-19T15:32:00-06:00
+retailer=soriana
 category=cuidado-bucal
-location=sc-toreo
-mode=connectivity-test
+location=cdmx
+mode=connectivity-stop-marker
