@@ -60,7 +60,7 @@ python scripts/run_farmacias_del_ahorro.py --category all --location fahorro-onl
 
 El extractor usa los campos `sku`, `ecommTitle`, `ecommBrand`, `ecommUrlKey`, `currentPrice` y `previousPrice` que utiliza el catálogo online. Si `previousPrice` no está informado, `price_regular` se iguala al precio actual para mantener una salida consistente. El contexto se registra como `online_catalog_empathy_nacional` y no se atribuye a una sucursal física.
 
-Validación live final del 19 de agosto de 2026 (workflow dedicado #54, run `32302275204`):
+Validación live del 19 de agosto de 2026:
 
 ```text
 Congestión nasal: 54 productos
@@ -70,19 +70,7 @@ Cremas dentales: 113 productos
 Total: 280 filas de categoría
 ```
 
-Cobertura de la corrida final:
-
-```text
-SKU:            280 / 280
-Precio actual:  280 / 280
-Precio regular: 280 / 280
-URL:            280 / 280
-Tests:           48 / 48
-```
-
-Los conteos del catálogo son dinámicos. Durante la implementación, Preservativos cambió de 73 a 72 productos entre dos corridas; el scraper siempre utiliza el `catalog.pagination.total` vigente en lugar de fijar cantidades manualmente.
-
-La integración genérica también fue validada en el workflow Retailer Scraper #157 (`32302275218`): `main.py --retailer farmacias-del-ahorro --category enjuagues-bucales --location fahorro-online` devolvió 41 productos y omitió correctamente la instalación de Chromium.
+En esa validación hubo cobertura completa de SKU, precio actual, precio regular y URL en las cuatro categorías.
 
 ## Farmacias Guadalajara
 
