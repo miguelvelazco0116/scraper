@@ -1,4 +1,4 @@
-run=2026-08-19T15:32:00-06:00
+run=stopped
 category=none
 location=fahorro-online
-mode=connectivity-stopped
+mode=stopped
