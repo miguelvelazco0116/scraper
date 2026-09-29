@@ -123,3 +123,49 @@ def test_chedraui_product_search_payload_maps_to_output():
     assert row["store_id"] == "232"
     assert row["store_context_verified"] is True
     assert "productSearchV3" in row["store_context_method"]
+
+
+def test_chedraui_product_search_is_authoritative_for_prices(monkeypatch):
+    scraper = ChedrauiAPIScraper()
+    html_rows = [
+        {
+            "sku": "3021491",
+            "product": "Pasta Dental Arm & Hammer",
+            "price_current": 17.0,
+            "price_regular": 1299.0,
+            "promotion": "PromociónSí (111)",
+        }
+    ]
+    api_rows = [
+        {
+            "sku": "3021491",
+            "product": "Pasta Dental Arm & Hammer",
+            "price_current": 89.0,
+            "price_regular": 99.0,
+            "promotion": "Precio promocional",
+        }
+    ]
+
+    def fake_html(self, page, category, location, page_number, target_rows):
+        return category.url, html_rows, [{"mode": "html", "rows": 1}]
+
+    def fake_api(self, page, category, location, page_number):
+        return api_rows, {"mode": "productSearchV3", "rows": 1}
+
+    monkeypatch.setattr(ChedrauiPolancoScraper, "_load_page_rows", fake_html)
+    monkeypatch.setattr(
+        ChedrauiAPIScraper,
+        "_recover_page_from_product_search",
+        fake_api,
+    )
+
+    _, rows, attempts = scraper._load_page_rows(
+        None, LAUNDRY, POLANCO, page_number=1, target_rows=None
+    )
+
+    assert rows == api_rows
+    assert rows[0]["price_current"] == 89.0
+    assert rows[0]["price_regular"] == 99.0
+    assert rows[0]["promotion"] != "PromociónSí (111)"
+    assert any(x.get("mode") == "productSearchV3" for x in attempts)
+    assert scraper.run_meta["api_price_pages"] == [1]
