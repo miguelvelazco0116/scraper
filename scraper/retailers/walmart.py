@@ -499,39 +499,74 @@ class WalmartScraper:
         js = r"""
         anchors => {
           const money = /\$\s*[\d,.]+/;
+          const currentPrice = /precio\s+actual/i;
           const seen = new Set();
           const out = [];
+
           for (const a of anchors) {
-            const href = a.getAttribute('href');
+            const rawHref = a.getAttribute('href');
+            if (!rawHref) continue;
+
+            let href = null;
+            try {
+              const parsed = new URL(rawHref, window.location.origin);
+              if (
+                parsed.hostname === window.location.hostname &&
+                /^\/ip\//i.test(parsed.pathname)
+              ) {
+                href = parsed.pathname + parsed.search;
+              }
+            } catch (e) {}
+
+            // Ignore sponsored tracking URLs such as /wapcrs/track?...rd=.../ip/...
+            // The canonical /ip/ anchor for the same product is present separately.
             if (!href || seen.has(href)) continue;
             seen.add(href);
 
             let card = a;
-            for (let i = 0; i < 10 && card && card.parentElement; i++) {
-              const txt = (card.textContent || '').trim();
-              if (money.test(txt) && txt.length > 20) break;
+            for (let i = 0; i < 12 && card && card.parentElement; i++) {
+              const txt = (card.textContent || '').replace(/\s+/g, ' ').trim();
+              if ((currentPrice.test(txt) || money.test(txt)) && txt.length > 20) break;
               card = card.parentElement;
             }
             if (!card) continue;
-            const text = (card.textContent || '').replace(/\s+/g, ' ').trim();
-            if (!money.test(text)) continue;
 
+            const text = (card.textContent || '').replace(/\s+/g, ' ').trim();
+            if (!currentPrice.test(text) && !money.test(text)) continue;
+
+            const titleNode = card.querySelector(
+              '[data-automation-id="product-title"], [data-testid="product-title"]'
+            );
             const img = card.querySelector('img[alt]');
             const anchorText = (a.textContent || '').replace(/\s+/g, ' ').trim();
             const aria = a.getAttribute('aria-label');
-            const product = (aria && aria.length > 4 ? aria : null) ||
-                            (anchorText && anchorText.length > 4 ? anchorText : null) ||
-                            (img ? img.getAttribute('alt') : null);
-            out.push({href, product, text});
+            const title = titleNode ? (titleNode.textContent || '').trim() : null;
+
+            const product =
+              (title && title.length > 4 ? title : null) ||
+              (aria && aria.length > 4 && !/^destacado$/i.test(aria) ? aria : null) ||
+              (img && img.getAttribute('alt') ? img.getAttribute('alt') : null) ||
+              (anchorText && anchorText.length > 4 && !/^destacado$/i.test(anchorText) ? anchorText : null);
+
+            const pickup = /\b(pickup|recoge|recoger|recogida)\b/i.test(text);
+            out.push({href, product, text, pickup});
           }
           return out;
         }
         """
+
         anchors = page.locator('a[href*="/ip/"]')
-        if not anchors.count():
+        anchor_count = anchors.count()
+        if not anchor_count:
+            self.run_meta.setdefault("card_extraction", []).append(
+                {"anchors": 0, "candidates": 0, "pickup_signals": 0, "rows": 0}
+            )
             return []
+
         raw = anchors.evaluate_all(js)
-        rows: list[dict[str, Any]] = []
+        candidates: list[dict[str, Any]] = []
+        rejected_missing_identity = 0
+        rejected_missing_price = 0
 
         for item in raw:
             url = absolute_url(item.get("href"), BASE_URL)
@@ -539,10 +574,19 @@ class WalmartScraper:
             product = clean_text(item.get("product"))
             text = clean_text(item.get("text")) or ""
             if not sku or not product:
+                rejected_missing_identity += 1
                 continue
 
-            current_match = re.search(r"precio\s+actual\s*(?:MXN)?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)", text, re.I)
-            before_match = re.search(r"(?:Antes|costaba)\s*\$?\s*([\d,]+(?:\.\d{1,2})?)", text, re.I)
+            current_match = re.search(
+                r"precio\s+actual\s*(?:MXN)?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)",
+                text,
+                re.I,
+            )
+            before_match = re.search(
+                r"(?:Antes|costaba)\s*\$?\s*([\d,]+(?:\.\d{1,2})?)",
+                text,
+                re.I,
+            )
             current = parse_money(current_match.group(1)) if current_match else None
             regular = parse_money(before_match.group(1)) if before_match else None
 
@@ -552,11 +596,44 @@ class WalmartScraper:
                 values = [x for x in values if x is not None]
                 current = values[0] if values else None
                 regular = regular or (values[1] if len(values) > 1 else current)
+
+            if current is None:
+                rejected_missing_price += 1
+                continue
             if regular is None:
                 regular = current
 
-            pickup = bool(re.search(r"\b(pickup|recoge|recoger|recogida)\b", text, re.I))
-            if self.store_only and not pickup:
+            candidates.append(
+                {
+                    "url": url,
+                    "sku": sku,
+                    "product": product,
+                    "text": text,
+                    "price_current": current,
+                    "price_regular": regular,
+                    "pickup": bool(item.get("pickup")),
+                }
+            )
+
+        pickup_signal_count = sum(1 for item in candidates if item["pickup"])
+        enforce_card_pickup = self.store_only and pickup_signal_count > 0
+
+        # Walmart currently scopes category prices to the verified store but may
+        # omit pickup text from every product tile. In that case, keep the rows
+        # while leaving pickup_available unknown instead of inventing pickup
+        # availability or discarding the entire verified category.
+        if self.store_only and pickup_signal_count == 0:
+            self.run_meta["pickup_filter_mode"] = "verified_store_context_no_card_signal"
+        elif self.store_only:
+            self.run_meta["pickup_filter_mode"] = "card_pickup_signal"
+        else:
+            self.run_meta["pickup_filter_mode"] = "disabled"
+
+        rows: list[dict[str, Any]] = []
+        rejected_no_pickup = 0
+        for item in candidates:
+            if enforce_card_pickup and not item["pickup"]:
+                rejected_no_pickup += 1
                 continue
 
             promos = []
@@ -567,9 +644,9 @@ class WalmartScraper:
                 r"Combina\s+\d+\s*x\s*\$[\d,.]+",
                 r"Ahorra\s*\$[\d,.]+",
             ):
-                m = re.search(pattern, text, re.I)
-                if m:
-                    promos.append(m.group(0))
+                match = re.search(pattern, item["text"], re.I)
+                if match:
+                    promos.append(match.group(0))
 
             rows.append(
                 {
@@ -585,19 +662,34 @@ class WalmartScraper:
                     "subcategory": category.subcategory,
                     "sub_subcategory": category.sub_subcategory,
                     "category_id": category.id,
-                    "sku": sku,
-                    "brand": self._infer_brand(product),
-                    "product": product,
-                    "price_current": current,
-                    "price_regular": regular,
+                    "sku": item["sku"],
+                    "brand": self._infer_brand(item["product"]),
+                    "product": item["product"],
+                    "price_current": item["price_current"],
+                    "price_regular": item["price_regular"],
                     "promotion": clean_text(" | ".join(dict.fromkeys(promos))),
-                    "pickup_available": pickup,
+                    "pickup_available": (
+                        item["pickup"] if pickup_signal_count > 0 else None
+                    ),
                     "store_context_verified": bool(self._active_store_context_method),
                     "store_context_method": self._active_store_context_method,
-                    "url": url,
-                    "price_raw": text,
+                    "url": item["url"],
+                    "price_raw": item["text"],
                 }
             )
+
+        self.run_meta.setdefault("card_extraction", []).append(
+            {
+                "anchors": anchor_count,
+                "canonical_candidates": len(raw),
+                "candidates_with_identity_and_price": len(candidates),
+                "pickup_signals": pickup_signal_count,
+                "rejected_missing_identity": rejected_missing_identity,
+                "rejected_missing_price": rejected_missing_price,
+                "rejected_no_pickup": rejected_no_pickup,
+                "rows": len(rows),
+            }
+        )
         return rows
 
     def _scrape_with_context(
