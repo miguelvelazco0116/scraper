@@ -65,3 +65,32 @@ def test_store_context_rejects_state_with_only_postal_code():
     store = {x.id: x for x in load_locations()}["sc-toreo"]
     blob = '{"postalCode":"11220"}'
     assert not WalmartScraper._store_context_in_state_blob(blob, store)
+
+
+def test_walmart_headed_waits_for_manual_verification(monkeypatch):
+    scraper = WalmartScraper(headless=False, manual_verification_timeout_ms=5_000)
+
+    states = iter([True, True, False])
+    monkeypatch.setattr(scraper, "_is_blocked", lambda page, status=None: next(states))
+    monkeypatch.setattr(scraper, "_save_diagnostics", lambda page, prefix: None)
+
+    class FakePage:
+        def wait_for_timeout(self, ms):
+            return None
+
+    scraper._assert_not_blocked(FakePage(), 403)
+
+    assert scraper.run_meta["manual_verification_required"] is True
+    assert scraper.run_meta["manual_verification_resolved"] is True
+
+
+def test_walmart_headless_does_not_wait_for_manual_verification(monkeypatch):
+    import pytest
+    from scraper.retailers.walmart import WalmartBlocked
+
+    scraper = WalmartScraper(headless=True)
+    monkeypatch.setattr(scraper, "_is_blocked", lambda page, status=None: True)
+    monkeypatch.setattr(scraper, "_save_diagnostics", lambda page, prefix: None)
+
+    with pytest.raises(WalmartBlocked):
+        scraper._assert_not_blocked(object(), 403)
