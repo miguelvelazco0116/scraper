@@ -209,7 +209,16 @@ class ChedrauiScraper(PolancoUIScraper):
     @staticmethod
     def _html_row_has_category_facet_contamination(row: dict) -> bool:
         promotion = clean_text(row.get("promotion")) or ""
-        normalized = promotion.casefold().replace("ó", "o")
+        normalized = promotion.casefold()
+        for source, target in (
+            ("á", "a"),
+            ("é", "e"),
+            ("í", "i"),
+            ("ó", "o"),
+            ("ú", "u"),
+            ("ü", "u"),
+        ):
+            normalized = normalized.replace(source, target)
         return "promocionsi (" in normalized or "promocion si (" in normalized
 
     def _load_page_rows(self, page, category, location, page_number: int, target_rows: int | None):
