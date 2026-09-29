@@ -169,3 +169,86 @@ def test_chedraui_product_search_is_authoritative_for_prices(monkeypatch):
     assert rows[0]["promotion"] != "PromociónSí (111)"
     assert any(x.get("mode") == "productSearchV3" for x in attempts)
     assert scraper.run_meta["api_price_pages"] == [1]
+
+
+def test_chedraui_rejects_html_prices_when_structured_request_exists(monkeypatch):
+    scraper = ChedrauiAPIScraper()
+    scraper._product_search_template_url = "https://example.test/?operationName=productSearchV3"
+
+    html_rows = [
+        {
+            "sku": "3021491",
+            "product": "Pasta Dental Arm & Hammer",
+            "price_current": 17.0,
+            "price_regular": 1299.0,
+            "promotion": "PromociónSí (111)",
+        }
+    ]
+
+    def fake_html(self, page, category, location, page_number, target_rows):
+        return category.url, html_rows, [{"mode": "html", "rows": 1}]
+
+    def fake_api(self, page, category, location, page_number):
+        return [], {
+            "mode": "productSearchV3",
+            "rows": 0,
+            "status": 200,
+            "reason": "no_structured_price_rows",
+        }
+
+    monkeypatch.setattr(ChedrauiPolancoScraper, "_load_page_rows", fake_html)
+    monkeypatch.setattr(
+        ChedrauiAPIScraper,
+        "_recover_page_from_product_search",
+        fake_api,
+    )
+
+    _, rows, attempts = scraper._load_page_rows(
+        None, LAUNDRY, POLANCO, page_number=16, target_rows=None
+    )
+
+    assert rows == []
+    assert any(x.get("mode") == "productSearchV3" for x in attempts)
+    assert scraper.run_meta["structured_price_missing_pages"][0]["page"] == 16
+    assert scraper.run_meta["structured_price_missing_pages"][0]["html_rows_rejected"] == 1
+
+
+def test_chedraui_filters_category_facet_from_legacy_html_fallback(monkeypatch):
+    scraper = ChedrauiAPIScraper()
+
+    html_rows = [
+        {
+            "sku": "bad",
+            "product": "Producto contaminado",
+            "price_current": 17.0,
+            "price_regular": 1299.0,
+            "promotion": "PromociónSí (111)",
+        },
+        {
+            "sku": "ok",
+            "product": "Producto válido",
+            "price_current": 100.0,
+            "price_regular": 125.0,
+            "promotion": "2x$125",
+        },
+    ]
+
+    def fake_html(self, page, category, location, page_number, target_rows):
+        return category.url, html_rows, [{"mode": "html", "rows": 2}]
+
+    def fake_api(self, page, category, location, page_number):
+        return [], {"mode": "productSearchV3", "rows": 0, "reason": "template_not_captured"}
+
+    monkeypatch.setattr(ChedrauiPolancoScraper, "_load_page_rows", fake_html)
+    monkeypatch.setattr(
+        ChedrauiAPIScraper,
+        "_recover_page_from_product_search",
+        fake_api,
+    )
+
+    _, rows, _ = scraper._load_page_rows(
+        None, LAUNDRY, POLANCO, page_number=1, target_rows=None
+    )
+
+    assert [row["sku"] for row in rows] == ["ok"]
+    assert scraper.run_meta["html_facet_rows_rejected"] == [{"page": 1, "rows": 1}]
