@@ -209,6 +209,45 @@ class WalmartScraper:
     def _store_context_in_browser_state(self, page: Page, location: Location) -> bool:
         return self._store_context_in_state_blob(self._browser_state_blob(page), location)
 
+    @classmethod
+    def _is_store_location_input_metadata(
+        cls,
+        *,
+        input_type: str | None,
+        role: str | None,
+        placeholder: str | None,
+        aria_label: str | None,
+        name: str | None,
+        element_id: str | None,
+    ) -> bool:
+        metadata = " ".join(
+            x for x in (placeholder, aria_label, name, element_id) if x
+        )
+        normalized = cls._normalize(metadata)
+        input_type_normalized = cls._normalize(input_type)
+        role_normalized = cls._normalize(role)
+
+        # Never treat the global product search box as a postal/store field.
+        if input_type_normalized == "search" or role_normalized == "searchbox":
+            return False
+        if any(marker in normalized for marker in ("buscar", "search", "busqueda", "query")):
+            return False
+        if cls._normalize(name) in {"q", "query", "search"}:
+            return False
+
+        return any(
+            marker in normalized
+            for marker in (
+                "codigo postal",
+                "postal",
+                "zip code",
+                "zipcode",
+                "ubicacion",
+                "direccion",
+                "domicilio",
+            )
+        )
+
     def _try_select_store_ui(self, page: Page, location: Location) -> tuple[bool, str | None]:
         """Best-effort use of Walmart's normal fulfillment/store UI."""
         triggers = (
@@ -242,28 +281,74 @@ class WalmartScraper:
             count = min(inputs.count(), 40)
         except Exception:
             count = 0
+
+        postal_filled = False
+        postal_value = location.postal_code or ""
+        starting_url = page.url
         for i in range(count):
             inp = inputs.nth(i)
             try:
                 if not inp.is_visible():
                     continue
-                hint = " ".join(
-                    filter(
-                        None,
-                        [
-                            inp.get_attribute("placeholder"),
-                            inp.get_attribute("aria-label"),
-                            inp.get_attribute("name"),
-                        ],
-                    )
-                ).lower()
-                if any(word in hint for word in ("código", "codigo", "postal", "ubic", "tienda", "store")):
-                    inp.fill(location.postal_code or location.store or "")
+
+                metadata = {
+                    "input_type": inp.get_attribute("type"),
+                    "role": inp.get_attribute("role"),
+                    "placeholder": inp.get_attribute("placeholder"),
+                    "aria_label": inp.get_attribute("aria-label"),
+                    "name": inp.get_attribute("name"),
+                    "element_id": inp.get_attribute("id"),
+                }
+                if not self._is_store_location_input_metadata(**metadata):
+                    continue
+
+                inp.fill(postal_value)
+                postal_filled = True
+                self.run_meta["postal_input_metadata"] = metadata
+
+                submitted = False
+                for label in (
+                    "Continuar",
+                    "Aplicar",
+                    "Buscar tiendas",
+                    "Ver tiendas",
+                    "Guardar ubicación",
+                    "Guardar ubicacion",
+                ):
+                    try:
+                        button = page.get_by_text(label, exact=False).first
+                        if button.count() and button.is_visible():
+                            button.click(timeout=3_000)
+                            submitted = True
+                            break
+                    except Exception:
+                        continue
+
+                if not submitted:
                     inp.press("Enter")
-                    page.wait_for_timeout(1_500)
-                    break
+
+                page.wait_for_timeout(1_500)
+                break
             except Exception:
                 continue
+
+        self.run_meta["postal_filled"] = postal_filled
+
+        # Defensive recovery: an earlier Walmart selector could accidentally
+        # submit the postal code through the global search box. Never scrape a
+        # /search?q=<postal> page as if it were the configured category.
+        current = urlsplit(page.url)
+        current_query = dict(parse_qsl(current.query, keep_blank_values=True))
+        if (
+            postal_value
+            and current.path.rstrip("/").endswith("/search")
+            and current_query.get("q") == postal_value
+        ):
+            self.run_meta["accidental_postal_search_redirect"] = page.url
+            page.goto(starting_url, wait_until="domcontentloaded", timeout=120_000)
+            page.wait_for_timeout(1_000)
+            postal_filled = False
+            self.run_meta["postal_filled"] = False
 
         if location.store:
             try:

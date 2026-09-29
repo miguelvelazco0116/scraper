@@ -94,3 +94,36 @@ def test_walmart_headless_does_not_wait_for_manual_verification(monkeypatch):
 
     with pytest.raises(WalmartBlocked):
         scraper._assert_not_blocked(object(), 403)
+
+
+def test_walmart_store_location_input_rejects_global_search():
+    assert not WalmartScraper._is_store_location_input_metadata(
+        input_type="search",
+        role="searchbox",
+        placeholder="Buscar en Walmart",
+        aria_label="Buscar",
+        name="q",
+        element_id="global-search-input",
+    )
+
+
+def test_walmart_store_location_input_accepts_postal_code_field():
+    assert WalmartScraper._is_store_location_input_metadata(
+        input_type="text",
+        role=None,
+        placeholder="Ingresa tu código postal",
+        aria_label="Código postal",
+        name="postalCode",
+        element_id="postal-code-input",
+    )
+
+
+def test_walmart_store_location_input_rejects_store_word_in_product_search():
+    assert not WalmartScraper._is_store_location_input_metadata(
+        input_type="text",
+        role=None,
+        placeholder="Buscar productos en la tienda",
+        aria_label="Buscar productos",
+        name="search",
+        element_id="search-input",
+    )
