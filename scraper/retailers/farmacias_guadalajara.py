@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -279,20 +280,53 @@ class FarmaciasGuadalajaraScraper:
             encoding="utf-8",
         )
 
+    @staticmethod
+    def _env_flag(name: str, default: bool = False) -> bool:
+        raw = os.getenv(name)
+        if raw is None:
+            return default
+        return raw.strip().casefold() in {"1", "true", "yes", "on"}
+
+    @classmethod
+    def _browser_launch_options(cls, headless: bool) -> dict:
+        options: dict = {"headless": headless}
+        args: list[str] = []
+
+        # Preserve the old direct-Jupyter behavior unless the worker overrides it.
+        if cls._env_flag("FG_DISABLE_HTTP2", default=True):
+            args.append("--disable-http2")
+        if cls._env_flag("FG_DISABLE_QUIC", default=False):
+            args.append("--disable-quic")
+
+        executable = (os.getenv("FG_BROWSER_EXECUTABLE") or "").strip()
+        channel = (os.getenv("FG_BROWSER_CHANNEL") or "").strip()
+        if executable:
+            options["executable_path"] = executable
+        elif channel:
+            options["channel"] = channel
+        if args:
+            options["args"] = args
+        return options
+
+    @staticmethod
+    def _browser_context_options() -> dict:
+        options: dict = {
+            "locale": "es-MX",
+            "viewport": {"width": 1440, "height": 1000},
+        }
+        # Normally keep the browser's native User-Agent. A custom UA is only
+        # applied when explicitly configured.
+        user_agent = (os.getenv("FG_USER_AGENT") or "").strip()
+        if user_agent:
+            options["user_agent"] = user_agent
+        return options
+
     def scrape_category(self, category: Category, location: Location) -> list[dict]:
         DIAGNOSTICS.mkdir(parents=True, exist_ok=True)
         slug = category.id
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=self.headless, args=["--disable-http2"])
-            context = browser.new_context(
-                locale="es-MX",
-                viewport={"width": 1440, "height": 1000},
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/139.0.0.0 Safari/537.36"
-                ),
-            )
+            browser = p.chromium.launch(**self._browser_launch_options(self.headless))
+            context = browser.new_context(**self._browser_context_options())
             page = context.new_page()
             try:
                 try:
