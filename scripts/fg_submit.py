@@ -56,7 +56,20 @@ def main() -> int:
     parser.add_argument("--category", required=True, choices=sorted(ALLOWED_CATEGORIES))
     parser.add_argument("--max-load-more", type=int, default=100)
     parser.add_argument("--browser-channel", default="msedge")
-    parser.add_argument("--headed", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--headed",
+        dest="headed",
+        action="store_true",
+        help="Ejecutar Edge visible (modo recomendado y predeterminado para Guadalajara)",
+    )
+    mode.add_argument(
+        "--headless",
+        dest="headed",
+        action="store_false",
+        help="Ejecutar Edge headless; actualmente puede fallar con ERR_HTTP2_PROTOCOL_ERROR",
+    )
+    parser.set_defaults(headed=True)
     parser.add_argument("--task-name", default="Scraper-FarmaciasGuadalajara")
     parser.add_argument("--timeout", type=int, default=900)
     args = parser.parse_args()
