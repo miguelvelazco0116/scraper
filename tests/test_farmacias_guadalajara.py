@@ -64,3 +64,33 @@ def test_farmacias_guadalajara_prices():
 def test_farmacias_guadalajara_brand_boundaries():
     assert FarmaciasGuadalajaraScraper._infer_brand("Detergente Ace Líquido", "Detergente Ace Líquido") == "Ace"
     assert FarmaciasGuadalajaraScraper._infer_brand("Portacepillo Dental", "Portacepillo Dental") is None
+
+
+def test_farmacias_guadalajara_launch_options(monkeypatch):
+    monkeypatch.delenv("FG_BROWSER_CHANNEL", raising=False)
+    monkeypatch.delenv("FG_BROWSER_EXECUTABLE", raising=False)
+    monkeypatch.delenv("FG_DISABLE_HTTP2", raising=False)
+    monkeypatch.delenv("FG_DISABLE_QUIC", raising=False)
+
+    default_options = FarmaciasGuadalajaraScraper._browser_launch_options(True)
+    assert default_options["headless"] is True
+    assert "--disable-http2" in default_options["args"]
+    assert "channel" not in default_options
+
+    monkeypatch.setenv("FG_BROWSER_CHANNEL", "msedge")
+    monkeypatch.setenv("FG_DISABLE_HTTP2", "0")
+    monkeypatch.setenv("FG_DISABLE_QUIC", "0")
+
+    worker_options = FarmaciasGuadalajaraScraper._browser_launch_options(False)
+    assert worker_options == {"headless": False, "channel": "msedge"}
+
+
+def test_farmacias_guadalajara_uses_native_user_agent_by_default(monkeypatch):
+    monkeypatch.delenv("FG_USER_AGENT", raising=False)
+    options = FarmaciasGuadalajaraScraper._browser_context_options()
+    assert options["locale"] == "es-MX"
+    assert options["viewport"] == {"width": 1440, "height": 1000}
+    assert "user_agent" not in options
+
+    monkeypatch.setenv("FG_USER_AGENT", "custom-agent")
+    assert FarmaciasGuadalajaraScraper._browser_context_options()["user_agent"] == "custom-agent"
