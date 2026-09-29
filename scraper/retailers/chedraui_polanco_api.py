@@ -206,6 +206,12 @@ class ChedrauiScraper(PolancoUIScraper):
             info["reason"] = f"api_error:{type(exc).__name__}"
             return [], info
 
+    @staticmethod
+    def _html_row_has_category_facet_contamination(row: dict) -> bool:
+        promotion = clean_text(row.get("promotion")) or ""
+        normalized = promotion.casefold().replace("ó", "o")
+        return "promocionsi (" in normalized or "promocion si (" in normalized
+
     def _load_page_rows(self, page, category, location, page_number: int, target_rows: int | None):
         url, html_rows, attempts = super()._load_page_rows(
             page, category, location, page_number, target_rows
@@ -223,9 +229,34 @@ class ChedrauiScraper(PolancoUIScraper):
             self.run_meta.setdefault("api_price_pages", []).append(page_number)
             return url, api_rows, attempts
 
-        # If VTEX did not return structured rows, preserve the existing HTML
-        # behavior as a fallback instead of dropping the page completely.
-        return url, html_rows, attempts
+        # Once a structured productSearchV3 request has been captured, do not
+        # silently fall back to HTML prices. The storefront HTML can contain
+        # category-level facets such as "Promoción Sí (111)" alongside unrelated
+        # price text, which caused false values such as 17 / 1299. Prefer an
+        # incomplete but trustworthy page over corrupted price records.
+        if self._product_search_template_url:
+            self.run_meta.setdefault("structured_price_missing_pages", []).append(
+                {
+                    "page": page_number,
+                    "html_rows_rejected": len(html_rows),
+                    "api_reason": api_info.get("reason"),
+                    "api_status": api_info.get("status"),
+                }
+            )
+            return url, [], attempts
+
+        # Legacy fallback only when no productSearchV3 template was captured at
+        # all. Even then, reject the known category-facet contamination pattern.
+        safe_html_rows = [
+            row for row in html_rows
+            if not self._html_row_has_category_facet_contamination(row)
+        ]
+        rejected = len(html_rows) - len(safe_html_rows)
+        if rejected:
+            self.run_meta.setdefault("html_facet_rows_rejected", []).append(
+                {"page": page_number, "rows": rejected}
+            )
+        return url, safe_html_rows, attempts
 
 
 __all__ = [
