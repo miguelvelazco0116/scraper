@@ -175,12 +175,24 @@ class ChedrauiScraper:
 
     @staticmethod
     def _click_text(page: Page, labels: tuple[str, ...], timeout: int = 5_000) -> bool:
+        """Click the first visible, clickable text match across all candidates.
+
+        VTEX can render duplicate hidden/mobile/desktop copies of the same
+        label. Checking only the first match can miss the visible action in
+        the address drawer (for example, "Recoger en" or "Aceptar").
+        """
         for label in labels:
             try:
-                node = page.get_by_text(label, exact=False).first
-                if node.count() and node.is_visible():
-                    node.click(timeout=timeout)
-                    return True
+                nodes = page.get_by_text(label, exact=False)
+                for i in range(min(nodes.count(), 40)):
+                    node = nodes.nth(i)
+                    try:
+                        if not node.is_visible():
+                            continue
+                        node.click(timeout=timeout)
+                        return True
+                    except Exception:
+                        continue
             except Exception:
                 continue
         return False

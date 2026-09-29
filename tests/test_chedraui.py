@@ -252,3 +252,44 @@ def test_chedraui_filters_category_facet_from_legacy_html_fallback(monkeypatch):
 
     assert [row["sku"] for row in rows] == ["ok"]
     assert scraper.run_meta["html_facet_rows_rejected"] == [{"page": 1, "rows": 1}]
+
+
+def test_chedraui_click_text_skips_hidden_duplicate():
+    class FakeNode:
+        def __init__(self, visible, click_ok=True):
+            self.visible = visible
+            self.click_ok = click_ok
+            self.clicked = False
+
+        def is_visible(self):
+            return self.visible
+
+        def click(self, timeout=None):
+            if not self.click_ok:
+                raise RuntimeError("not clickable")
+            self.clicked = True
+
+    class FakeNodes:
+        def __init__(self, nodes):
+            self.nodes = nodes
+
+        def count(self):
+            return len(self.nodes)
+
+        def nth(self, i):
+            return self.nodes[i]
+
+    class FakePage:
+        def __init__(self):
+            self.hidden = FakeNode(False)
+            self.visible = FakeNode(True)
+
+        def get_by_text(self, label, exact=False):
+            assert label == "Recoger en"
+            return FakeNodes([self.hidden, self.visible])
+
+    page = FakePage()
+
+    assert ChedrauiScraper._click_text(page, ("Recoger en",))
+    assert page.hidden.clicked is False
+    assert page.visible.clicked is True
