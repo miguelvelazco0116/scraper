@@ -1,6 +1,6 @@
 param(
     [string]$TaskName = "Scraper-FarmaciasGuadalajara",
-    [string]$RunAsUser = "$env:COMPUTERNAME\adm-ev",
+    [string]$RunAsUser = "",
     [string]$PythonExe = "C:\VM-py\venvs\miguel_velazco\Scripts\python.exe",
     [string]$ProjectDir = "C:\VM-py\notebooks\miguel_velazco\scraper"
 )
@@ -8,6 +8,27 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Worker = Join-Path $ProjectDir "scripts\fg_worker.py"
+
+if ([string]::IsNullOrWhiteSpace($RunAsUser)) {
+    $interactive = Get-Process -Name explorer -IncludeUserName -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.SessionId -gt 0 -and
+            -not [string]::IsNullOrWhiteSpace($_.UserName) -and
+            $_.UserName -notmatch '^(NT AUTHORITY|Window Manager)\\'
+        } |
+        Sort-Object SessionId -Descending |
+        Select-Object -First 1
+
+    if (-not $interactive) {
+        throw "No se encontro un usuario interactivo con explorer.exe. Inicia sesion por RDP y vuelve a ejecutar el instalador."
+    }
+
+    $RunAsUser = $interactive.UserName
+    Write-Host "Usuario interactivo detectado:"
+    Write-Host "  SessionId : $($interactive.SessionId)"
+    Write-Host "  User      : $RunAsUser"
+    Write-Host ""
+}
 
 if (-not (Test-Path $PythonExe)) {
     throw "No existe el Python del ambiente virtual: $PythonExe"
@@ -25,15 +46,6 @@ Write-Host ""
 Write-Host "La tarea se registrara con LogonType Interactive."
 Write-Host "El usuario $RunAsUser debe tener una sesion iniciada (activa o desconectada)."
 Write-Host ""
-
-try {
-    $account = New-Object System.Security.Principal.NTAccount($RunAsUser)
-    $sid = $account.Translate([System.Security.Principal.SecurityIdentifier]).Value
-    Write-Host "SID        : $sid"
-}
-catch {
-    throw "No se pudo resolver el usuario Windows '$RunAsUser': $($_.Exception.Message)"
-}
 
 $actionParams = @{
     Execute = $PythonExe
