@@ -127,3 +127,82 @@ def test_walmart_store_location_input_rejects_store_word_in_product_search():
         name="search",
         element_id="search-input",
     )
+
+
+def test_walmart_store_only_relaxes_when_cards_have_no_pickup_signal(monkeypatch):
+    scraper = WalmartScraper(store_only=True)
+    scraper._active_store_context_method = "category_text"
+
+    class FakeAnchors:
+        def count(self):
+            return 2
+
+        def evaluate_all(self, js):
+            return [
+                {
+                    "href": "/ip/pasta-dental-colgate/00750954607184",
+                    "product": "Pasta Dental Colgate Total",
+                    "text": "Pasta Dental Colgate Total precio actual $89",
+                    "pickup": False,
+                },
+                {
+                    "href": "/ip/enjuague-listerine/00750954607185",
+                    "product": "Enjuague Bucal Listerine",
+                    "text": "Enjuague Bucal Listerine precio actual $120",
+                    "pickup": False,
+                },
+            ]
+
+    class FakePage:
+        def locator(self, selector):
+            assert selector == 'a[href*="/ip/"]'
+            return FakeAnchors()
+
+    category = {x.id: x for x in load_categories("config/walmart/categories.yaml")}["cuidado-bucal"]
+    store = {x.id: x for x in load_locations()}["sc-toreo"]
+
+    rows = scraper._extract_cards(FakePage(), category, store)
+
+    assert len(rows) == 2
+    assert all(row["store_context_verified"] for row in rows)
+    assert all(row["pickup_available"] is None for row in rows)
+    assert scraper.run_meta["pickup_filter_mode"] == "verified_store_context_no_card_signal"
+
+
+def test_walmart_store_only_filters_when_card_pickup_signal_exists():
+    scraper = WalmartScraper(store_only=True)
+    scraper._active_store_context_method = "category_text"
+
+    class FakeAnchors:
+        def count(self):
+            return 2
+
+        def evaluate_all(self, js):
+            return [
+                {
+                    "href": "/ip/pasta-dental-colgate/00750954607184",
+                    "product": "Pasta Dental Colgate Total",
+                    "text": "Pasta Dental Colgate Total precio actual $89 Pickup hoy",
+                    "pickup": True,
+                },
+                {
+                    "href": "/ip/enjuague-listerine/00750954607185",
+                    "product": "Enjuague Bucal Listerine",
+                    "text": "Enjuague Bucal Listerine precio actual $120",
+                    "pickup": False,
+                },
+            ]
+
+    class FakePage:
+        def locator(self, selector):
+            return FakeAnchors()
+
+    category = {x.id: x for x in load_categories("config/walmart/categories.yaml")}["cuidado-bucal"]
+    store = {x.id: x for x in load_locations()}["sc-toreo"]
+
+    rows = scraper._extract_cards(FakePage(), category, store)
+
+    assert len(rows) == 1
+    assert rows[0]["sku"] == "00750954607184"
+    assert rows[0]["pickup_available"] is True
+    assert scraper.run_meta["pickup_filter_mode"] == "card_pickup_signal"
