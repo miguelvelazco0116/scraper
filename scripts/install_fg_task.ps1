@@ -22,56 +22,57 @@ Write-Host "RunAsUser  : $RunAsUser"
 Write-Host "PythonExe  : $PythonExe"
 Write-Host "Worker     : $Worker"
 Write-Host ""
-Write-Host "La tarea se registrará con InteractiveToken."
-Write-Host "El usuario $RunAsUser debe tener una sesión iniciada (activa o desconectada)."
+Write-Host "La tarea se registrara con LogonType Interactive."
+Write-Host "El usuario $RunAsUser debe tener una sesion iniciada (activa o desconectada)."
 Write-Host ""
 
-$service = New-Object -ComObject "Schedule.Service"
-$service.Connect()
+try {
+    $account = New-Object System.Security.Principal.NTAccount($RunAsUser)
+    $sid = $account.Translate([System.Security.Principal.SecurityIdentifier]).Value
+    Write-Host "SID        : $sid"
+}
+catch {
+    throw "No se pudo resolver el usuario Windows '$RunAsUser': $($_.Exception.Message)"
+}
 
-$root = $service.GetFolder("\")
-$task = $service.NewTask(0)
+$actionParams = @{
+    Execute = $PythonExe
+    Argument = '"' + $Worker + '"'
+    WorkingDirectory = $ProjectDir
+}
+$action = New-ScheduledTaskAction @actionParams
 
-$task.RegistrationInfo.Description = (
-    "Ejecuta Farmacias Guadalajara bajo el contexto interactivo del usuario " +
-    "para evitar que Chrome/Edge herede NT AUTHORITY\SYSTEM."
-)
+$principalParams = @{
+    UserId = $RunAsUser
+    LogonType = "Interactive"
+    RunLevel = "Highest"
+}
+$principal = New-ScheduledTaskPrincipal @principalParams
 
-$task.Settings.Enabled = $true
-$task.Settings.AllowDemandStart = $true
-$task.Settings.StartWhenAvailable = $true
-$task.Settings.DisallowStartIfOnBatteries = $false
-$task.Settings.StopIfGoingOnBatteries = $false
-$task.Settings.AllowHardTerminate = $true
-$task.Settings.ExecutionTimeLimit = "PT2H"
-$task.Settings.MultipleInstances = 2
+$settingsParams = @{
+    AllowStartIfOnBatteries = $true
+    DontStopIfGoingOnBatteries = $true
+    StartWhenAvailable = $true
+    ExecutionTimeLimit = (New-TimeSpan -Hours 2)
+}
+$settings = New-ScheduledTaskSettingsSet @settingsParams
 
-$task.Principal.UserId = $RunAsUser
-$task.Principal.LogonType = 3
-$task.Principal.RunLevel = 1
+$taskParams = @{
+    Action = $action
+    Principal = $principal
+    Settings = $settings
+    Description = "Ejecuta Farmacias Guadalajara bajo el usuario interactivo para que el navegador no herede NT AUTHORITY\SYSTEM."
+}
+$task = New-ScheduledTask @taskParams
 
-$action = $task.Actions.Create(0)
-$action.Path = $PythonExe
-$action.Arguments = '"' + $Worker + '"'
-$action.WorkingDirectory = $ProjectDir
-
-$TASK_CREATE_OR_UPDATE = 6
-$TASK_LOGON_INTERACTIVE_TOKEN = 3
-
-$null = $root.RegisterTaskDefinition(
-    $TaskName,
-    $task,
-    $TASK_CREATE_OR_UPDATE,
-    $null,
-    $null,
-    $TASK_LOGON_INTERACTIVE_TOKEN,
-    $null
-)
+Register-ScheduledTask -TaskName $TaskName -InputObject $task -Force | Out-Null
 
 Write-Host ""
 Write-Host "Tarea instalada correctamente."
 Write-Host ""
+
 Get-ScheduledTask -TaskName $TaskName |
-    Select-Object TaskName, State, @{Name="UserId";Expression={$_.Principal.UserId}},
+    Select-Object TaskName, State,
+        @{Name="UserId";Expression={$_.Principal.UserId}},
         @{Name="LogonType";Expression={$_.Principal.LogonType}},
         @{Name="RunLevel";Expression={$_.Principal.RunLevel}}
