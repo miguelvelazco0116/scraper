@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,7 @@ class WalmartScraper:
         wait_ms: int = 1200,
         require_store_context: bool = True,
         store_only: bool = True,
+        manual_verification_timeout_ms: int = 180_000,
     ) -> None:
         self.headless = headless
         self.diagnostics_dir = Path(diagnostics_dir)
@@ -59,6 +61,7 @@ class WalmartScraper:
         self.wait_ms = wait_ms
         self.require_store_context = require_store_context
         self.store_only = store_only
+        self.manual_verification_timeout_ms = manual_verification_timeout_ms
         self.run_meta: dict[str, Any] = {}
         self._active_store_context_method: str | None = None
 
@@ -104,15 +107,47 @@ class WalmartScraper:
         except Exception:
             return ""
 
-    def _assert_not_blocked(self, page: Page, status: int | None = None) -> None:
+    def _is_blocked(self, page: Page, status: int | None = None) -> bool:
         body = self._normalize(self._body_text(page))
         blocked_url = "/blocked" in (page.url or "").lower()
-        if status in (401, 403, 429) or blocked_url or any(self._normalize(marker) in body for marker in BLOCK_MARKERS):
-            self._save_diagnostics(page, "blocked")
-            raise WalmartBlocked(
-                "Walmart bloqueó o desafió la sesión automatizada. Se guardaron diagnósticos; "
-                "el scraper no intenta evadir la protección del sitio."
+        return bool(
+            status in (401, 403, 429)
+            or blocked_url
+            or any(self._normalize(marker) in body for marker in BLOCK_MARKERS)
+        )
+
+    def _assert_not_blocked(self, page: Page, status: int | None = None) -> None:
+        if not self._is_blocked(page, status):
+            return
+
+        self._save_diagnostics(page, "blocked")
+
+        # In a visible browser, give the human operator time to complete any
+        # identity challenge manually. The scraper does not interact with or
+        # solve the challenge; it only waits for the storefront to become
+        # available again.
+        if not self.headless:
+            self.run_meta["manual_verification_required"] = True
+            self.run_meta["manual_verification_resolved"] = False
+            print(
+                "MANUAL_VERIFICATION_REQUIRED: completa la verificación de Walmart "
+                "en Chromium. El scraper esperará hasta 3 minutos.",
+                flush=True,
             )
+            deadline = time.monotonic() + (self.manual_verification_timeout_ms / 1000)
+            while time.monotonic() < deadline:
+                page.wait_for_timeout(1_000)
+                if not self._is_blocked(page):
+                    self.run_meta["manual_verification_resolved"] = True
+                    self._save_diagnostics(page, "manual_verification_resolved")
+                    print("MANUAL_VERIFICATION_RESOLVED: continuando.", flush=True)
+                    return
+
+        self._save_diagnostics(page, "blocked")
+        raise WalmartBlocked(
+            "Walmart bloqueó o desafió la sesión automatizada. Se guardaron diagnósticos; "
+            "el scraper no intenta evadir la protección del sitio."
+        )
 
     @classmethod
     def _store_context_in_text(cls, text: str, location: Location) -> bool:
