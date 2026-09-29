@@ -54,7 +54,8 @@ def _identity() -> str:
 
 
 def _rows_from_stdout(stdout: str) -> int | None:
-    match = re.search(r"Productos únicos:\s*(\d+)", stdout or "")
+    text = stdout or ""
+    match = re.search(r"Productos\\s+(?:únicos|.nicos):\\s*(\\d+)", text, flags=re.IGNORECASE)
     return int(match.group(1)) if match else None
 
 
@@ -114,6 +115,8 @@ def main() -> int:
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     env["FG_BROWSER_CHANNEL"] = browser_channel
     # El navegador interactivo que sí funciona usa la negociación normal.
     env["FG_DISABLE_HTTP2"] = "0"
