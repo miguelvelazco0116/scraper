@@ -64,15 +64,40 @@ def _rows_from_stdout(stdout: str) -> int | None:
     )
     return int(match.group(1)) if match else None
 
-def _edge_executable() -> Path:
-    candidates = [
-        Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
-        Path(r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
-    ]
+def _chrome_executable() -> Path:
+    candidates: list[Path] = []
+
+    for env_name in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
+        root = (os.getenv(env_name) or "").strip()
+        if root:
+            candidates.append(
+                Path(root) / "Google" / "Chrome" / "Application" / "chrome.exe"
+            )
+
+    candidates.extend(
+        [
+            Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+            Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+        ]
+    )
+
+    discovered = shutil.which("chrome.exe") or shutil.which("chrome")
+    if discovered:
+        candidates.append(Path(discovered))
+
+    seen: set[str] = set()
     for candidate in candidates:
+        key = str(candidate).casefold()
+        if key in seen:
+            continue
+        seen.add(key)
         if candidate.exists():
             return candidate
-    raise FileNotFoundError("No se encontró Microsoft Edge instalado")
+
+    checked = "\n - ".join(str(path) for path in candidates)
+    raise FileNotFoundError(
+        "No se encontró Google Chrome instalado. Rutas revisadas:\n - " + checked
+    )
 
 
 def _kill_process_tree(process: subprocess.Popen | None) -> None:
@@ -104,7 +129,7 @@ def _wait_for_devtools_active_port(
     while time.monotonic() < deadline:
         if process.poll() is not None:
             raise RuntimeError(
-                f"Edge terminó antes de publicar CDP (exit_code={process.returncode})"
+                f"Chrome terminó antes de publicar CDP (exit_code={process.returncode})"
             )
 
         if marker.exists():
@@ -119,16 +144,16 @@ def _wait_for_devtools_active_port(
         time.sleep(0.25)
 
     raise TimeoutError(
-        f"Edge no publicó {marker.name} en {timeout:.0f}s"
+        f"Chrome no publicó {marker.name} en {timeout:.0f}s"
     )
 
 
-def _start_native_edge(
+def _start_native_chrome(
     request_id: str,
     attempts: int = 3,
 ) -> tuple[subprocess.Popen, str, Path]:
-    edge = _edge_executable()
-    profiles_root = CONTROL_DIR / "edge_profiles"
+    chrome = _chrome_executable()
+    profiles_root = CONTROL_DIR / "chrome_profiles"
     profiles_root.mkdir(parents=True, exist_ok=True)
 
     last_error: Exception | None = None
@@ -139,10 +164,10 @@ def _start_native_edge(
             shutil.rmtree(profile, ignore_errors=True)
         profile.mkdir(parents=True, exist_ok=True)
 
-        # Port 0 delegates port allocation to Edge itself and avoids the race
-        # inherent in "find a free port, close socket, then start browser".
+        # Chrome chooses the port itself, eliminating the race between reserving
+        # a local port and launching the browser.
         command = [
-            str(edge),
+            str(chrome),
             "--remote-debugging-port=0",
             "--remote-debugging-address=127.0.0.1",
             f"--user-data-dir={profile}",
@@ -186,9 +211,8 @@ def _start_native_edge(
         else "sin detalle"
     )
     raise RuntimeError(
-        f"No fue posible iniciar Edge CDP después de {attempts} intentos. {detail}"
+        f"No fue posible iniciar Chrome CDP después de {attempts} intentos. {detail}"
     )
-
 
 def main() -> int:
     CONTROL_DIR.mkdir(parents=True, exist_ok=True)
@@ -223,8 +247,8 @@ def main() -> int:
     category = str(request.get("category") or "").strip()
     max_load_more = int(request.get("max_load_more", 100))
     headed = bool(request.get("headed", False))
-    browser_channel = str(request.get("browser_channel") or "msedge-cdp").strip()
-    native_edge_cdp = browser_channel.casefold() == "msedge-cdp"
+    browser_channel = str(request.get("browser_channel") or "chrome-cdp").strip()
+    native_chrome_cdp = browser_channel.casefold() == "chrome-cdp"
 
     if not request_id:
         raise SystemExit("request_id es obligatorio")
@@ -254,11 +278,11 @@ def main() -> int:
     env.pop("FG_USER_AGENT", None)
     env.pop("FG_CDP_URL", None)
 
-    edge_process = None
-    edge_profile = None
-    if native_edge_cdp:
+    chrome_process = None
+    chrome_profile = None
+    if native_chrome_cdp:
         try:
-            edge_process, cdp_url, edge_profile = _start_native_edge(request_id)
+            chrome_process, cdp_url, chrome_profile = _start_native_chrome(request_id)
             env["FG_CDP_URL"] = cdp_url
             env.pop("FG_BROWSER_CHANNEL", None)
         except Exception as exc:
@@ -267,7 +291,7 @@ def main() -> int:
                 "status": "error",
                 "finished_at": _now(),
                 "exit_code": 1,
-                "error": f"No se pudo iniciar Edge nativo/CDP: {type(exc).__name__}: {exc}",
+                "error": f"No se pudo iniciar Chrome nativo/CDP: {type(exc).__name__}: {exc}",
             }
             _write_json(RESULT_PATH, result)
             return 1
@@ -284,7 +308,7 @@ def main() -> int:
         "--max-load-more",
         str(max_load_more),
     ]
-    if headed or native_edge_cdp:
+    if headed or native_chrome_cdp:
         command.append("--headed")
 
     try:
@@ -358,13 +382,13 @@ def main() -> int:
         )
         return 1
     finally:
-        _kill_process_tree(edge_process)
+        _kill_process_tree(chrome_process)
 
-        if edge_profile is not None:
-            # Edge puede tardar unos segundos en liberar archivos del perfil.
+        if chrome_profile is not None:
+            # Chrome puede tardar unos segundos en liberar archivos del perfil.
             for _ in range(10):
                 try:
-                    shutil.rmtree(edge_profile)
+                    shutil.rmtree(chrome_profile)
                     break
                 except Exception:
                     time.sleep(0.5)
