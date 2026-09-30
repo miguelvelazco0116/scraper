@@ -33,7 +33,7 @@ Write-Host "Pausa   : Walmart, Farmacias Guadalajara"
 Write-Host "Python  : $PythonExe"
 Write-Host ""
 
-& $PythonExe .\scripts\run_all_retailers.py
+& $PythonExe .\scripts\run_all_retailers.py --local-browser
 $code = $LASTEXITCODE
 
 Write-Host ""
