@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -30,7 +31,39 @@ def _run_submit(
     max_load_more: int,
     timeout: int,
     browser_channel: str,
+    execution_mode: str = "server",
 ) -> int:
+    if execution_mode == "local":
+        env = os.environ.copy()
+        env["FG_BROWSER_CHANNEL"] = browser_channel
+        env["FG_DISABLE_HTTP2"] = "0"
+        env["FG_DISABLE_QUIC"] = "0"
+        env.pop("FG_CDP_URL", None)
+        env.pop("FG_USER_AGENT", None)
+
+        command = [
+            sys.executable,
+            str(ROOT / "main.py"),
+            "--retailer",
+            "farmacias-guadalajara",
+            "--category",
+            category,
+            "--max-load-more",
+            str(max_load_more),
+            "--headed",
+        ]
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=ROOT,
+                env=env,
+                check=False,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            return 124
+        return int(completed.returncode)
+
     command = [
         sys.executable,
         str(SUBMIT),
