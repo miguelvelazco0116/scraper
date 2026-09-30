@@ -185,6 +185,11 @@ def main() -> int:
     parser.add_argument("--profile-dir", default=None, help="Perfil persistente de Playwright para Walmart")
     parser.add_argument("--storage-state", default=None, help="Sesión portable de Playwright para Walmart")
     parser.add_argument("--headed", action="store_true", help="Abrir navegador visible")
+    parser.add_argument(
+        "--browser-channel",
+        default=None,
+        help="Canal de navegador Playwright, por ejemplo: chrome",
+    )
     parser.add_argument("--max-load-more", type=int, default=100)
     args = parser.parse_args()
 
@@ -210,7 +215,11 @@ def main() -> int:
         raise SystemExit(f"Ubicación/tienda no encontrada: {location_id}")
 
     if args.retailer == "soriana":
-        scraper = SorianaScraper(headless=not args.headed, max_load_more=args.max_load_more)
+        scraper = SorianaScraper(
+            headless=not args.headed,
+            max_load_more=args.max_load_more,
+            browser_channel=args.browser_channel,
+        )
         try:
             rows = scraper.scrape_category(category, location)
         except SorianaBlocked as exc:
@@ -242,7 +251,11 @@ def main() -> int:
             print(f"STORE_CONTEXT_ERROR: {exc}")
             return 4
     elif args.retailer == "chedraui":
-        scraper = ChedrauiScraper(headless=not args.headed, max_pages=args.max_load_more)
+        scraper = ChedrauiScraper(
+            headless=not args.headed,
+            max_pages=args.max_load_more,
+            browser_channel=args.browser_channel,
+        )
         try:
             rows = scraper.scrape_category(category, location)
         except ChedrauiBlocked as exc:
