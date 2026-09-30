@@ -1,6 +1,7 @@
 param(
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
-    [string]$VenvDir = ".venv"
+    [string]$VenvDir = ".venv",
+    [string]$PythonExe = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,15 +25,28 @@ else {
     throw "No se encontro Python en PATH. Instala Python 3 y vuelve a ejecutar."
 }
 
-$venvPath = Join-Path $ProjectDir $VenvDir
-$venvPython = Join-Path $venvPath "Scripts\python.exe"
-
-if (-not (Test-Path $venvPython)) {
-    Write-Host "Creando ambiente virtual: $venvPath"
-    & $launcher @launcherArgs -m venv $venvPath
-    if ($LASTEXITCODE -ne 0) {
-        throw "No se pudo crear el ambiente virtual."
+if ([string]::IsNullOrWhiteSpace($PythonExe) -and $env:VIRTUAL_ENV) {
+    $activePython = Join-Path $env:VIRTUAL_ENV "Scripts\python.exe"
+    if (Test-Path $activePython) {
+        $PythonExe = $activePython
     }
+}
+
+if ([string]::IsNullOrWhiteSpace($PythonExe)) {
+    $venvPath = Join-Path $ProjectDir $VenvDir
+    $PythonExe = Join-Path $venvPath "Scripts\python.exe"
+
+    if (-not (Test-Path $PythonExe)) {
+        Write-Host "Creando ambiente virtual: $venvPath"
+        & $launcher @launcherArgs -m venv $venvPath
+        if ($LASTEXITCODE -ne 0) {
+            throw "No se pudo crear el ambiente virtual."
+        }
+    }
+}
+
+if (-not (Test-Path $PythonExe)) {
+    throw "Python del ambiente virtual no encontrado: $PythonExe"
 }
 
 $programFilesX86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
@@ -55,24 +69,24 @@ if (-not $chrome) {
     throw "Google Chrome no esta instalado en una ruta estandar."
 }
 
-Write-Host "Python venv : $venvPython"
+Write-Host "Python venv : $PythonExe"
 Write-Host "Chrome      : $chrome"
 Write-Host ""
 Write-Host "Instalando dependencias..."
 
-& $venvPython -m pip install --upgrade pip
+& $PythonExe -m pip install --upgrade pip
 if ($LASTEXITCODE -ne 0) {
     throw "Fallo al actualizar pip."
 }
 
-& $venvPython -m pip install -r .\requirements.txt
+& $PythonExe -m pip install -r .\requirements.txt
 if ($LASTEXITCODE -ne 0) {
     throw "Fallo al instalar requirements.txt."
 }
 
 Write-Host ""
 Write-Host "Validando imports y tests..."
-& $venvPython -m pytest tests/test_farmacias_guadalajara.py tests/test_fg_worker.py tests/test_fg_runner.py -q
+& $PythonExe -m pytest tests/test_farmacias_guadalajara.py tests/test_fg_worker.py tests/test_fg_runner.py -q
 if ($LASTEXITCODE -ne 0) {
     throw "Los tests fallaron durante el setup."
 }
