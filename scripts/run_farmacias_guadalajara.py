@@ -366,6 +366,7 @@ def main() -> int:
             result = _preflight(
                 timeout=args.timeout,
                 browser_channel=args.browser_channel,
+                execution_mode=args.execution_mode,
             )
             print(
                 "PRECHECK OK: "
@@ -393,6 +394,7 @@ def main() -> int:
                 min_row_coverage=args.min_row_coverage,
                 attempts=args.attempts,
                 retry_pause=args.retry_pause,
+                execution_mode=args.execution_mode,
             )
         except Exception as exc:
             print(f"ERROR [{category}]: {exc}")
