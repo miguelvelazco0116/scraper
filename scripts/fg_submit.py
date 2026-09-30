@@ -55,13 +55,13 @@ def main() -> int:
     )
     parser.add_argument("--category", required=True, choices=sorted(ALLOWED_CATEGORIES))
     parser.add_argument("--max-load-more", type=int, default=100)
-    parser.add_argument("--browser-channel", default="msedge-cdp")
+    parser.add_argument("--browser-channel", default="chrome-cdp")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
         "--headed",
         dest="headed",
         action="store_true",
-        help="Ejecutar navegador visible; con msedge-cdp es el modo normal de producción",
+        help="Ejecutar navegador visible; con chrome-cdp es el modo normal de producción",
     )
     mode.add_argument(
         "--headless",
