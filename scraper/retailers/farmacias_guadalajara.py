@@ -5,7 +5,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
@@ -148,6 +148,19 @@ class FarmaciasGuadalajaraScraper:
             return None
         values = [int(x) for x in matches]
         return max(values) if values else None
+
+    @staticmethod
+    def _with_query(url: str, **params) -> str:
+        parts = urlsplit(url)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        for key, value in params.items():
+            if value is None:
+                query.pop(key, None)
+            else:
+                query[key] = str(value)
+        return urlunsplit(
+            (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
+        )
 
     @staticmethod
     def _product_link_count(page) -> int:
@@ -328,6 +341,34 @@ class FarmaciasGuadalajaraScraper:
                 break
 
             stats["final_links"] = current
+
+            if current <= previous and captured_response is None and target:
+                # Fallback: stay on the normal SEO category route (which is known
+                # to load correctly in Edge) and ask the storefront to render a
+                # larger grid through its ordinary search query parameters.
+                # This avoids navigating directly to Search-UpdateGrid.
+                base_category_url = page.url.split("#", 1)[0]
+                widened_url = self._with_query(
+                    base_category_url,
+                    start=0,
+                    sz=min(int(target), 500),
+                )
+                try:
+                    widened_response = self._goto_with_retries(page, widened_url)
+                    page.wait_for_timeout(3_000)
+                    widened_count = self._product_link_count(page)
+                    stats["wide_page_attempt"] = {
+                        "url": widened_url,
+                        "status": widened_response.status if widened_response else None,
+                        "product_links": widened_count,
+                    }
+                    current = widened_count
+                    stats["final_links"] = current
+                except Exception as exc:
+                    stats["wide_page_attempt"] = {
+                        "url": widened_url,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
 
             if current <= previous:
                 stats["stop_reason"] = (
