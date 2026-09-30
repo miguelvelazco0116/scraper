@@ -73,13 +73,61 @@ def main() -> int:
         body = driver.find_element(By.TAG_NAME, "body").text or ""
         is_blocked = blocked(body, title)
 
-        product_links = driver.execute_script(
+        structure = driver.execute_script(
             """
-            return Array.from(document.querySelectorAll('a[href*="/p/"]'))
-              .map(a => a.href)
-              .filter(Boolean).length;
+            const anchors = Array.from(document.querySelectorAll('a[href]'));
+            const hrefs = [...new Set(anchors.map(a => a.href).filter(Boolean))];
+
+            const dataNodes = Array.from(document.querySelectorAll(
+              '[data-product-code], [data-product-id], [data-code], [data-sku], [data-ean], [data-upc]'
+            ));
+
+            const textNodes = Array.from(document.querySelectorAll('body *'))
+              .filter(el => /Listerine|Enjuague bucal/i.test((el.innerText || '').trim()))
+              .slice(0, 8)
+              .map(el => {
+                let node = el;
+                for (let i = 0; i < 6 && node; i++, node = node.parentElement) {
+                  const text = (node.innerText || '').trim();
+                  if (/\$\s*\d/.test(text) && text.length < 2500) break;
+                }
+                node = node || el;
+                return {
+                  tag: node.tagName,
+                  id: node.id || '',
+                  className: String(node.className || ''),
+                  href: node.matches('a[href]') ? node.href : '',
+                  dataProductCode: node.getAttribute('data-product-code') || '',
+                  dataProductId: node.getAttribute('data-product-id') || '',
+                  dataCode: node.getAttribute('data-code') || '',
+                  text: (node.innerText || '').trim().slice(0, 800),
+                  html: node.outerHTML.slice(0, 1800)
+                };
+              });
+
+            return {
+              totalAnchors: anchors.length,
+              sampleHrefs: hrefs.slice(0, 80),
+              dataNodes: dataNodes.slice(0, 30).map(el => ({
+                tag: el.tagName,
+                id: el.id || '',
+                className: String(el.className || ''),
+                productCode: el.getAttribute('data-product-code') || '',
+                productId: el.getAttribute('data-product-id') || '',
+                code: el.getAttribute('data-code') || '',
+                sku: el.getAttribute('data-sku') || '',
+                ean: el.getAttribute('data-ean') || '',
+                upc: el.getAttribute('data-upc') || '',
+                text: (el.innerText || '').trim().slice(0, 500)
+              })),
+              textNodes
+            };
             """
-        ) or 0
+        ) or {}
+        product_links = sum(
+            1 for href in structure.get("sampleHrefs", [])
+            if "/p/" in href
+        )
 
         payload = {
             "category": args.category,
@@ -87,6 +135,10 @@ def main() -> int:
             "title": title,
             "blocked": is_blocked,
             "product_links": int(product_links),
+            "total_anchors": int(structure.get("totalAnchors") or 0),
+            "sample_hrefs": structure.get("sampleHrefs") or [],
+            "data_nodes": structure.get("dataNodes") or [],
+            "candidate_product_nodes": structure.get("textNodes") or [],
             "body_preview": " ".join(body.split())[:500],
         }
         out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -105,7 +157,7 @@ def main() -> int:
             return 2
 
         if int(product_links) == 0:
-            print("RESULTADO: ACCESO OK, pero no detectamos links /p/ todavía")
+            print("RESULTADO: ACCESO OK; estructura de productos guardada para identificar selectores")
             return 4
 
         print("RESULTADO: ACCESO OK")
