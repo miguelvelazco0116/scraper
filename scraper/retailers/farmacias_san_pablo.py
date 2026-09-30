@@ -5,7 +5,7 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse, urlunparse
 
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException, WebDriverException
@@ -644,9 +644,63 @@ class FarmaciasSanPabloScraper:
                 if not next_exists:
                     break
 
+        search_fallback_url = None
+
+        # Some legacy/category URLs on San Pablo resolve without a usable
+        # catalog (currently seen with preservativos). In that case use the
+        # storefront's normal public search page for the same category term.
+        if not all_cards and target is None:
+            query = (
+                clean_text(category.subcategory)
+                or clean_text(category.name)
+                or clean_text(category.id)
+                or ""
+            )
+            if query:
+                search_fallback_url = urljoin(
+                    BASE_URL,
+                    "search/" + quote(query, safe=""),
+                )
+                print(
+                    f"San Pablo [{category.id}] category empty; "
+                    f"trying public search: {search_fallback_url}"
+                )
+                self._goto(driver, search_fallback_url)
+
+                search_target = self._target_count(driver)
+                if search_target:
+                    target = search_target
+
+                expected = min(48, int(target)) if target else None
+                search_cards, hydration = self._collect_page_cards(
+                    driver,
+                    expected_on_page=expected,
+                )
+
+                for card in search_cards:
+                    code = self._code_from_card(card) or ""
+                    href = clean_text(card.get("href")) or ""
+                    title = clean_text(card.get("title")) or ""
+                    text = clean_text(card.get("text")) or ""
+                    key = code or href or f"{title}|{text[:180]}"
+                    if key:
+                        all_cards[key] = card
+
+                pages.append(
+                    {
+                        "page": "search-fallback",
+                        "url": search_fallback_url,
+                        "expected_on_page": expected,
+                        "cards_on_page": len(search_cards),
+                        "cumulative_cards": len(all_cards),
+                        "hydration": hydration,
+                    }
+                )
+
         meta = {
             "category_id": category.id,
             "category_url": category.url,
+            "search_fallback_url": search_fallback_url,
             "target_products": target,
             "cards_discovered": len(all_cards),
             "pages": pages,
@@ -692,9 +746,10 @@ class FarmaciasSanPabloScraper:
                     continue
 
                 current, regular, promotion = self._prices_from_text(text)
-                if current is None:
-                    continue
 
+                # Keep the product even when the card has no visible price.
+                # Catalog completeness and price completeness are measured
+                # separately in the output summary.
                 sku = self._code_from_card(card)
                 href = clean_text(card.get("href"))
                 url = urljoin(BASE_URL, href) if href else None
