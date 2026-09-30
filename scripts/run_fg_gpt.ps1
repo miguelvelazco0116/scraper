@@ -49,6 +49,13 @@ Write-Host "IMPORTANTE: no uses mouse/teclado mientras GPT controla la PC."
 Write-Host "PyAutoGUI mantiene FAILSAFE: mueve el mouse a una esquina para abortar."
 Write-Host ""
 
+Write-Host "Validando conexion con OpenAI API..."
+& $PythonExe .\scripts\test_openai_connection.py
+if ($LASTEXITCODE -ne 0) {
+    throw "La conexion con OpenAI API no esta lista. Corrige el diagnostico antes de abrir Edge."
+}
+Write-Host ""
+
 foreach ($cat in $categories) {
     Write-Host "------------------------------------------------------------"
     Write-Host "GPT scraping: $cat"
