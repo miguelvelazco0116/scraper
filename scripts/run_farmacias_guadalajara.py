@@ -167,8 +167,8 @@ def _restore_consolidated(backup: Path, had_consolidated: bool) -> None:
         CONSOLIDATED.unlink()
 
 
-def _preflight(*, timeout: int, browser_channel: str) -> dict:
-    """Valida Chrome CDP + navegación + un clic sin dejar muestra parcial."""
+def _preflight(*, timeout: int, browser_channel: str, execution_mode: str = "server") -> dict:
+    """Valida Chrome + navegación + un clic sin dejar muestra parcial."""
     CONTROL_DIR.mkdir(parents=True, exist_ok=True)
     backup = CONTROL_DIR / f"preflight-{uuid.uuid4().hex}.xlsx"
     had_consolidated = CONSOLIDATED.exists()
@@ -177,12 +177,14 @@ def _preflight(*, timeout: int, browser_channel: str) -> dict:
         shutil.copy2(CONSOLIDATED, backup)
 
     try:
-        print("PRECHECK: Chrome nativo/CDP + Cuidado Bucal 20 -> 40")
+        mode_label = "Chrome local" if execution_mode == "local" else "Chrome nativo/CDP"
+        print(f"PRECHECK: {mode_label} + Cuidado Bucal 20 -> 40")
         code = _run_submit(
             "cuidado-bucal",
             max_load_more=1,
             timeout=min(timeout, 300),
             browser_channel=browser_channel,
+            execution_mode=execution_mode,
         )
         if code == 2:
             raise RuntimeError(
@@ -232,6 +234,7 @@ def _run_category_with_validation(
     min_row_coverage: float,
     attempts: int,
     retry_pause: float,
+    execution_mode: str = "server",
 ) -> dict:
     CONTROL_DIR.mkdir(parents=True, exist_ok=True)
     backup = CONTROL_DIR / f"{category}-{uuid.uuid4().hex}.xlsx"
@@ -249,6 +252,7 @@ def _run_category_with_validation(
                 max_load_more=max_load_more,
                 timeout=timeout,
                 browser_channel=browser_channel,
+                execution_mode=execution_mode,
             )
 
             if code == 2:
