@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pyautogui
 import pyperclip
-from openai import OpenAI
+from openai import APIConnectionError, APIStatusError, OpenAI
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -205,7 +205,7 @@ def _run_gpt_desktop(category: str, model: str, max_turns: int) -> None:
     _open_normal_edge(url)
     time.sleep(6)
 
-    client = OpenAI()
+    client = OpenAI(timeout=60.0, max_retries=2)
     prompt = f"""
 Controla únicamente la interfaz visible de Microsoft Edge en esta PC.
 
@@ -328,7 +328,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--model",
-        default=os.getenv("OPENAI_COMPUTER_MODEL", "gpt-6.1-sol"),
+        default=os.getenv("OPENAI_COMPUTER_MODEL", "gpt-5.6-sol"),
     )
     parser.add_argument("--max-turns", type=int, default=30)
     parser.add_argument("--download-timeout", type=int, default=180)
@@ -353,6 +353,21 @@ def main() -> int:
             started_at=started_at,
             timeout=args.download_timeout,
         )
+    except APIConnectionError as exc:
+        print(f"GPT SCRAPER ERROR: {type(exc).__name__}: {exc}")
+        cause = getattr(exc, "__cause__", None)
+        if cause is not None:
+            print(f"NETWORK CAUSE: {type(cause).__name__}: {cause}")
+        print(
+            "Ejecuta .\\scripts\\test_fg_gpt_connection.ps1 para "
+            "diagnosticar DNS/TCP/API antes de reintentar."
+        )
+        return 2
+    except APIStatusError as exc:
+        print(
+            f"GPT API ERROR: HTTP {exc.status_code}: {exc}"
+        )
+        return 2
     except Exception as exc:
         print(f"GPT SCRAPER ERROR: {type(exc).__name__}: {exc}")
         return 2
