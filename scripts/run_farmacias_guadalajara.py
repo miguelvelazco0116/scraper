@@ -5,6 +5,7 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -68,6 +69,8 @@ def _validate_diagnostic(
     target = data.get("target_products")
     links = int(data.get("product_links") or 0)
     rows = int(data.get("rows") or 0)
+    unique_skus = int(data.get("unique_skus") or rows)
+    unique_urls = int(data.get("unique_urls") or rows)
     expansion = data.get("expansion") or {}
     final_links = int(expansion.get("final_links") or links)
 
@@ -76,33 +79,63 @@ def _validate_diagnostic(
             f"{category}: extracción vacía (links={links}, rows={rows})"
         )
 
-    if require_complete and isinstance(target, int) and target > 0:
+    if require_complete:
+        if not isinstance(target, int) or target <= 0:
+            raise RuntimeError(
+                f"{category}: no se pudo determinar target_products; "
+                "no es posible certificar catálogo completo"
+            )
+
         if links < target or final_links < target:
             raise RuntimeError(
                 f"{category}: cobertura incompleta de links "
                 f"(target={target}, links={links}, final_links={final_links})"
             )
+
         coverage = rows / target
         if coverage < min_row_coverage:
             raise RuntimeError(
                 f"{category}: cobertura de filas {coverage:.1%} menor a "
                 f"{min_row_coverage:.1%} (rows={rows}, target={target})"
             )
+
+        if unique_skus < target:
+            raise RuntimeError(
+                f"{category}: SKUs únicos incompletos "
+                f"(target={target}, unique_skus={unique_skus})"
+            )
+
+        if unique_urls < target:
+            raise RuntimeError(
+                f"{category}: URLs únicas incompletas "
+                f"(target={target}, unique_urls={unique_urls})"
+            )
     else:
-        coverage = None
+        coverage = (rows / target) if isinstance(target, int) and target > 0 else None
 
     return {
         "target": target,
         "links": links,
+        "final_links": final_links,
         "rows": rows,
+        "unique_skus": unique_skus,
+        "unique_urls": unique_urls,
         "coverage": coverage,
         "stop_reason": expansion.get("stop_reason"),
         "captured_responses": expansion.get("captured_responses"),
     }
 
 
+def _restore_consolidated(backup: Path, had_consolidated: bool) -> None:
+    if had_consolidated and backup.exists():
+        CONSOLIDATED.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(backup, CONSOLIDATED)
+    elif not had_consolidated and CONSOLIDATED.exists():
+        CONSOLIDATED.unlink()
+
+
 def _preflight(*, timeout: int, browser_channel: str) -> dict:
-    """Valida worker + Edge CDP + navegación + un clic sin dejar muestra parcial."""
+    """Valida Chrome CDP + navegación + un clic sin dejar muestra parcial."""
     CONTROL_DIR.mkdir(parents=True, exist_ok=True)
     backup = CONTROL_DIR / f"preflight-{uuid.uuid4().hex}.xlsx"
     had_consolidated = CONSOLIDATED.exists()
@@ -111,13 +144,18 @@ def _preflight(*, timeout: int, browser_channel: str) -> dict:
         shutil.copy2(CONSOLIDATED, backup)
 
     try:
-        print("PRECHECK: Edge nativo/CDP + Cuidado Bucal 20 -> 40")
+        print("PRECHECK: Chrome nativo/CDP + Cuidado Bucal 20 -> 40")
         code = _run_submit(
             "cuidado-bucal",
             max_load_more=1,
             timeout=min(timeout, 300),
             browser_channel=browser_channel,
         )
+        if code == 2:
+            raise RuntimeError(
+                "Farmacias Guadalajara presentó una verificación/bloqueo. "
+                "El proceso se detuvo sin intentar evadirla."
+            )
         if code != 0:
             raise RuntimeError(f"Preflight terminó con exit_code={code}")
 
@@ -146,29 +184,96 @@ def _preflight(*, timeout: int, browser_channel: str) -> dict:
             "captured_responses": captured,
         }
     finally:
-        # El preflight usa el flujo real y por eso main.py actualiza el Excel.
-        # Restauramos exactamente el estado previo antes de la corrida completa.
         try:
-            if had_consolidated and backup.exists():
-                CONSOLIDATED.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(backup, CONSOLIDATED)
-            elif not had_consolidated and CONSOLIDATED.exists():
-                CONSOLIDATED.unlink()
+            _restore_consolidated(backup, had_consolidated)
         finally:
             backup.unlink(missing_ok=True)
+
+
+def _run_category_with_validation(
+    category: str,
+    *,
+    max_load_more: int,
+    timeout: int,
+    browser_channel: str,
+    min_row_coverage: float,
+    attempts: int,
+    retry_pause: float,
+) -> dict:
+    CONTROL_DIR.mkdir(parents=True, exist_ok=True)
+    backup = CONTROL_DIR / f"{category}-{uuid.uuid4().hex}.xlsx"
+    had_consolidated = CONSOLIDATED.exists()
+    if had_consolidated:
+        shutil.copy2(CONSOLIDATED, backup)
+
+    last_error: Exception | None = None
+
+    try:
+        for attempt in range(1, attempts + 1):
+            print(f"Intento {attempt}/{attempts}: {category}")
+            code = _run_submit(
+                category,
+                max_load_more=max_load_more,
+                timeout=timeout,
+                browser_channel=browser_channel,
+            )
+
+            if code == 2:
+                _restore_consolidated(backup, had_consolidated)
+                raise RuntimeError(
+                    f"{category}: el sitio presentó una verificación/bloqueo. "
+                    "Se detuvo la categoría sin reintentar."
+                )
+
+            if code == 0:
+                try:
+                    validation = _validate_diagnostic(
+                        category,
+                        require_complete=True,
+                        min_row_coverage=min_row_coverage,
+                    )
+                    return validation
+                except Exception as exc:
+                    last_error = exc
+                    print(f"Validación incompleta [{category}]: {exc}")
+            else:
+                last_error = RuntimeError(
+                    f"{category}: scraper terminó con exit_code={code}"
+                )
+                print(last_error)
+
+            # Nunca dejamos una muestra parcial en el concentrado entre intentos.
+            _restore_consolidated(backup, had_consolidated)
+
+            if attempt < attempts:
+                print(
+                    f"Reintento conservador en {retry_pause:.0f}s "
+                    "(sin aumentar concurrencia ni volumen de requests)..."
+                )
+                time.sleep(retry_pause)
+
+        raise RuntimeError(
+            f"{category}: no se logró una descarga completa después de "
+            f"{attempts} intento(s). Último error: {last_error}"
+        )
+    except Exception:
+        _restore_consolidated(backup, had_consolidated)
+        raise
+    finally:
+        backup.unlink(missing_ok=True)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Ejecuta y valida Farmacias Guadalajara vía Task Scheduler "
-            "+ Edge nativo/CDP"
+            "+ Google Chrome nativo/CDP"
         )
     )
     parser.add_argument("--category", default="all")
     parser.add_argument("--max-load-more", type=int, default=100)
     parser.add_argument("--timeout", type=int, default=1200)
-    parser.add_argument("--browser-channel", default="msedge-cdp")
+    parser.add_argument("--browser-channel", default="chrome-cdp")
     parser.add_argument(
         "--skip-preflight",
         action="store_true",
@@ -177,13 +282,34 @@ def main() -> int:
     parser.add_argument(
         "--min-row-coverage",
         type=float,
-        default=0.95,
-        help="Cobertura mínima filas/target para aceptar una categoría completa",
+        default=1.0,
+        help="Cobertura mínima filas/target; producción usa 1.0 (100%)",
+    )
+    parser.add_argument(
+        "--attempts",
+        type=int,
+        default=2,
+        help="Máximo de intentos por categoría. Un bloqueo nunca se reintenta.",
+    )
+    parser.add_argument(
+        "--retry-pause",
+        type=float,
+        default=10.0,
+        help="Pausa en segundos antes de un reintento por fallo transitorio.",
     )
     args = parser.parse_args()
 
     if not 0 < args.min_row_coverage <= 1:
         parser.error("--min-row-coverage debe estar entre 0 y 1")
+    if args.attempts < 1 or args.attempts > 3:
+        parser.error("--attempts debe estar entre 1 y 3")
+    if args.retry_pause < 0:
+        parser.error("--retry-pause no puede ser negativo")
+    if args.browser_channel.casefold() != "chrome-cdp":
+        parser.error(
+            "Este runner de producción está homologado a Google Chrome: "
+            "usa --browser-channel chrome-cdp"
+        )
 
     categories = CATEGORIES if args.category == "all" else [args.category]
     invalid = [x for x in categories if x not in CATEGORIES]
@@ -213,26 +339,19 @@ def main() -> int:
         print(f"Farmacias Guadalajara / {category}")
         print("=" * 72)
 
-        code = _run_submit(
-            category,
-            max_load_more=args.max_load_more,
-            timeout=args.timeout,
-            browser_channel=args.browser_channel,
-        )
-        if code != 0:
-            print(f"ERROR [{category}] exit_code={code}")
-            results.append((category, "ERROR", None))
-            break
-
         try:
-            validation = _validate_diagnostic(
+            validation = _run_category_with_validation(
                 category,
-                require_complete=True,
+                max_load_more=args.max_load_more,
+                timeout=args.timeout,
+                browser_channel=args.browser_channel,
                 min_row_coverage=args.min_row_coverage,
+                attempts=args.attempts,
+                retry_pause=args.retry_pause,
             )
         except Exception as exc:
-            print(f"VALIDATION ERROR [{category}]: {exc}")
-            results.append((category, "INVALID", None))
+            print(f"ERROR [{category}]: {exc}")
+            results.append((category, "ERROR", None))
             break
 
         results.append((category, "SUCCESS", validation))
@@ -246,6 +365,7 @@ def main() -> int:
             f"target={validation['target']} "
             f"links={validation['links']} "
             f"rows={validation['rows']} "
+            f"unique_skus={validation['unique_skus']} "
             f"coverage={coverage_text}"
         )
 
@@ -255,8 +375,10 @@ def main() -> int:
         if validation:
             print(
                 f"{category}: {status} "
-                f"(links={validation['links']}, rows={validation['rows']}, "
-                f"target={validation['target']})"
+                f"(target={validation['target']}, "
+                f"links={validation['links']}, "
+                f"rows={validation['rows']}, "
+                f"skus={validation['unique_skus']})"
             )
         else:
             print(f"{category}: {status}")
@@ -266,7 +388,7 @@ def main() -> int:
         and all(status == "SUCCESS" for _, status, _ in results)
     )
     if success:
-        print(f"Concentrado validado: {CONSOLIDATED}")
+        print(f"Concentrado validado al 100%: {CONSOLIDATED}")
         return 0
     return 2
 
