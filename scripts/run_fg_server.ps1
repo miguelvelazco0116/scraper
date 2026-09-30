@@ -27,17 +27,40 @@ if ($task.Principal.LogonType -ne "Interactive") {
     throw "La tarea $TaskName no usa LogonType Interactive."
 }
 
+function Get-AccountLeaf([string]$Account) {
+    if ([string]::IsNullOrWhiteSpace($Account)) {
+        return ""
+    }
+    $parts = $Account -split '[\\/]'
+    return $parts[-1].Trim()
+}
+
+$taskUserLeaf = Get-AccountLeaf $task.Principal.UserId
+
 $interactive = Get-Process -Name explorer -IncludeUserName -ErrorAction SilentlyContinue |
     Where-Object {
         $_.SessionId -gt 0 -and
         -not [string]::IsNullOrWhiteSpace($_.UserName) -and
-        $_.UserName -ieq $task.Principal.UserId
+        (Get-AccountLeaf $_.UserName) -ieq $taskUserLeaf
     } |
     Sort-Object SessionId -Descending |
     Select-Object -First 1
 
 if (-not $interactive) {
-    throw "El usuario de la tarea ($($task.Principal.UserId)) no tiene una sesion interactiva de Windows. Inicia sesion por RDP y vuelve a ejecutar."
+    $detectedUsers = Get-Process -Name explorer -IncludeUserName -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.SessionId -gt 0 -and
+            -not [string]::IsNullOrWhiteSpace($_.UserName)
+        } |
+        Select-Object -ExpandProperty UserName -Unique
+
+    $detectedText = if ($detectedUsers) {
+        $detectedUsers -join ", "
+    } else {
+        "(ninguno)"
+    }
+
+    throw "El usuario de la tarea ($($task.Principal.UserId)) no tiene una sesion interactiva compatible. Usuarios explorer detectados: $detectedText"
 }
 
 $programFilesX86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
