@@ -206,7 +206,6 @@ class FarmaciasGuadalajaraScraper:
             "initial_links": previous,
             "clicks": 0,
             "captured_responses": 0,
-            "xhr_fallbacks": 0,
             "manual_appends": 0,
             "final_links": previous,
             "stop_reason": None,
@@ -214,9 +213,7 @@ class FarmaciasGuadalajaraScraper:
             "page_requests": page_requests,
         }
 
-        # The initial category navigation uses wait_until="commit" because it is
-        # the most reliable mode on this server. Before interacting with the
-        # storefront, give its JavaScript bundle time to attach delegated events.
+        # Give the storefront time to attach its normal delegated click handlers.
         try:
             page.wait_for_load_state("domcontentloaded", timeout=20_000)
         except Exception:
@@ -228,6 +225,8 @@ class FarmaciasGuadalajaraScraper:
         page.wait_for_timeout(2_000)
 
         for _ in range(self.max_load_more):
+            self._assert_not_blocked(page)
+
             if target and previous >= target:
                 stats["stop_reason"] = "target_reached"
                 break
@@ -244,7 +243,11 @@ class FarmaciasGuadalajaraScraper:
                     continue
 
             if button is None:
-                stats["stop_reason"] = "load_more_not_visible"
+                stats["stop_reason"] = (
+                    "load_more_not_visible_before_target"
+                    if target and previous < target
+                    else "load_more_not_visible"
+                )
                 try:
                     stats["button_candidates"] = page.locator("button").evaluate_all(
                         """els => els.map((el, i) => ({
@@ -277,111 +280,64 @@ class FarmaciasGuadalajaraScraper:
             except Exception:
                 pass
 
-            next_url = button.get_attribute("data-url")
+            expected_url = button.get_attribute("data-url")
             current = previous
             captured_html = ""
             captured_response = None
 
-            # First let the storefront perform its normal action.
+            # Use only the website's normal "Ver más productos" interaction.
+            # No extra direct HTTP/XHR fallback is issued, which keeps request
+            # volume conservative and aligned with normal browser behavior.
             try:
                 button.scroll_into_view_if_needed(timeout=5_000)
-                page.wait_for_timeout(500)
+                page.wait_for_timeout(750)
+
+                with page.expect_response(
+                    lambda response: "Search-UpdateGrid" in response.url,
+                    timeout=20_000,
+                ) as response_info:
+                    button.click(timeout=10_000)
+                    stats["clicks"] += 1
+
+                captured_response = response_info.value
                 try:
-                    with page.expect_response(
-                        lambda response: "Search-UpdateGrid" in response.url,
-                        timeout=12_000,
-                    ) as response_info:
-                        button.click(timeout=10_000)
-                        stats["clicks"] += 1
+                    captured_html = captured_response.text()
+                except Exception:
+                    captured_html = ""
 
-                    captured_response = response_info.value
-                    try:
-                        captured_html = captured_response.text()
-                    except Exception:
-                        captured_html = ""
+                stats["captured_responses"] += 1
+                page_requests.append(
+                    {
+                        "transport": "native_button_click",
+                        "url": captured_response.url,
+                        "status": captured_response.status,
+                        "ok": captured_response.ok,
+                        "html_length": len(captured_html or ""),
+                        "expected_data_url": expected_url,
+                    }
+                )
 
-                    stats["captured_responses"] += 1
-                    page_requests.append(
-                        {
-                            "transport": "native_button_click",
-                            "url": captured_response.url,
-                            "status": captured_response.status,
-                            "ok": captured_response.ok,
-                            "html_length": len(captured_html or ""),
-                            "expected_data_url": next_url,
-                        }
+                if not captured_response.ok:
+                    stats["stop_reason"] = (
+                        f"load_more_http_{captured_response.status}"
                     )
-                except Exception as exc:
-                    stats["last_click_response_error"] = (
-                        f"{type(exc).__name__}: {exc}"
-                    )
+                    break
 
-                # The site's own callback may append the products even if response
-                # observation failed, so always check the DOM before falling back.
-                for _ in range(5):
-                    page.wait_for_timeout(1_000)
+                # Allow the site's own callback to update the product grid.
+                for _ in range(10):
+                    page.wait_for_timeout(500)
                     current = self._product_link_count(page)
                     if current > previous:
                         break
+
             except Exception as exc:
-                stats["last_click_error"] = f"{type(exc).__name__}: {exc}"
+                stats["last_click_response_error"] = (
+                    f"{type(exc).__name__}: {exc}"
+                )
 
-            # In this Windows environment window.fetch is instrumented by the
-            # storefront and can fail. XMLHttpRequest uses the page's native
-            # same-origin browser connection and is a closer match to SFCC AJAX.
-            if current <= previous and next_url:
-                try:
-                    xhr_result = page.evaluate(
-                        """url => new Promise(resolve => {
-                            const xhr = new XMLHttpRequest();
-                            xhr.open('GET', url, true);
-                            xhr.withCredentials = true;
-                            xhr.timeout = 30000;
-                            xhr.setRequestHeader('Accept', 'text/html, */*; q=0.01');
-                            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-                            xhr.onload = () => resolve({
-                                ok: xhr.status >= 200 && xhr.status < 400,
-                                status: xhr.status,
-                                url: xhr.responseURL || url,
-                                html: xhr.responseText || ''
-                            });
-                            xhr.onerror = () => resolve({
-                                ok: false,
-                                status: 0,
-                                url,
-                                html: '',
-                                error: 'xhr_error'
-                            });
-                            xhr.ontimeout = () => resolve({
-                                ok: false,
-                                status: 0,
-                                url,
-                                html: '',
-                                error: 'xhr_timeout'
-                            });
-                            xhr.send();
-                        })""",
-                        next_url,
-                    )
-                    stats["xhr_fallbacks"] += 1
-                    xhr_html = xhr_result.get("html") or ""
-                    page_requests.append(
-                        {
-                            "transport": "page_xmlhttprequest",
-                            "url": xhr_result.get("url") or next_url,
-                            "status": xhr_result.get("status"),
-                            "ok": bool(xhr_result.get("ok")),
-                            "html_length": len(xhr_html),
-                            "error": xhr_result.get("error"),
-                        }
-                    )
-                    if xhr_result.get("ok") and xhr_html.strip():
-                        captured_html = xhr_html
-                except Exception as exc:
-                    stats["xhr_error"] = f"{type(exc).__name__}: {exc}"
-
-            # If we obtained the official grid response but the storefront did not
-            # append it, append that exact response fragment ourselves.
+            # If Chrome received the official grid response but the page callback
+            # did not append it, reuse that same response body. This does not make
+            # an additional network request.
             if current <= previous and (captured_html or "").strip():
                 try:
                     button.evaluate("el => el.remove()")
@@ -401,6 +357,7 @@ class FarmaciasGuadalajaraScraper:
                 page.wait_for_timeout(500)
                 current = self._product_link_count(page)
 
+            self._assert_not_blocked(page)
             stats["final_links"] = current
 
             if current <= previous:
@@ -408,6 +365,10 @@ class FarmaciasGuadalajaraScraper:
                 break
 
             previous = current
+
+            # Conservative pacing: one storefront request at a time and a fixed
+            # pause before requesting the next 20-product block.
+            page.wait_for_timeout(1_250)
         else:
             stats["stop_reason"] = "max_load_more_reached"
 
@@ -533,7 +494,7 @@ class FarmaciasGuadalajaraScraper:
                 browser = p.chromium.connect_over_cdp(cdp_url)
                 if not browser.contexts:
                     raise FarmaciasGuadalajaraNetworkUnavailable(
-                        f"Edge CDP conectado sin contexto disponible: {cdp_url}"
+                        f"Chrome CDP conectado sin contexto disponible: {cdp_url}"
                     )
                 context = browser.contexts[0]
             else:
@@ -605,12 +566,25 @@ class FarmaciasGuadalajaraScraper:
 
                 unique = {(row["sku"], row["url"]): row for row in rows}
                 rows = list(unique.values())
+                product_links = self._product_link_count(page)
+                unique_skus = len({row["sku"] for row in rows if row.get("sku")})
+                unique_urls = len({row["url"] for row in rows if row.get("url")})
                 meta = {
                     "category_id": category.id,
                     "url": category.url,
                     "target_products": target,
-                    "product_links": self._product_link_count(page),
+                    "product_links": product_links,
                     "rows": len(rows),
+                    "unique_skus": unique_skus,
+                    "unique_urls": unique_urls,
+                    "complete_against_target": bool(
+                        isinstance(target, int)
+                        and target > 0
+                        and product_links >= target
+                        and len(rows) >= target
+                        and unique_skus >= target
+                        and unique_urls >= target
+                    ),
                     "expansion": expansion,
                     "store_context": "online_catalog_no_store_requested",
                 }
