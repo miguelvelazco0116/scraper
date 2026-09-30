@@ -305,7 +305,7 @@ def test_cli_help_is_valid_on_python_314(monkeypatch, capsys):
     assert "cobertura completa" in output
 
 
-def test_local_mode_runs_main_with_visible_chrome(monkeypatch):
+def test_local_mode_runs_main_with_visible_edge(monkeypatch):
     calls = {}
 
     class Completed:
@@ -322,7 +322,7 @@ def test_local_mode_runs_main_with_visible_chrome(monkeypatch):
         "cuidado-bucal",
         max_load_more=1,
         timeout=120,
-        browser_channel="chrome",
+        browser_channel="msedge",
         execution_mode="local",
     )
 
@@ -333,14 +333,14 @@ def test_local_mode_runs_main_with_visible_chrome(monkeypatch):
     assert "--retailer" in command
     assert "farmacias-guadalajara" in command
     assert "--headed" in command
-    assert env["FG_BROWSER_CHANNEL"] == "chrome"
+    assert env["FG_BROWSER_CHANNEL"] == "msedge"
     assert env["FG_DISABLE_HTTP2"] == "0"
     assert env["FG_DISABLE_QUIC"] == "0"
-    assert env["FG_GRID_REQUEST_FALLBACK"] == "1"
+    assert "FG_GRID_REQUEST_FALLBACK" not in env
     assert "FG_CDP_URL" not in env
 
 
-def test_cli_accepts_local_chrome_mode(monkeypatch):
+def test_cli_accepts_local_edge_mode(monkeypatch):
     monkeypatch.setattr(
         runner.sys,
         "argv",
@@ -349,7 +349,7 @@ def test_cli_accepts_local_chrome_mode(monkeypatch):
             "--execution-mode",
             "local",
             "--browser-channel",
-            "chrome",
+            "msedge",
             "--category",
             "cuidado-bucal",
             "--skip-preflight",
