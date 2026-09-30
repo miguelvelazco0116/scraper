@@ -90,16 +90,30 @@ def run_case(
         location = "cdmx"
         store = None
 
-    proc = subprocess.run(cmd, text=True, capture_output=True)
+    attempts: list[tuple[int, str, str]] = []
+    proc = None
+    for attempt in range(1, 3):
+        proc = subprocess.run(cmd, text=True, capture_output=True)
+        attempts.append((proc.returncode, proc.stdout, proc.stderr))
+        attempt_text = f"{proc.stdout}\n{proc.stderr}"
+        if classify_result(proc.returncode, attempt_text) != "NETWORK_UNAVAILABLE":
+            break
+        if attempt < 2:
+            print("     NETWORK_UNAVAILABLE; reintentando una vez...")
+
+    assert proc is not None
     text = f"{proc.stdout}\n{proc.stderr}"
     status = classify_result(proc.returncode, text)
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_path = LOG_DIR / f"{retailer}_{category_id}.log"
-    log_path.write_text(
-        f"$ {' '.join(cmd)}\n\nSTDOUT\n{proc.stdout}\n\nSTDERR\n{proc.stderr}\n",
-        encoding="utf-8",
-    )
+    parts = []
+    for attempt_index, (code, stdout, stderr) in enumerate(attempts, start=1):
+        parts.append(
+            f"ATTEMPT {attempt_index} exit={code}\n"
+            f"$ {' '.join(cmd)}\n\nSTDOUT\n{stdout}\n\nSTDERR\n{stderr}\n"
+        )
+    log_path.write_text("\n".join(parts), encoding="utf-8")
 
     match = re.search(r"Productos únicos:\s*(\d+)", text)
     reported_products = int(match.group(1)) if match else 0
