@@ -158,6 +158,16 @@ def main() -> int:
 
         target = meta.get("target_products")
         products = len(df)
+
+        # Final status is based on the actual rows written to output rather
+        # than an intermediate scraper status.
+        if products == 0:
+            status = "EMPTY"
+        elif target is not None and products < int(target):
+            status = "PARTIAL"
+        else:
+            status = "SUCCESS"
+
         unique_skus = int(
             df.loc[df["sku"].notna(), "sku"].astype(str).nunique()
         ) if not df.empty else 0
