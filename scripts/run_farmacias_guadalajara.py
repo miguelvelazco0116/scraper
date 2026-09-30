@@ -38,6 +38,7 @@ def _run_submit(
         env["FG_BROWSER_CHANNEL"] = browser_channel
         env["FG_DISABLE_HTTP2"] = "0"
         env["FG_DISABLE_QUIC"] = "0"
+        env["FG_GRID_REQUEST_FALLBACK"] = "1"
         env.pop("FG_CDP_URL", None)
         env.pop("FG_USER_AGENT", None)
 
