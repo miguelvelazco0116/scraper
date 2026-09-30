@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from copy import copy
 from pathlib import Path
 
 import pandas as pd
@@ -104,7 +105,12 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
         same_store = existing["store_id"].fillna("").astype(str).eq("" if pd.isna(store_id) else str(store_id))
         existing = existing.loc[~(same_retailer & same_category & same_city & same_store)].copy()
 
-    combined = pd.concat([existing, incoming], ignore_index=True)
+    if existing.empty:
+        combined = incoming.copy()
+    elif incoming.empty:
+        combined = existing.copy()
+    else:
+        combined = pd.concat([existing, incoming], ignore_index=True)
     if not combined.empty:
         sku_text = combined["sku"].fillna("").astype(str).str.strip()
         url_text = combined["url"].fillna("").astype(str).str.strip()
@@ -153,7 +159,9 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
             ws.freeze_panes = "A2"
             ws.auto_filter.ref = ws.dimensions
             for cell in ws[1]:
-                cell.font = cell.font.copy(bold=True)
+                header_font = copy(cell.font)
+                header_font.bold = True
+                cell.font = header_font
             for col_cells in ws.columns:
                 values = [str(c.value) if c.value is not None else "" for c in col_cells[:200]]
                 width = min(max(max((len(v) for v in values), default=0) + 2, 10), 42)
@@ -319,6 +327,16 @@ def main() -> int:
         df = df.sort_values(["brand", "product"], na_position="last").reset_index(drop=True)
 
     consolidated_path = update_consolidated_output(df)
+
+    if args.retailer == "chedraui":
+        displayed = getattr(scraper, "run_meta", {}).get("displayed_category_products")
+        collected = getattr(scraper, "run_meta", {}).get("collected_products")
+        coverage = getattr(scraper, "run_meta", {}).get("displayed_count_coverage")
+        if displayed is not None:
+            print(
+                f"Chedraui catálogo tienda: displayed={displayed}, "
+                f"collected={collected}, coverage={coverage}"
+            )
 
     print(f"Productos únicos: {len(df)}")
     print(f"Concentrado: {consolidated_path}")
