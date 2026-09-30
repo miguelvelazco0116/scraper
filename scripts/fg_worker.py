@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -78,9 +79,13 @@ def _edge_executable() -> Path:
     raise FileNotFoundError("No se encontró Microsoft Edge instalado")
 
 
-def _wait_for_port(port: int, timeout: float = 30.0) -> None:
+def _wait_for_port(process: subprocess.Popen, port: int, timeout: float = 60.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError(
+                f"Edge terminó antes de abrir CDP (exit_code={process.returncode})"
+            )
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=1):
                 return
@@ -89,10 +94,17 @@ def _wait_for_port(port: int, timeout: float = 30.0) -> None:
     raise TimeoutError(f"Edge CDP no abrió el puerto {port} en {timeout:.0f}s")
 
 
-def _start_native_edge() -> tuple[subprocess.Popen, str]:
+def _start_native_edge(request_id: str) -> tuple[subprocess.Popen, str, Path]:
     edge = _edge_executable()
     port = _free_local_port()
-    profile = CONTROL_DIR / "edge_profile"
+
+    # Usar un perfil exclusivo por corrida evita que Edge redirija el arranque
+    # hacia una instancia anterior y descarte --remote-debugging-port.
+    profiles_root = CONTROL_DIR / "edge_profiles"
+    profiles_root.mkdir(parents=True, exist_ok=True)
+    profile = profiles_root / request_id
+    if profile.exists():
+        shutil.rmtree(profile, ignore_errors=True)
     profile.mkdir(parents=True, exist_ok=True)
 
     command = [
@@ -102,6 +114,8 @@ def _start_native_edge() -> tuple[subprocess.Popen, str]:
         f"--user-data-dir={profile}",
         "--no-first-run",
         "--no-default-browser-check",
+        "--disable-background-mode",
+        "--new-window",
         "about:blank",
     ]
     process = subprocess.Popen(
@@ -110,8 +124,8 @@ def _start_native_edge() -> tuple[subprocess.Popen, str]:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    _wait_for_port(port)
-    return process, f"http://127.0.0.1:{port}"
+    _wait_for_port(process, port, timeout=60.0)
+    return process, f"http://127.0.0.1:{port}", profile
 
 
 def main() -> int:
@@ -179,9 +193,10 @@ def main() -> int:
     env.pop("FG_CDP_URL", None)
 
     edge_process = None
+    edge_profile = None
     if native_edge_cdp:
         try:
-            edge_process, cdp_url = _start_native_edge()
+            edge_process, cdp_url, edge_profile = _start_native_edge(request_id)
             env["FG_CDP_URL"] = cdp_url
             env.pop("FG_BROWSER_CHANNEL", None)
         except Exception as exc:
@@ -283,13 +298,27 @@ def main() -> int:
     finally:
         if edge_process is not None:
             try:
-                edge_process.terminate()
-                edge_process.wait(timeout=10)
+                subprocess.run(
+                    ["taskkill.exe", "/PID", str(edge_process.pid), "/T", "/F"],
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                    check=False,
+                )
             except Exception:
                 try:
                     edge_process.kill()
                 except Exception:
                     pass
+
+        if edge_profile is not None:
+            # Edge puede tardar unos segundos en liberar archivos del perfil.
+            for _ in range(10):
+                try:
+                    shutil.rmtree(edge_profile)
+                    break
+                except Exception:
+                    time.sleep(0.5)
 
 
 if __name__ == "__main__":
