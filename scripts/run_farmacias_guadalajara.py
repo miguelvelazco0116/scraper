@@ -343,10 +343,17 @@ def main() -> int:
         parser.error("--attempts debe estar entre 1 y 3")
     if args.retry_pause < 0:
         parser.error("--retry-pause no puede ser negativo")
-    if args.browser_channel.casefold() != "chrome-cdp":
+    if args.browser_channel is None:
+        args.browser_channel = (
+            "chrome" if args.execution_mode == "local" else "chrome-cdp"
+        )
+
+    expected_channel = (
+        "chrome" if args.execution_mode == "local" else "chrome-cdp"
+    )
+    if args.browser_channel.casefold() != expected_channel:
         parser.error(
-            "Este runner de producción está homologado a Google Chrome: "
-            "usa --browser-channel chrome-cdp"
+            f"Modo {args.execution_mode}: usa --browser-channel {expected_channel}"
         )
 
     categories = CATEGORIES if args.category == "all" else [args.category]
