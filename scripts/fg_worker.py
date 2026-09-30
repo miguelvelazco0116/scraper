@@ -118,6 +118,44 @@ def _kill_process_tree(process: subprocess.Popen | None) -> None:
             pass
 
 
+def _kill_chrome_profile_processes(profile: Path | None) -> None:
+    if profile is None:
+        return
+
+    # Chrome on Windows can hand execution from the launcher PID to another
+    # chrome.exe process. Clean up only processes that reference this run's
+    # unique user-data-dir so other Chrome windows remain untouched.
+    script = (
+        "$target = $args[0]; "
+        "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" "
+        "| Where-Object { "
+        "$_.CommandLine -and "
+        "$_.CommandLine.IndexOf($target, "
+        "[System.StringComparison]::OrdinalIgnoreCase) -ge 0 "
+        "} "
+        "| ForEach-Object { "
+        "Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue "
+        "}"
+    )
+    try:
+        subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                script,
+                str(profile),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except Exception:
+        pass
+
+
 def _wait_for_devtools_active_port(
     process: subprocess.Popen,
     profile: Path,
@@ -207,6 +245,7 @@ def _start_native_chrome(
         except Exception as exc:
             last_error = exc
             _kill_process_tree(process)
+            _kill_chrome_profile_processes(profile)
             for _ in range(10):
                 try:
                     shutil.rmtree(profile)
@@ -395,6 +434,7 @@ def main() -> int:
         return 1
     finally:
         _kill_process_tree(chrome_process)
+        _kill_chrome_profile_processes(chrome_profile)
 
         if chrome_profile is not None:
             # Chrome puede tardar unos segundos en liberar archivos del perfil.
