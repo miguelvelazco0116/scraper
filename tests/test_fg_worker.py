@@ -156,6 +156,7 @@ def test_start_native_chrome_retries_after_failed_start(monkeypatch, tmp_path):
     monkeypatch.setattr(worker.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(worker, "_wait_for_devtools_active_port", fake_wait)
     monkeypatch.setattr(worker, "_kill_process_tree", lambda process: None)
+    monkeypatch.setattr(worker, "_kill_chrome_profile_processes", lambda profile: None)
     monkeypatch.setattr(worker.time, "sleep", lambda seconds: None)
 
     process, cdp_url, profile = worker._start_native_chrome(
