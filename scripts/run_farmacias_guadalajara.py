@@ -283,7 +283,7 @@ def main() -> int:
         "--min-row-coverage",
         type=float,
         default=1.0,
-        help="Cobertura mínima filas/target; producción usa 1.0 (100%)",
+        help="Cobertura mínima filas/target; producción usa 1.0 (cobertura completa)",
     )
     parser.add_argument(
         "--attempts",
