@@ -3,7 +3,7 @@ param(
     [string]$PythonExe = "",
     [ValidateSet("all", "cuidado-bucal", "lavanderia", "preservativos", "vias-respiratorias")]
     [string]$Category = "cuidado-bucal",
-    [string]$Model = "gpt-6.1-sol"
+    [string]$Model = "gpt-5.6-sol"
 )
 
 $ErrorActionPreference = "Stop"
