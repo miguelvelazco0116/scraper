@@ -78,7 +78,7 @@ def run_case(
     elif retailer == "farmacias-san-pablo":
         cmd = [
             sys.executable, "main.py", "--retailer", "farmacias-san-pablo", "--category", category_id,
-            "--location", "san-pablo-online",
+            "--location", "san-pablo-online", "--headed",
         ]
         location = "san-pablo-online"
         store = None
@@ -189,29 +189,64 @@ def write_final_workbook(concentrated: pd.DataFrame, summary: pd.DataFrame) -> N
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Ejecutar todos los retailers y categorías configuradas")
+    parser = argparse.ArgumentParser(
+        description="Ejecutar retailers activos y categorías configuradas"
+    )
     parser.add_argument("--walmart-profile-dir")
     parser.add_argument("--walmart-storage-state")
+    parser.add_argument(
+        "--include-paused",
+        action="store_true",
+        help="Incluye Walmart y Farmacias Guadalajara, actualmente en pausa.",
+    )
     args = parser.parse_args()
 
-    walmart_profile = Path(args.walmart_profile_dir).expanduser().resolve() if args.walmart_profile_dir else None
-    walmart_state = Path(args.walmart_storage_state).expanduser().resolve() if args.walmart_storage_state else None
+    walmart_profile = (
+        Path(args.walmart_profile_dir).expanduser().resolve()
+        if args.walmart_profile_dir else None
+    )
+    walmart_state = (
+        Path(args.walmart_storage_state).expanduser().resolve()
+        if args.walmart_storage_state else None
+    )
     if walmart_state is not None and not walmart_state.exists():
         raise SystemExit(f"Storage state Walmart no encontrado: {walmart_state}")
     if walmart_profile is not None and not walmart_profile.exists():
         raise SystemExit(f"Perfil Walmart no encontrado: {walmart_profile}")
-    if walmart_state is None and walmart_profile is None:
-        raise SystemExit("Debes proporcionar --walmart-storage-state o --walmart-profile-dir")
+
+    if args.include_paused and walmart_state is None and walmart_profile is None:
+        raise SystemExit(
+            "Para --include-paused debes proporcionar "
+            "--walmart-storage-state o --walmart-profile-dir"
+        )
 
     OUTPUT.unlink(missing_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
+    active_retailers = [
+        "soriana",
+        "chedraui",
+        "farmacias-del-ahorro",
+        "farmacias-san-pablo",
+    ]
+    paused_retailers = [
+        "farmacias-guadalajara",
+        "walmart",
+    ]
+
+    retailers = active_retailers + (paused_retailers if args.include_paused else [])
+
+    print("Retailers activos:", ", ".join(active_retailers))
+    if not args.include_paused:
+        print("En pausa: Farmacias Guadalajara, Walmart")
+    print("")
+
     cases: list[tuple[str, dict]] = []
-    for retailer in (
-        "soriana", "chedraui", "farmacias-guadalajara", "farmacias-del-ahorro",
-        "farmacias-san-pablo", "walmart",
-    ):
-        cases.extend((retailer, category) for category in load_enabled_categories(retailer))
+    for retailer in retailers:
+        cases.extend(
+            (retailer, category)
+            for category in load_enabled_categories(retailer)
+        )
 
     results: list[dict] = []
     print(f"Casos configurados: {len(cases)}")
