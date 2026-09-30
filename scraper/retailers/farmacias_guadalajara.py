@@ -186,77 +186,141 @@ class FarmaciasGuadalajaraScraper:
 
     def _expand_all_products(self, page, target: int | None) -> dict:
         previous = self._product_link_count(page)
+        network_events: list[dict] = []
+
+        def on_response(response) -> None:
+            try:
+                request = response.request
+                if request.resource_type in {"xhr", "fetch"}:
+                    network_events.append(
+                        {
+                            "status": response.status,
+                            "resource_type": request.resource_type,
+                            "method": request.method,
+                            "url": response.url,
+                        }
+                    )
+            except Exception:
+                pass
+
+        page.on("response", on_response)
+
         stats = {
             "target_products": target,
             "initial_links": previous,
             "clicks": 0,
             "final_links": previous,
             "stop_reason": None,
+            "button": None,
+            "network_events": network_events,
         }
 
-        for _ in range(self.max_load_more):
-            if target and previous >= target:
-                stats["stop_reason"] = "target_reached"
-                break
+        try:
+            for _ in range(self.max_load_more):
+                if target and previous >= target:
+                    stats["stop_reason"] = "target_reached"
+                    break
 
-            button = page.get_by_role(
-                "button",
-                name=re.compile(
-                    r"(Ver más productos|Mostrar los siguientes .*productos)",
-                    re.IGNORECASE,
-                ),
-            ).last
+                candidates = page.get_by_text(
+                    re.compile(
+                        r"^(Ver más productos|Mostrar los siguientes .*productos)\\s*$",
+                        re.IGNORECASE,
+                    )
+                )
 
-            try:
-                if button.count() == 0:
-                    button = page.locator(
-                        'button:has-text("Ver más productos"), '
-                        'a:has-text("Ver más productos")'
-                    ).last
+                button = None
+                for idx in range(candidates.count()):
+                    candidate = candidates.nth(idx)
+                    try:
+                        if candidate.is_visible(timeout=500):
+                            button = candidate
+                            break
+                    except Exception:
+                        continue
 
-                if button.count() == 0 or not button.is_visible(timeout=2_000):
+                if button is None:
                     stats["stop_reason"] = "load_more_not_visible"
                     break
 
-                button.scroll_into_view_if_needed(timeout=5_000)
-                page.wait_for_timeout(400)
-                button.click(timeout=10_000)
-                stats["clicks"] += 1
-
                 try:
-                    page.wait_for_function(
-                        """({before}) => {
-                            const re = /-\\d{5,14}\\.html(?:$|[?#])/i;
-                            const hrefs = Array.from(document.querySelectorAll('a[href*=".html"]'))
-                                .map(a => a.href || '')
-                                .filter(h => re.test(h));
-                            return new Set(hrefs).size > before;
-                        }""",
-                        arg={"before": previous},
-                        timeout=12_000,
+                    stats["button"] = button.evaluate(
+                        """el => ({
+                            tag: el.tagName,
+                            text: (el.innerText || el.textContent || '').trim(),
+                            outerHTML: el.outerHTML,
+                            href: el.href || null,
+                            onclick: el.getAttribute('onclick'),
+                            id: el.id || null,
+                            className: el.className || null,
+                            dataset: {...el.dataset}
+                        })"""
                     )
                 except Exception:
-                    page.wait_for_timeout(2_000)
+                    pass
 
-            except Exception as exc:
-                stats["stop_reason"] = f"load_more_error:{type(exc).__name__}"
-                break
+                before_events = len(network_events)
 
-            current = self._product_link_count(page)
-            stats["final_links"] = current
+                try:
+                    button.scroll_into_view_if_needed(timeout=5_000)
+                    page.wait_for_timeout(600)
+                    button.click(timeout=10_000)
+                    stats["clicks"] += 1
+                except Exception as exc:
+                    stats["stop_reason"] = f"load_more_click_error:{type(exc).__name__}"
+                    break
 
-            if current <= previous:
-                stats["stop_reason"] = "no_growth_after_click"
-                break
+                # The site appends the next catalog block asynchronously. Waiting
+                # for the actual product-link count is more reliable than a fixed sleep.
+                deadline_ms = 20_000
+                elapsed_ms = 0
+                current = previous
+                while elapsed_ms < deadline_ms:
+                    page.wait_for_timeout(1_000)
+                    elapsed_ms += 1_000
+                    current = self._product_link_count(page)
+                    if current > previous:
+                        break
 
-            previous = current
-        else:
-            stats["stop_reason"] = "max_load_more_reached"
+                # One conservative DOM-click fallback for pages whose delegated
+                # click handler ignores the first synthetic pointer sequence.
+                if current <= previous:
+                    try:
+                        button.evaluate("el => el.click()")
+                        stats["clicks"] += 1
+                        for _ in range(10):
+                            page.wait_for_timeout(1_000)
+                            current = self._product_link_count(page)
+                            if current > previous:
+                                break
+                    except Exception:
+                        pass
 
-        stats["final_links"] = self._product_link_count(page)
-        if stats["stop_reason"] is None:
-            stats["stop_reason"] = "completed"
-        return stats
+                stats["final_links"] = current
+
+                if current <= previous:
+                    new_events = network_events[before_events:]
+                    stats["network_after_last_click"] = new_events[-20:]
+                    stats["stop_reason"] = (
+                        "request_without_dom_growth"
+                        if new_events
+                        else "no_request_after_click"
+                    )
+                    break
+
+                previous = current
+            else:
+                stats["stop_reason"] = "max_load_more_reached"
+
+            stats["final_links"] = self._product_link_count(page)
+            if stats["stop_reason"] is None:
+                stats["stop_reason"] = "completed"
+            stats["network_events"] = network_events[-100:]
+            return stats
+        finally:
+            try:
+                page.remove_listener("response", on_response)
+            except Exception:
+                pass
 
     @staticmethod
     def _extract_cards(page) -> list[dict]:
