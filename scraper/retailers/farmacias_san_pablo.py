@@ -682,15 +682,8 @@ class FarmaciasSanPabloScraper:
                     href = clean_text(card.get("href")) or ""
                     title = clean_text(card.get("title")) or ""
                     text = clean_text(card.get("text")) or ""
-                    key = "|".join(
-                        [
-                            code,
-                            href,
-                            title,
-                            text[:220],
-                        ]
-                    )
-                    if key.strip("|"):
+                    key = code or href or f"{title}|{text[:180]}"
+                    if key:
                         all_cards[key] = card
 
                 pages.append(
@@ -789,6 +782,8 @@ class FarmaciasSanPabloScraper:
                     }
                 )
 
+            # Deduplicate without inventing identifiers. Prefer SKU, then URL,
+            # then a stable content key for rows where the site exposes neither.
             unique: dict[str, dict] = {}
             for row in rows:
                 key = (
