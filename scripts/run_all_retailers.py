@@ -260,6 +260,22 @@ def main() -> int:
         )
         results.append(result)
         print(f"  -> {result['status']} (exit={result['exit_code']}, reported={result['reported_products']})")
+        if result["status"] == "ERROR":
+            log_path = LOG_DIR / f"{retailer}_{category['id']}.log"
+            try:
+                lines = log_path.read_text(encoding="utf-8").splitlines()
+                useful = [
+                    line for line in lines
+                    if "Traceback" in line
+                    or "Error" in line
+                    or "Exception" in line
+                    or "RuntimeError" in line
+                    or "Timeout" in line
+                ]
+                if useful:
+                    print("     " + " | ".join(useful[-3:]))
+            except Exception:
+                pass
 
     concentrated, summary = apply_quality(results)
     write_final_workbook(concentrated, summary)
