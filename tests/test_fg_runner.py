@@ -303,3 +303,74 @@ def test_cli_help_is_valid_on_python_314(monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "--min-row-coverage" in output
     assert "cobertura completa" in output
+
+
+def test_local_mode_runs_main_with_visible_chrome(monkeypatch):
+    calls = {}
+
+    class Completed:
+        returncode = 0
+
+    def fake_run(command, **kwargs):
+        calls["command"] = command
+        calls["kwargs"] = kwargs
+        return Completed()
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+
+    code = runner._run_submit(
+        "cuidado-bucal",
+        max_load_more=1,
+        timeout=120,
+        browser_channel="chrome",
+        execution_mode="local",
+    )
+
+    assert code == 0
+    command = calls["command"]
+    env = calls["kwargs"]["env"]
+    assert str(runner.ROOT / "main.py") in command
+    assert "--retailer" in command
+    assert "farmacias-guadalajara" in command
+    assert "--headed" in command
+    assert env["FG_BROWSER_CHANNEL"] == "chrome"
+    assert env["FG_DISABLE_HTTP2"] == "0"
+    assert env["FG_DISABLE_QUIC"] == "0"
+    assert "FG_CDP_URL" not in env
+
+
+def test_cli_accepts_local_chrome_mode(monkeypatch):
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            "run_farmacias_guadalajara.py",
+            "--execution-mode",
+            "local",
+            "--browser-channel",
+            "chrome",
+            "--category",
+            "cuidado-bucal",
+            "--skip-preflight",
+            "--attempts",
+            "1",
+        ],
+    )
+
+    monkeypatch.setattr(
+        runner,
+        "_run_category_with_validation",
+        lambda *args, **kwargs: {
+            "target": 358,
+            "links": 358,
+            "final_links": 358,
+            "rows": 358,
+            "unique_skus": 358,
+            "unique_urls": 358,
+            "coverage": 1.0,
+            "stop_reason": "target_reached",
+            "captured_responses": 17,
+        },
+    )
+
+    assert runner.main() == 0
