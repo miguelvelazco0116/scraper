@@ -305,7 +305,7 @@ def test_cli_help_is_valid_on_python_314(monkeypatch, capsys):
     assert "cobertura completa" in output
 
 
-def test_local_mode_runs_main_with_visible_edge(monkeypatch):
+def test_local_mode_runs_native_edge_cdp(monkeypatch):
     calls = {}
 
     class Completed:
@@ -322,22 +322,17 @@ def test_local_mode_runs_main_with_visible_edge(monkeypatch):
         "cuidado-bucal",
         max_load_more=1,
         timeout=120,
-        browser_channel="msedge",
+        browser_channel="msedge-cdp",
         execution_mode="local",
     )
 
     assert code == 0
     command = calls["command"]
-    env = calls["kwargs"]["env"]
-    assert str(runner.ROOT / "main.py") in command
-    assert "--retailer" in command
-    assert "farmacias-guadalajara" in command
-    assert "--headed" in command
-    assert env["FG_BROWSER_CHANNEL"] == "msedge"
-    assert env["FG_DISABLE_HTTP2"] == "0"
-    assert env["FG_DISABLE_QUIC"] == "0"
-    assert "FG_GRID_REQUEST_FALLBACK" not in env
-    assert "FG_CDP_URL" not in env
+    assert str(runner.ROOT / "scripts" / "fg_native_local.py") in command
+    assert "--category" in command
+    assert "cuidado-bucal" in command
+    assert "--max-load-more" in command
+    assert "--timeout" in command
 
 
 def test_cli_accepts_local_edge_mode(monkeypatch):
@@ -349,7 +344,7 @@ def test_cli_accepts_local_edge_mode(monkeypatch):
             "--execution-mode",
             "local",
             "--browser-channel",
-            "msedge",
+            "msedge-cdp",
             "--category",
             "cuidado-bucal",
             "--skip-preflight",
