@@ -310,7 +310,8 @@ def main() -> int:
     parser.add_argument("--category", default="all")
     parser.add_argument("--max-load-more", type=int, default=100)
     parser.add_argument("--timeout", type=int, default=1200)
-    parser.add_argument("--browser-channel", default="chrome-cdp")
+    parser.add_argument("--execution-mode", choices=["local", "server"], default="server")
+    parser.add_argument("--browser-channel", default=None)
     parser.add_argument(
         "--skip-preflight",
         action="store_true",
