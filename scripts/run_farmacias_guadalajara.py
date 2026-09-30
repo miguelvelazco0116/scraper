@@ -34,6 +34,24 @@ def _run_submit(
     execution_mode: str = "server",
 ) -> int:
     if execution_mode == "local":
+        if browser_channel.casefold() == "msedge-cdp":
+            command = [
+                sys.executable,
+                str(ROOT / "scripts" / "fg_native_local.py"),
+                "--category",
+                category,
+                "--max-load-more",
+                str(max_load_more),
+                "--timeout",
+                str(timeout),
+            ]
+            completed = subprocess.run(
+                command,
+                cwd=ROOT,
+                check=False,
+            )
+            return int(completed.returncode)
+
         env = os.environ.copy()
         env["FG_BROWSER_CHANNEL"] = browser_channel
         env["FG_DISABLE_HTTP2"] = "0"
@@ -179,11 +197,14 @@ def _preflight(*, timeout: int, browser_channel: str, execution_mode: str = "ser
 
     try:
         if execution_mode == "local":
-            mode_label = (
-                "Edge local"
-                if browser_channel.casefold() == "msedge"
-                else "Chrome local"
-            )
+            if browser_channel.casefold() == "msedge-cdp":
+                mode_label = "Edge nativo/CDP local"
+            else:
+                mode_label = (
+                    "Edge local"
+                    if browser_channel.casefold() == "msedge"
+                    else "Chrome local"
+                )
         else:
             mode_label = "Chrome nativo/CDP"
         print(f"PRECHECK: {mode_label} + Cuidado Bucal 20 -> 40")
@@ -353,13 +374,13 @@ def main() -> int:
         parser.error("--retry-pause no puede ser negativo")
     if args.browser_channel is None:
         args.browser_channel = (
-            "msedge" if args.execution_mode == "local" else "chrome-cdp"
+            "msedge-cdp" if args.execution_mode == "local" else "chrome-cdp"
         )
 
     if args.execution_mode == "local":
-        if args.browser_channel.casefold() not in {"msedge", "chrome"}:
+        if args.browser_channel.casefold() not in {"msedge-cdp", "msedge", "chrome"}:
             parser.error(
-                "Modo local: usa --browser-channel msedge o chrome"
+                "Modo local: usa --browser-channel msedge-cdp, msedge o chrome"
             )
     elif args.browser_channel.casefold() != "chrome-cdp":
         parser.error(
