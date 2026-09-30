@@ -242,103 +242,188 @@ class FarmaciasSanPabloScraper:
     def _extract_cards(driver) -> list[dict]:
         script = r"""
         const normalize = value => String(value || '').replace(/\s+/g, ' ').trim();
+        const moneyRe = /\$\s*[0-9][0-9,]*(?:\.\d{1,2})?/;
 
-        function priceCount(text) {
-          const matches = normalize(text).match(/\$\s*[0-9][0-9,]*(?:\.\d{1,2})?/g);
+        function moneyCount(text) {
+          const matches = normalize(text).match(new RegExp(moneyRe.source, 'g'));
           return matches ? matches.length : 0;
         }
 
-        function findCard(node) {
-          let current = node;
-          let best = null;
-          for (let i = 0; i < 10 && current; i++, current = current.parentElement) {
-            const text = normalize(current.innerText || current.textContent);
-            if (priceCount(text) >= 1 && text.length >= 20 && text.length <= 2500) {
-              best = current;
-              const addCount = Array.from(current.querySelectorAll('button, a'))
-                .filter(x => /^(Agregar|Añadir)$/i.test(normalize(x.innerText || x.textContent)))
-                .length;
-              if (addCount <= 1) break;
-            }
-          }
-          return best || node.parentElement || node;
+        function addCount(root) {
+          return Array.from(root.querySelectorAll('button, a, [role="button"]'))
+            .filter(el => /Agregar|Añadir/i.test(normalize(el.innerText || el.textContent)))
+            .length;
         }
 
-        function allData(root) {
+        function findCard(seed) {
+          let node = seed;
+          let best = null;
+
+          for (let i = 0; i < 12 && node; i++, node = node.parentElement) {
+            const text = normalize(node.innerText || node.textContent);
+            if (!text || !moneyRe.test(text)) continue;
+            if (text.length < 20 || text.length > 2600) continue;
+
+            const adds = addCount(node);
+            const images = node.querySelectorAll('img').length;
+
+            // Prefer the smallest ancestor that looks like exactly one product.
+            if (adds === 1 || (adds === 0 && images <= 3)) {
+              best = node;
+              break;
+            }
+
+            if (!best) best = node;
+          }
+
+          return best || seed.parentElement || seed;
+        }
+
+        function readData(root) {
           const keys = [
             'data-product-code', 'data-product-id', 'data-code', 'data-sku',
-            'data-ean', 'data-upc'
+            'data-ean', 'data-upc', 'data-id', 'data-item-id'
           ];
           const result = {};
-          const nodes = [root, ...Array.from(root.querySelectorAll('*')).slice(0, 250)];
+          const nodes = [root, ...Array.from(root.querySelectorAll('*')).slice(0, 350)];
           for (const el of nodes) {
+            if (!el || !el.getAttribute) continue;
             for (const key of keys) {
-              const value = el.getAttribute && el.getAttribute(key);
+              const value = el.getAttribute(key);
               if (value && !result[key]) result[key] = value;
             }
           }
           return result;
         }
 
-        const seeds = [
-          ...Array.from(document.querySelectorAll(
-            '[data-product-code], [data-product-id], [data-code], [data-sku], [data-ean], [data-upc]'
-          )),
-          ...Array.from(document.querySelectorAll('button, a')).filter(el =>
-            /^(Agregar|Añadir)$/i.test(normalize(el.innerText || el.textContent))
-          )
-        ];
+        const seeds = [];
+
+        // Explicit product metadata.
+        seeds.push(...Array.from(document.querySelectorAll(
+          '[data-product-code], [data-product-id], [data-code], [data-sku], ' +
+          '[data-ean], [data-upc], [data-item-id]'
+        )));
+
+        // Add-to-cart controls. Do not require exact button text.
+        seeds.push(...Array.from(document.querySelectorAll(
+          'button, a, [role="button"]'
+        )).filter(el =>
+          /Agregar|Añadir/i.test(normalize(el.innerText || el.textContent))
+        ));
+
+        // Price-bearing leaf nodes catch cards that expose no useful data attributes.
+        const all = Array.from(document.querySelectorAll('body *'));
+        seeds.push(...all.filter(el => {
+          const text = normalize(el.innerText || el.textContent);
+          if (!text || text.length > 180 || !moneyRe.test(text)) return false;
+          const childHasMoney = Array.from(el.children || []).some(child =>
+            moneyRe.test(normalize(child.innerText || child.textContent))
+          );
+          return !childHasMoney;
+        }));
+
+        // Product images are another stable anchor on this storefront.
+        seeds.push(...Array.from(document.querySelectorAll(
+          'img[alt][src], img[title][src]'
+        )).filter(img => {
+          const label = normalize(img.getAttribute('alt') || img.getAttribute('title'));
+          return label.length >= 6;
+        }));
 
         const out = [];
         const seen = new Set();
 
         for (const seed of seeds) {
           const card = findCard(seed);
-          const text = (card.innerText || card.textContent || '').trim();
-          if (!text || priceCount(text) === 0) continue;
+          if (!card) continue;
 
-          const data = allData(card);
+          const rawText = (card.innerText || card.textContent || '').trim();
+          const text = normalize(rawText);
+          if (!text || !moneyRe.test(text)) continue;
+
+          const data = readData(card);
+
           const hrefs = Array.from(card.querySelectorAll('a[href]'))
             .map(a => a.href)
             .filter(Boolean);
+
           const href = hrefs.find(h =>
             !/javascript:|#$/i.test(h) &&
-            !/\/c\//i.test(h)
-          ) || hrefs[0] || '';
+            !/\/c\//i.test(h) &&
+            !/login|registro|carrito|sucursales|facturacion/i.test(h)
+          ) || '';
 
-          const titleNode = card.querySelector(
-            '[class*="product"][class*="name"], [class*="name"], ' +
-            '[class*="title"], h2, h3, h4, h5'
-          );
-          const image = card.querySelector('img[alt]');
+          const titleSelectors = [
+            '[class*="product"][class*="name"]',
+            '[class*="product"][class*="title"]',
+            '[class*="name"]',
+            '[class*="title"]',
+            'h2', 'h3', 'h4', 'h5'
+          ];
 
-          let title = titleNode
-            ? normalize(titleNode.innerText || titleNode.textContent)
-            : '';
-          if (!title && image) title = normalize(image.getAttribute('alt'));
-
-          const lines = text.split(/\n+/).map(normalize).filter(Boolean);
-          if (!title) {
-            const cleanLines = lines.filter(line =>
-              !/^\$/.test(line) &&
-              !/MXN|Agregar|Añadir|Descuento|GRATIS/i.test(line) &&
-              !/^\d+\s*(ML|G|GR|KG|PZ|PZS|TABLETAS?|CAPSULAS?)\b/i.test(line)
-            );
-            if (cleanLines.length >= 2 && cleanLines[0].length <= 35) {
-              title = normalize(cleanLines[0] + ' ' + cleanLines[1]);
-            } else {
-              title = cleanLines[0] || '';
+          let title = '';
+          for (const selector of titleSelectors) {
+            const el = card.querySelector(selector);
+            if (!el) continue;
+            const candidate = normalize(el.innerText || el.textContent);
+            if (
+              candidate &&
+              candidate.length >= 5 &&
+              candidate.length <= 220 &&
+              !moneyRe.test(candidate) &&
+              !/Agregar|Añadir|Descuento|GRATIS/i.test(candidate)
+            ) {
+              title = candidate;
+              break;
             }
           }
+
+          if (!title) {
+            const img = card.querySelector('img[alt], img[title]');
+            if (img) {
+              const candidate = normalize(
+                img.getAttribute('alt') || img.getAttribute('title')
+              );
+              if (candidate.length >= 5 && candidate.length <= 220) {
+                title = candidate;
+              }
+            }
+          }
+
+          if (!title) {
+            const lines = rawText.split(/\n+/).map(normalize).filter(Boolean);
+            const candidates = lines.filter(line =>
+              line.length >= 5 &&
+              line.length <= 220 &&
+              !moneyRe.test(line) &&
+              !/MXN|Agregar|Añadir|Descuento|GRATIS|Ordenar por|Artículos por página/i.test(line) &&
+              !/^\d+\s*(ML|G|GR|KG|PZ|PZS|TABLETAS?|CAPSULAS?)\b/i.test(line)
+            );
+
+            // Brand + product name are commonly consecutive lines.
+            if (
+              candidates.length >= 2 &&
+              candidates[0].length <= 40 &&
+              candidates[1].length > 8
+            ) {
+              title = normalize(candidates[0] + ' ' + candidates[1]);
+            } else {
+              title = candidates[0] || '';
+            }
+          }
+
+          if (!title) continue;
 
           const key = [
             data['data-product-code'] || '',
             data['data-product-id'] || '',
             data['data-code'] || '',
             data['data-sku'] || '',
+            data['data-ean'] || '',
+            data['data-upc'] || '',
             href,
             title,
-            text.slice(0, 160)
+            text.slice(0, 220)
           ].join('|');
 
           if (!key || seen.has(key)) continue;
@@ -353,7 +438,7 @@ class FarmaciasSanPabloScraper:
             upc: data['data-upc'] || '',
             href,
             title,
-            text
+            text: rawText
           });
         }
 
