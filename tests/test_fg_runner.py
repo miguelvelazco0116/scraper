@@ -375,3 +375,20 @@ def test_cli_accepts_local_edge_mode(monkeypatch):
     )
 
     assert runner.main() == 0
+
+
+def test_manual_importer_runs_as_direct_script():
+    completed = runner.subprocess.run(
+        [
+            runner.sys.executable,
+            str(runner.ROOT / "scripts" / "import_fg_manual.py"),
+            "--help",
+        ],
+        cwd=runner.ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    assert "--input" in completed.stdout
