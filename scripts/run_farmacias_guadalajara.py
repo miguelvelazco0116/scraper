@@ -38,7 +38,7 @@ def _run_submit(
         env["FG_BROWSER_CHANNEL"] = browser_channel
         env["FG_DISABLE_HTTP2"] = "0"
         env["FG_DISABLE_QUIC"] = "0"
-        env["FG_GRID_REQUEST_FALLBACK"] = "1"
+        env.pop("FG_GRID_REQUEST_FALLBACK", None)
         env.pop("FG_CDP_URL", None)
         env.pop("FG_USER_AGENT", None)
 
@@ -178,7 +178,14 @@ def _preflight(*, timeout: int, browser_channel: str, execution_mode: str = "ser
         shutil.copy2(CONSOLIDATED, backup)
 
     try:
-        mode_label = "Chrome local" if execution_mode == "local" else "Chrome nativo/CDP"
+        if execution_mode == "local":
+            mode_label = (
+                "Edge local"
+                if browser_channel.casefold() == "msedge"
+                else "Chrome local"
+            )
+        else:
+            mode_label = "Chrome nativo/CDP"
         print(f"PRECHECK: {mode_label} + Cuidado Bucal 20 -> 40")
         code = _run_submit(
             "cuidado-bucal",
@@ -346,15 +353,17 @@ def main() -> int:
         parser.error("--retry-pause no puede ser negativo")
     if args.browser_channel is None:
         args.browser_channel = (
-            "chrome" if args.execution_mode == "local" else "chrome-cdp"
+            "msedge" if args.execution_mode == "local" else "chrome-cdp"
         )
 
-    expected_channel = (
-        "chrome" if args.execution_mode == "local" else "chrome-cdp"
-    )
-    if args.browser_channel.casefold() != expected_channel:
+    if args.execution_mode == "local":
+        if args.browser_channel.casefold() not in {"msedge", "chrome"}:
+            parser.error(
+                "Modo local: usa --browser-channel msedge o chrome"
+            )
+    elif args.browser_channel.casefold() != "chrome-cdp":
         parser.error(
-            f"Modo {args.execution_mode}: usa --browser-channel {expected_channel}"
+            "Modo server: usa --browser-channel chrome-cdp"
         )
 
     categories = CATEGORIES if args.category == "all" else [args.category]
