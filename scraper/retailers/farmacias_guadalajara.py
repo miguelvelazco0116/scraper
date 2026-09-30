@@ -206,6 +206,7 @@ class FarmaciasGuadalajaraScraper:
             "initial_links": previous,
             "clicks": 0,
             "captured_responses": 0,
+            "endpoint_fallbacks": 0,
             "manual_appends": 0,
             "final_links": previous,
             "stop_reason": None,
@@ -395,6 +396,52 @@ class FarmaciasGuadalajaraScraper:
                         "No Search-UpdateGrid response and no DOM growth "
                         "after locator + mouse click"
                     )
+
+                    if (
+                        self._env_flag(
+                            "FG_GRID_REQUEST_FALLBACK",
+                            default=False,
+                        )
+                        and expected_url
+                    ):
+                        try:
+                            api_response = page.context.request.get(
+                                expected_url,
+                                headers={
+                                    "Accept": "text/html, */*; q=0.01",
+                                    "X-Requested-With": "XMLHttpRequest",
+                                    "Referer": page.url,
+                                },
+                                timeout=30_000,
+                                fail_on_status_code=False,
+                            )
+                            stats["endpoint_fallbacks"] += 1
+                            stats["captured_responses"] += 1
+                            captured_response = api_response
+                            captured_html = api_response.text()
+                            page_requests.append(
+                                {
+                                    "transport": "browser_context_request",
+                                    "url": api_response.url,
+                                    "status": api_response.status,
+                                    "ok": api_response.ok,
+                                    "html_length": len(
+                                        captured_html or ""
+                                    ),
+                                    "expected_data_url": expected_url,
+                                }
+                            )
+                            stats["last_click_strategy"] = (
+                                "official_grid_endpoint"
+                            )
+                            if not api_response.ok:
+                                stats["stop_reason"] = (
+                                    f"load_more_http_{api_response.status}"
+                                )
+                        except Exception as exc:
+                            stats["endpoint_fallback_error"] = (
+                                f"{type(exc).__name__}: {exc}"
+                            )
             finally:
                 try:
                     page.remove_listener("response", _capture_grid_response)
