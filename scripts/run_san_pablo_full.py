@@ -1,0 +1,225 @@
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import pandas as pd
+
+from main import COLUMNS, CONSOLIDATED_PATH, update_consolidated_output
+from scraper.config import load_categories, load_locations
+from scraper.retailers.farmacias_san_pablo import (
+    FarmaciasSanPabloBlocked,
+    FarmaciasSanPabloNetworkUnavailable,
+    FarmaciasSanPabloScraper,
+)
+
+
+OUTPUT_PATH = ROOT / "output" / "farmacias_san_pablo_test.xlsx"
+
+
+def _write_test_output(
+    rows: list[dict],
+    summaries: list[dict],
+    output_path: Path = OUTPUT_PATH,
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    df = pd.DataFrame(rows, columns=COLUMNS)
+    summary = pd.DataFrame(summaries)
+
+    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Concentrado")
+        summary.to_excel(writer, index=False, sheet_name="Resumen")
+
+        workbook = writer.book
+        for sheet_name in ("Concentrado", "Resumen"):
+            ws = workbook[sheet_name]
+            ws.freeze_panes = "A2"
+            ws.auto_filter.ref = ws.dimensions
+            for cell in ws[1]:
+                cell.font = cell.font.copy(bold=True)
+
+            for col_cells in ws.columns:
+                values = [
+                    str(cell.value) if cell.value is not None else ""
+                    for cell in col_cells[:200]
+                ]
+                width = min(
+                    max(max((len(value) for value in values), default=0) + 2, 10),
+                    42,
+                )
+                ws.column_dimensions[col_cells[0].column_letter].width = width
+
+
+def _safe_for_global(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    has_sku = df["sku"].notna() & df["sku"].astype(str).str.strip().ne("")
+    has_url = df["url"].notna() & df["url"].astype(str).str.strip().ne("")
+    return df.loc[has_sku | has_url].copy()
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Test completo Farmacias San Pablo con Chrome"
+    )
+    parser.add_argument("--category", default="all")
+    parser.add_argument("--location", default="san-pablo-online")
+    parser.add_argument("--max-pages", type=int, default=20)
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Ejecuta Chrome sin ventana. Por defecto el test es visible.",
+    )
+    args = parser.parse_args()
+
+    categories = load_categories(
+        ROOT / "config" / "farmacias-san-pablo" / "categories.yaml"
+    )
+    if args.category != "all":
+        categories = [x for x in categories if x.id == args.category]
+    if not categories:
+        raise SystemExit(f"Categoría no encontrada: {args.category}")
+
+    locations = {x.id: x for x in load_locations(ROOT / "config" / "locations.yaml")}
+    location = locations.get(args.location)
+    if location is None:
+        raise SystemExit(f"Ubicación no encontrada: {args.location}")
+
+    all_rows: list[dict] = []
+    summaries: list[dict] = []
+
+    print("=" * 68)
+    print("FARMACIAS SAN PABLO - TEST COMPLETO")
+    print("=" * 68)
+    print(f"Categorías : {len(categories)}")
+    print(f"Salida     : {OUTPUT_PATH}")
+    print(f"Consolidado: {CONSOLIDATED_PATH}")
+    print("")
+
+    for index, category in enumerate(categories, start=1):
+        print("-" * 68)
+        print(f"[{index}/{len(categories)}] {category.id}")
+        print(category.url)
+        print("-" * 68)
+
+        scraper = FarmaciasSanPabloScraper(
+            headless=args.headless,
+            max_pages=args.max_pages,
+        )
+
+        status = "SUCCESS"
+        error = None
+        rows: list[dict] = []
+
+        try:
+            rows = scraper.scrape_category(category, location)
+            meta = scraper.last_meta or {}
+            status = str(meta.get("status") or ("SUCCESS" if rows else "EMPTY"))
+        except FarmaciasSanPabloBlocked as exc:
+            meta = scraper.last_meta or {}
+            status = "BLOCKED"
+            error = str(exc)
+            print(f"BLOCKED [{category.id}]: {exc}")
+        except FarmaciasSanPabloNetworkUnavailable as exc:
+            meta = scraper.last_meta or {}
+            status = "NETWORK_UNAVAILABLE"
+            error = str(exc)
+            print(f"NETWORK_UNAVAILABLE [{category.id}]: {exc}")
+        except Exception as exc:
+            meta = scraper.last_meta or {}
+            status = "ERROR"
+            error = f"{type(exc).__name__}: {exc}"
+            print(f"ERROR [{category.id}]: {error}")
+
+        for row in rows:
+            row["department"] = category.department
+            row["category"] = category.name
+            row["subcategory"] = category.subcategory
+            row["sub_subcategory"] = category.sub_subcategory
+            row["category_id"] = category.id
+
+        df = pd.DataFrame(rows, columns=COLUMNS)
+        if not df.empty:
+            df = df.drop_duplicates(
+                subset=["category_id", "sku", "url", "product", "price_current"],
+                keep="last",
+            ).reset_index(drop=True)
+            all_rows.extend(df.to_dict("records"))
+
+            safe = _safe_for_global(df)
+            if not safe.empty:
+                update_consolidated_output(safe, ROOT / CONSOLIDATED_PATH)
+
+        target = meta.get("target_products")
+        products = len(df)
+        unique_skus = int(
+            df.loc[df["sku"].notna(), "sku"].astype(str).nunique()
+        ) if not df.empty else 0
+        unique_urls = int(
+            df.loc[df["url"].notna(), "url"].astype(str).nunique()
+        ) if not df.empty else 0
+        price_complete = int(df["price_current"].notna().sum()) if not df.empty else 0
+        missing_identifier = int(
+            (
+                (df["sku"].isna() | df["sku"].astype(str).str.strip().eq(""))
+                & (df["url"].isna() | df["url"].astype(str).str.strip().eq(""))
+            ).sum()
+        ) if not df.empty else 0
+
+        summaries.append(
+            {
+                "category_id": category.id,
+                "target_products": target,
+                "products_extracted": products,
+                "unique_skus": unique_skus,
+                "unique_urls": unique_urls,
+                "price_complete": price_complete,
+                "missing_identifier": missing_identifier,
+                "status": status,
+                "error": error,
+            }
+        )
+
+        _write_test_output(all_rows, summaries)
+
+        print(
+            f"RESULT [{category.id}]: status={status} "
+            f"target={target} products={products} "
+            f"sku={unique_skus} url={unique_urls} price={price_complete} "
+            f"missing_id={missing_identifier}"
+        )
+        print(f"Output actualizado: {OUTPUT_PATH}")
+        print("")
+
+    print("=" * 68)
+    print("RESUMEN FARMACIAS SAN PABLO")
+    print("=" * 68)
+    for item in summaries:
+        print(
+            f"{item['category_id']}: {item['status']} "
+            f"({item['products_extracted']}/{item['target_products']})"
+        )
+
+    print("")
+    print(f"Archivo de prueba : {OUTPUT_PATH}")
+    print(f"Consolidado global: {ROOT / CONSOLIDATED_PATH}")
+
+    successful = all(
+        item["status"] == "SUCCESS"
+        and (
+            item["target_products"] is None
+            or int(item["products_extracted"]) >= int(item["target_products"])
+        )
+        for item in summaries
+    )
+    return 0 if successful else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
