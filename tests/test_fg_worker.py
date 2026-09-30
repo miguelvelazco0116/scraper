@@ -1,0 +1,134 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+import scripts.fg_worker as worker
+
+
+class FakeProcess:
+    def __init__(self, pid: int = 1234, returncode=None):
+        self.pid = pid
+        self.returncode = returncode
+
+    def poll(self):
+        return self.returncode
+
+    def kill(self):
+        self.returncode = -9
+
+
+def test_rows_from_stdout_handles_utf8_and_mojibake():
+    assert worker._rows_from_stdout("Productos únicos: 358") == 358
+    assert worker._rows_from_stdout("Productos Ãºnicos: 40") == 40
+    assert worker._rows_from_stdout("sin conteo") is None
+
+
+def test_wait_for_devtools_active_port_reads_edge_marker(tmp_path):
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / "DevToolsActivePort").write_text(
+        "43123\n/devtools/browser/test\n",
+        encoding="utf-8",
+    )
+
+    port = worker._wait_for_devtools_active_port(
+        FakeProcess(),
+        profile,
+        timeout=0.5,
+    )
+    assert port == 43123
+
+
+def test_wait_for_devtools_active_port_detects_early_exit(tmp_path):
+    profile = tmp_path / "profile"
+    profile.mkdir()
+
+    with pytest.raises(RuntimeError, match="terminó antes"):
+        worker._wait_for_devtools_active_port(
+            FakeProcess(returncode=1),
+            profile,
+            timeout=0.5,
+        )
+
+
+def test_start_native_edge_uses_edge_assigned_port_and_unique_profile(
+    monkeypatch,
+    tmp_path,
+):
+    edge = tmp_path / "msedge.exe"
+    edge.write_text("", encoding="utf-8")
+    control = tmp_path / "control"
+
+    calls = {}
+
+    class PopenProcess(FakeProcess):
+        pass
+
+    def fake_popen(command, **kwargs):
+        calls["command"] = command
+        calls["kwargs"] = kwargs
+        return PopenProcess(pid=9876)
+
+    monkeypatch.setattr(worker, "CONTROL_DIR", control)
+    monkeypatch.setattr(worker, "ROOT", tmp_path)
+    monkeypatch.setattr(worker, "_edge_executable", lambda: edge)
+    monkeypatch.setattr(worker.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(
+        worker,
+        "_wait_for_devtools_active_port",
+        lambda process, profile, timeout=60.0: 45678,
+    )
+
+    process, cdp_url, profile = worker._start_native_edge(
+        "request-abc",
+        attempts=1,
+    )
+
+    assert process.pid == 9876
+    assert cdp_url == "http://127.0.0.1:45678"
+    assert profile == control / "edge_profiles" / "request-abc-1"
+    assert "--remote-debugging-port=0" in calls["command"]
+    assert (
+        f"--user-data-dir={control / 'edge_profiles' / 'request-abc-1'}"
+        in calls["command"]
+    )
+
+
+def test_start_native_edge_retries_after_failed_start(monkeypatch, tmp_path):
+    edge = tmp_path / "msedge.exe"
+    edge.write_text("", encoding="utf-8")
+    control = tmp_path / "control"
+
+    starts = []
+    waits = {"count": 0}
+
+    def fake_popen(command, **kwargs):
+        process = FakeProcess(pid=1000 + len(starts))
+        starts.append(process)
+        return process
+
+    def fake_wait(process, profile, timeout=60.0):
+        waits["count"] += 1
+        if waits["count"] == 1:
+            raise TimeoutError("first attempt")
+        return 45679
+
+    monkeypatch.setattr(worker, "CONTROL_DIR", control)
+    monkeypatch.setattr(worker, "ROOT", tmp_path)
+    monkeypatch.setattr(worker, "_edge_executable", lambda: edge)
+    monkeypatch.setattr(worker.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(worker, "_wait_for_devtools_active_port", fake_wait)
+    monkeypatch.setattr(worker, "_kill_process_tree", lambda process: None)
+    monkeypatch.setattr(worker.time, "sleep", lambda seconds: None)
+
+    process, cdp_url, profile = worker._start_native_edge(
+        "request-retry",
+        attempts=2,
+    )
+
+    assert len(starts) == 2
+    assert process is starts[1]
+    assert cdp_url == "http://127.0.0.1:45679"
+    assert profile.name == "request-retry-2"
