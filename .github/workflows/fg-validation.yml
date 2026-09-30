@@ -41,10 +41,11 @@ jobs:
         run: |
           python -m compileall -q main.py scraper scripts tests
 
-      - name: Parse PowerShell installer
+      - name: Parse PowerShell scripts
         shell: pwsh
         run: |
           $null = [scriptblock]::Create((Get-Content .\scripts\install_fg_task.ps1 -Raw))
+          $null = [scriptblock]::Create((Get-Content .\scripts\run_fg_server.ps1 -Raw))
           Write-Host "PowerShell syntax OK"
 
       - name: Run Guadalajara unit tests
