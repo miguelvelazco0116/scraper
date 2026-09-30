@@ -41,13 +41,48 @@ def test_wait_for_devtools_active_port_reads_chrome_marker(tmp_path):
     assert port == 43123
 
 
-def test_wait_for_devtools_active_port_detects_early_exit(tmp_path):
+def test_wait_for_devtools_active_port_allows_windows_launcher_handoff(
+    monkeypatch,
+    tmp_path,
+):
     profile = tmp_path / "profile"
     profile.mkdir()
+    process = FakeProcess(returncode=0)
+    sleeps = {"count": 0}
 
-    with pytest.raises(RuntimeError, match="Chrome terminó antes"):
+    def fake_sleep(seconds):
+        sleeps["count"] += 1
+        if sleeps["count"] == 1:
+            (profile / "DevToolsActivePort").write_text(
+                "43124\n/devtools/browser/handoff\n",
+                encoding="utf-8",
+            )
+
+    monkeypatch.setattr(worker.time, "sleep", fake_sleep)
+
+    port = worker._wait_for_devtools_active_port(
+        process,
+        profile,
+        timeout=0.5,
+    )
+
+    assert port == 43124
+
+
+def test_wait_for_devtools_active_port_times_out_after_launcher_exit(
+    monkeypatch,
+    tmp_path,
+):
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    ticks = iter([0.0, 0.1, 0.6])
+
+    monkeypatch.setattr(worker.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(worker.time, "sleep", lambda seconds: None)
+
+    with pytest.raises(TimeoutError, match="launcher_exit_code=0"):
         worker._wait_for_devtools_active_port(
-            FakeProcess(returncode=1),
+            FakeProcess(returncode=0),
             profile,
             timeout=0.5,
         )
