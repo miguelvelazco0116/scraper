@@ -9,6 +9,8 @@ on:
       - "scripts/run_farmacias_guadalajara.py"
       - "scripts/install_fg_task.ps1"
       - "scripts/run_fg_server.ps1"
+      - "scripts/setup_fg_local.ps1"
+      - "scripts/run_fg_local.ps1"
       - "tests/test_farmacias_guadalajara.py"
       - "tests/test_fg_worker.py"
       - "tests/test_fg_runner.py"
@@ -46,6 +48,8 @@ jobs:
         run: |
           $null = [scriptblock]::Create((Get-Content .\scripts\install_fg_task.ps1 -Raw))
           $null = [scriptblock]::Create((Get-Content .\scripts\run_fg_server.ps1 -Raw))
+          $null = [scriptblock]::Create((Get-Content .\scripts\setup_fg_local.ps1 -Raw))
+          $null = [scriptblock]::Create((Get-Content .\scripts\run_fg_local.ps1 -Raw))
           Write-Host "PowerShell syntax OK"
 
       - name: Run Guadalajara unit tests
