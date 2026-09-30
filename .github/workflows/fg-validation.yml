@@ -8,6 +8,7 @@ on:
       - "scripts/fg_*.py"
       - "scripts/run_farmacias_guadalajara.py"
       - "scripts/install_fg_task.ps1"
+      - "scripts/run_fg_server.ps1"
       - "tests/test_farmacias_guadalajara.py"
       - "tests/test_fg_worker.py"
       - "tests/test_fg_runner.py"
