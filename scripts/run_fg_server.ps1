@@ -31,26 +31,29 @@ $interactive = Get-Process -Name explorer -IncludeUserName -ErrorAction Silently
     Where-Object {
         $_.SessionId -gt 0 -and
         -not [string]::IsNullOrWhiteSpace($_.UserName) -and
-        -not (
-            $_.UserName -like 'NT AUTHORITY\*' -or
-            $_.UserName -like 'Window Manager\*'
-        )
+        $_.UserName -ieq $task.Principal.UserId
     } |
     Sort-Object SessionId -Descending |
     Select-Object -First 1
 
 if (-not $interactive) {
-    throw "No hay una sesion interactiva de Windows. Inicia sesion por RDP y vuelve a ejecutar."
+    throw "El usuario de la tarea ($($task.Principal.UserId)) no tiene una sesion interactiva de Windows. Inicia sesion por RDP y vuelve a ejecutar."
 }
 
 $programFilesX86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
-$chromeCandidates = @(
-    (Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"),
-    (Join-Path $programFilesX86 "Google\Chrome\Application\chrome.exe"),
-    (Join-Path $env:LOCALAPPDATA "Google\Chrome\Application\chrome.exe")
-) | Where-Object { $_ -and (Test-Path $_) }
-
-$chrome = $chromeCandidates | Select-Object -First 1
+$chromeCandidates = @()
+if ($env:ProgramFiles) {
+    $chromeCandidates += Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"
+}
+if ($programFilesX86) {
+    $chromeCandidates += Join-Path $programFilesX86 "Google\Chrome\Application\chrome.exe"
+}
+if ($env:LOCALAPPDATA) {
+    $chromeCandidates += Join-Path $env:LOCALAPPDATA "Google\Chrome\Application\chrome.exe"
+}
+$chrome = $chromeCandidates |
+    Where-Object { Test-Path $_ } |
+    Select-Object -First 1
 if (-not $chrome) {
     throw "Google Chrome no esta instalado en una ruta estandar para el usuario interactivo."
 }
