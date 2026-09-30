@@ -64,12 +64,14 @@ class FarmaciasSanPabloScraper:
         return driver
 
     @staticmethod
-    def _page_url(url: str, page_number: int) -> str:
-        if page_number <= 1:
+    def _page_url(url: str, page_index: int) -> str:
+        # SAP Commerce/Hybris normally uses currentPage as a zero-based index.
+        # The base category URL is page 0; the second page is currentPage=1.
+        if page_index <= 0:
             return url
         parsed = urlparse(url)
         query = parse_qs(parsed.query, keep_blank_values=True)
-        query["currentPage"] = [str(page_number)]
+        query["currentPage"] = [str(page_index)]
         encoded = urlencode(
             [(key, value) for key, values in query.items() for value in values]
         )
@@ -368,8 +370,9 @@ class FarmaciasSanPabloScraper:
         pages: list[dict] = []
         empty_rounds = 0
 
-        for page_number in range(1, self.max_pages + 1):
-            url = self._page_url(category.url, page_number)
+        for page_index in range(self.max_pages):
+            page_number = page_index + 1
+            url = self._page_url(category.url, page_index)
             self._goto(driver, url)
 
             page_target = self._target_count(driver)
