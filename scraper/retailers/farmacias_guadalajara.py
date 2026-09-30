@@ -192,7 +192,8 @@ class FarmaciasGuadalajaraScraper:
             "target_products": target,
             "initial_links": previous,
             "clicks": 0,
-            "direct_loads": 0,
+            "captured_responses": 0,
+            "manual_appends": 0,
             "final_links": previous,
             "stop_reason": None,
             "button": None,
@@ -204,9 +205,6 @@ class FarmaciasGuadalajaraScraper:
                 stats["stop_reason"] = "target_reached"
                 break
 
-            # Farmacias Guadalajara exposes the next catalog block in data-url.
-            # Prefer that stable contract over matching the rendered button text,
-            # which can arrive with mojibake in some Windows/browser contexts.
             button = None
             data_buttons = page.locator('button.more[data-url]')
             for idx in range(data_buttons.count() - 1, -1, -1):
@@ -243,7 +241,6 @@ class FarmaciasGuadalajaraScraper:
                         tag: el.tagName,
                         text: (el.innerText || el.textContent || '').trim(),
                         outerHTML: el.outerHTML,
-                        href: el.href || null,
                         dataUrl: el.getAttribute('data-url'),
                         id: el.id || null,
                         className: el.className || null,
@@ -255,51 +252,63 @@ class FarmaciasGuadalajaraScraper:
 
             next_url = button.get_attribute("data-url")
             current = previous
+            captured_html = ""
+            captured_response = None
 
-            if next_url:
+            try:
+                button.scroll_into_view_if_needed(timeout=5_000)
+                page.wait_for_timeout(500)
+
                 try:
-                    # BrowserContext.request shares the browser context's cookie jar
-                    # but does not depend on Chromium's page navigation stack. This
-                    # avoids the HTTP/2 failure observed when Search-UpdateGrid is
-                    # opened directly in Edge.
+                    with page.expect_response(
+                        lambda response: "Search-UpdateGrid" in response.url,
+                        timeout=20_000,
+                    ) as response_info:
+                        button.click(timeout=10_000)
+                        stats["clicks"] += 1
+
+                    captured_response = response_info.value
                     try:
-                        native_user_agent = page.evaluate("navigator.userAgent")
+                        captured_html = captured_response.text()
                     except Exception:
-                        native_user_agent = None
+                        captured_html = ""
 
-                    headers = {
-                        "Accept": "text/html, */*; q=0.01",
-                        "Accept-Language": "es-MX,es;q=0.9",
-                        "Referer": page.url,
-                        "X-Requested-With": "XMLHttpRequest",
-                    }
-                    if native_user_agent:
-                        headers["User-Agent"] = native_user_agent
-
-                    api_response = page.context.request.get(
-                        next_url,
-                        headers=headers,
-                        timeout=30_000,
-                        fail_on_status_code=False,
-                    )
-                    status = api_response.status
-                    html = api_response.text() if api_response else ""
-
+                    stats["captured_responses"] += 1
                     page_requests.append(
                         {
-                            "transport": "browser_context_request",
-                            "url": api_response.url if api_response else next_url,
-                            "status": status,
-                            "ok": bool(api_response and api_response.ok),
-                            "html_length": len(html or ""),
+                            "transport": "native_button_click",
+                            "url": captured_response.url,
+                            "status": captured_response.status,
+                            "ok": captured_response.ok,
+                            "html_length": len(captured_html or ""),
+                            "expected_data_url": next_url,
                         }
                     )
+                except Exception as exc:
+                    stats["last_click_response_error"] = (
+                        f"{type(exc).__name__}: {exc}"
+                    )
 
-                    if not api_response.ok or not (html or "").strip():
-                        stats["stop_reason"] = "catalog_page_request_failed"
+                # Give the site's own JavaScript a chance to append the grid.
+                for _ in range(15):
+                    page.wait_for_timeout(1_000)
+                    current = self._product_link_count(page)
+                    if current > previous:
                         break
 
-                    button.evaluate("el => el.remove()")
+                # If the browser made the legitimate request but the site's DOM
+                # callback did not append it, reuse that exact response body.
+                if (
+                    current <= previous
+                    and captured_response is not None
+                    and captured_response.ok
+                    and (captured_html or "").strip()
+                ):
+                    try:
+                        button.evaluate("el => el.remove()")
+                    except Exception:
+                        pass
+
                     page.locator("body").evaluate(
                         """(body, html) => {
                             const container = document.createElement('div');
@@ -307,34 +316,25 @@ class FarmaciasGuadalajaraScraper:
                             container.innerHTML = html;
                             body.appendChild(container);
                         }""",
-                        html,
+                        captured_html,
                     )
-                    stats["direct_loads"] += 1
+                    stats["manual_appends"] += 1
                     page.wait_for_timeout(500)
                     current = self._product_link_count(page)
-                except Exception as exc:
-                    stats["stop_reason"] = f"catalog_page_request_error:{type(exc).__name__}"
-                    stats["request_error"] = str(exc)
-                    break
-            else:
-                # Conservative fallback for a future markup change.
-                try:
-                    button.scroll_into_view_if_needed(timeout=5_000)
-                    button.click(timeout=10_000)
-                    stats["clicks"] += 1
-                    for _ in range(15):
-                        page.wait_for_timeout(1_000)
-                        current = self._product_link_count(page)
-                        if current > previous:
-                            break
-                except Exception as exc:
-                    stats["stop_reason"] = f"load_more_click_error:{type(exc).__name__}"
-                    break
+
+            except Exception as exc:
+                stats["stop_reason"] = f"load_more_click_error:{type(exc).__name__}"
+                stats["request_error"] = str(exc)
+                break
 
             stats["final_links"] = current
 
             if current <= previous:
-                stats["stop_reason"] = "no_growth_after_load"
+                stats["stop_reason"] = (
+                    "native_request_without_growth"
+                    if captured_response is not None
+                    else "no_native_request_after_click"
+                )
                 break
 
             previous = current
