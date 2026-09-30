@@ -18,7 +18,7 @@ if (-not (Test-Path $ProjectDir)) {
 Set-Location $ProjectDir
 
 Write-Host "============================================================"
-Write-Host "Farmacias Guadalajara - validacion y ejecucion"
+Write-Host "Farmacias Guadalajara - Chrome - validacion y ejecucion"
 Write-Host "============================================================"
 Write-Host ""
 
@@ -31,10 +31,10 @@ $interactive = Get-Process -Name explorer -IncludeUserName -ErrorAction Silently
     Where-Object {
         $_.SessionId -gt 0 -and
         -not [string]::IsNullOrWhiteSpace($_.UserName) -and
-            -not (
-                $_.UserName -like 'NT AUTHORITY\*' -or
-                $_.UserName -like 'Window Manager\*'
-            )
+        -not (
+            $_.UserName -like 'NT AUTHORITY\*' -or
+            $_.UserName -like 'Window Manager\*'
+        )
     } |
     Sort-Object SessionId -Descending |
     Select-Object -First 1
@@ -43,9 +43,22 @@ if (-not $interactive) {
     throw "No hay una sesion interactiva de Windows. Inicia sesion por RDP y vuelve a ejecutar."
 }
 
+$programFilesX86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
+$chromeCandidates = @(
+    (Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"),
+    (Join-Path $programFilesX86 "Google\Chrome\Application\chrome.exe"),
+    (Join-Path $env:LOCALAPPDATA "Google\Chrome\Application\chrome.exe")
+) | Where-Object { $_ -and (Test-Path $_) }
+
+$chrome = $chromeCandidates | Select-Object -First 1
+if (-not $chrome) {
+    throw "Google Chrome no esta instalado en una ruta estandar para el usuario interactivo."
+}
+
 Write-Host "Tarea       : $TaskName"
 Write-Host "Task User   : $($task.Principal.UserId)"
 Write-Host "Interactive : $($interactive.UserName) / Session $($interactive.SessionId)"
+Write-Host "Chrome      : $chrome"
 Write-Host "Python      : $PythonExe"
 Write-Host ""
 
@@ -57,8 +70,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host ""
-Write-Host "[2/2] Ejecutando preflight real y scraping completo..."
-& $PythonExe .\scripts\run_farmacias_guadalajara.py --category all --max-load-more 100 --timeout $Timeout --browser-channel msedge-cdp
+Write-Host "[2/2] Ejecutando preflight real y scraping completo con Chrome..."
+& $PythonExe .\scripts\run_farmacias_guadalajara.py --category all --max-load-more 100 --timeout $Timeout --browser-channel chrome-cdp --min-row-coverage 1.0 --attempts 2 --retry-pause 10
 
 if ($LASTEXITCODE -ne 0) {
     throw "Farmacias Guadalajara termino con exit_code=$LASTEXITCODE"
@@ -66,6 +79,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host ""
 Write-Host "============================================================"
-Write-Host "FARMACIAS GUADALAJARA COMPLETADO Y VALIDADO"
+Write-Host "FARMACIAS GUADALAJARA COMPLETADO Y VALIDADO AL 100%"
+Write-Host "Browser    : Google Chrome"
 Write-Host "Concentrado: $ProjectDir\output\concentrado_scraper.xlsx"
 Write-Host "============================================================"
