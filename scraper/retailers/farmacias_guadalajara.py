@@ -221,24 +221,49 @@ class FarmaciasGuadalajaraScraper:
                     stats["stop_reason"] = "target_reached"
                     break
 
-                candidates = page.get_by_text(
+                role_candidates = page.get_by_role(
+                    "button",
+                    name=re.compile(
+                        r"(Ver\\s+m[aá]s\\s+productos|Mostrar\\s+los\\s+siguientes.*productos)",
+                        re.IGNORECASE,
+                    ),
+                )
+                text_candidates = page.get_by_text(
                     re.compile(
-                        r"^(Ver más productos|Mostrar los siguientes .*productos)\\s*$",
+                        r"(Ver\\s+m[aá]s\\s+productos|Mostrar\\s+los\\s+siguientes.*productos)",
                         re.IGNORECASE,
                     )
                 )
 
                 button = None
-                for idx in range(candidates.count()):
-                    candidate = candidates.nth(idx)
-                    try:
-                        if candidate.is_visible(timeout=500):
-                            button = candidate
-                            break
-                    except Exception:
-                        continue
+                candidate_sets = (role_candidates, text_candidates)
+                for candidates in candidate_sets:
+                    for idx in range(candidates.count()):
+                        candidate = candidates.nth(idx)
+                        try:
+                            if candidate.is_visible(timeout=700):
+                                button = candidate
+                                break
+                        except Exception:
+                            continue
+                    if button is not None:
+                        break
 
                 if button is None:
+                    try:
+                        stats["button_candidates"] = page.locator("button").evaluate_all(
+                            """els => els.map((el, i) => ({
+                                index: i,
+                                text: (el.innerText || el.textContent || '').trim(),
+                                visible: !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length),
+                                disabled: !!el.disabled,
+                                id: el.id || null,
+                                className: el.className || null,
+                                outerHTML: el.outerHTML.slice(0, 1200)
+                            })).filter(x => /Ver\\s+m[aá]s\\s+productos|Mostrar\\s+los\\s+siguientes.*productos/i.test(x.text))"""
+                        )
+                    except Exception:
+                        stats["button_candidates"] = []
                     stats["stop_reason"] = "load_more_not_visible"
                     break
 
