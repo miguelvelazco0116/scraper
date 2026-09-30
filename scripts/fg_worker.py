@@ -57,9 +57,12 @@ def _identity() -> str:
 
 def _rows_from_stdout(stdout: str) -> int | None:
     text = stdout or ""
-    match = re.search(r"Productos\s+(?:únicos|.nicos):\s*(\d+)", text, flags=re.IGNORECASE)
+    match = re.search(
+        r"Productos\s+[^:\r\n]*:\s*(\d+)",
+        text,
+        flags=re.IGNORECASE,
+    )
     return int(match.group(1)) if match else None
-
 
 def _edge_executable() -> Path:
     candidates = [
