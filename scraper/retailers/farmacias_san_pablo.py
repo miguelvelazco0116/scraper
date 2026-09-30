@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
@@ -360,6 +361,119 @@ class FarmaciasSanPabloScraper:
         """
         return driver.execute_script(script) or []
 
+    @classmethod
+    def _collect_page_cards(
+        cls,
+        driver,
+        expected_on_page: int | None,
+    ) -> tuple[list[dict], dict]:
+        """Recorre visualmente una página y acumula tarjetas aunque el DOM sea lazy/virtual."""
+
+        collected: dict[str, dict] = {}
+        samples: list[dict] = []
+
+        try:
+            driver.execute_script("window.scrollTo(0, 0);")
+        except Exception:
+            pass
+        time.sleep(0.6)
+
+        stable_bottom_rounds = 0
+        previous_total = 0
+
+        for step in range(90):
+            cards = cls._extract_cards(driver)
+
+            for card in cards:
+                code = cls._code_from_card(card) or ""
+                href = clean_text(card.get("href")) or ""
+                title = clean_text(card.get("title")) or ""
+                text = clean_text(card.get("text")) or ""
+                key = code or href or f"{title}|{text[:180]}"
+                if key:
+                    collected[key] = card
+
+            total = len(collected)
+            if step == 0 or step % 5 == 0 or total != previous_total:
+                samples.append(
+                    {
+                        "step": step,
+                        "visible_cards": len(cards),
+                        "cumulative_cards": total,
+                    }
+                )
+
+            if expected_on_page and total >= expected_on_page:
+                break
+
+            state = driver.execute_script(
+                """
+                const y = window.scrollY || document.documentElement.scrollTop || 0;
+                const h = Math.max(
+                  document.body.scrollHeight,
+                  document.documentElement.scrollHeight
+                );
+                const viewport = window.innerHeight || document.documentElement.clientHeight;
+                window.scrollBy(0, Math.max(550, Math.floor(viewport * 0.72)));
+                return {y, h, viewport};
+                """
+            ) or {}
+
+            time.sleep(0.35)
+
+            new_state = driver.execute_script(
+                """
+                return {
+                  y: window.scrollY || document.documentElement.scrollTop || 0,
+                  h: Math.max(
+                    document.body.scrollHeight,
+                    document.documentElement.scrollHeight
+                  ),
+                  viewport: window.innerHeight || document.documentElement.clientHeight
+                };
+                """
+            ) or {}
+
+            at_bottom = (
+                int(new_state.get("y") or 0)
+                + int(new_state.get("viewport") or 0)
+                >= int(new_state.get("h") or 0) - 25
+            )
+
+            if at_bottom:
+                if total <= previous_total:
+                    stable_bottom_rounds += 1
+                else:
+                    stable_bottom_rounds = 0
+
+                # Trigger any final lazy-loading observer at page bottom.
+                try:
+                    driver.execute_script(
+                        "window.scrollTo(0, document.body.scrollHeight);"
+                    )
+                except Exception:
+                    pass
+                time.sleep(0.5)
+
+                if stable_bottom_rounds >= 3:
+                    break
+            else:
+                stable_bottom_rounds = 0
+
+            previous_total = total
+
+        try:
+            driver.execute_script("window.scrollTo(0, 0);")
+        except Exception:
+            pass
+
+        return list(collected.values()), {
+            "expected_on_page": expected_on_page,
+            "cards_collected": len(collected),
+            "scroll_samples": samples,
+        }
+
+
     def _discover_cards(
         self,
         driver,
@@ -379,7 +493,15 @@ class FarmaciasSanPabloScraper:
             if page_target:
                 target = max(target or 0, page_target)
 
-            cards = self._extract_cards(driver)
+            expected_on_page = None
+            if target:
+                remaining = max(int(target) - (page_index * 48), 0)
+                expected_on_page = min(48, remaining) if remaining else 0
+
+            cards, hydration = self._collect_page_cards(
+                driver,
+                expected_on_page=expected_on_page,
+            )
             before = len(all_cards)
 
             for card in cards:
@@ -396,8 +518,10 @@ class FarmaciasSanPabloScraper:
                 {
                     "page": page_number,
                     "url": url,
+                    "expected_on_page": expected_on_page,
                     "cards_on_page": len(cards),
                     "cumulative_cards": after,
+                    "hydration": hydration,
                 }
             )
             print(
@@ -416,9 +540,24 @@ class FarmaciasSanPabloScraper:
             if empty_rounds >= 1:
                 break
 
-            # Most San Pablo category pages expose 48 products per page.
-            if cards and len(cards) < 48 and (not target or after >= target):
-                break
+            # If target is unknown, stop when this page yielded fewer than
+            # the catalog page size and there is no evidence of another page.
+            if not target and cards and len(cards) < 48:
+                try:
+                    next_exists = bool(
+                        driver.execute_script(
+                            """
+                            return Array.from(document.querySelectorAll('a, button'))
+                              .some(el => /siguiente|next/i.test(
+                                (el.innerText || el.getAttribute('aria-label') || '').trim()
+                              ) && !el.disabled);
+                            """
+                        )
+                    )
+                except Exception:
+                    next_exists = False
+                if not next_exists:
+                    break
 
         meta = {
             "category_id": category.id,
