@@ -206,12 +206,26 @@ class FarmaciasGuadalajaraScraper:
             "initial_links": previous,
             "clicks": 0,
             "captured_responses": 0,
+            "xhr_fallbacks": 0,
             "manual_appends": 0,
             "final_links": previous,
             "stop_reason": None,
             "button": None,
             "page_requests": page_requests,
         }
+
+        # The initial category navigation uses wait_until="commit" because it is
+        # the most reliable mode on this server. Before interacting with the
+        # storefront, give its JavaScript bundle time to attach delegated events.
+        try:
+            page.wait_for_load_state("domcontentloaded", timeout=20_000)
+        except Exception:
+            pass
+        try:
+            page.wait_for_load_state("load", timeout=20_000)
+        except Exception:
+            pass
+        page.wait_for_timeout(2_000)
 
         for _ in range(self.max_load_more):
             if target and previous >= target:
@@ -268,14 +282,14 @@ class FarmaciasGuadalajaraScraper:
             captured_html = ""
             captured_response = None
 
+            # First let the storefront perform its normal action.
             try:
                 button.scroll_into_view_if_needed(timeout=5_000)
                 page.wait_for_timeout(500)
-
                 try:
                     with page.expect_response(
                         lambda response: "Search-UpdateGrid" in response.url,
-                        timeout=20_000,
+                        timeout=12_000,
                     ) as response_info:
                         button.click(timeout=10_000)
                         stats["clicks"] += 1
@@ -302,80 +316,95 @@ class FarmaciasGuadalajaraScraper:
                         f"{type(exc).__name__}: {exc}"
                     )
 
-                # Give the site's own JavaScript a chance to append the grid.
-                for _ in range(15):
+                # The site's own callback may append the products even if response
+                # observation failed, so always check the DOM before falling back.
+                for _ in range(5):
                     page.wait_for_timeout(1_000)
                     current = self._product_link_count(page)
                     if current > previous:
                         break
-
-                # If the browser made the legitimate request but the site's DOM
-                # callback did not append it, reuse that exact response body.
-                if (
-                    current <= previous
-                    and captured_response is not None
-                    and captured_response.ok
-                    and (captured_html or "").strip()
-                ):
-                    try:
-                        button.evaluate("el => el.remove()")
-                    except Exception:
-                        pass
-
-                    page.locator("body").evaluate(
-                        """(body, html) => {
-                            const container = document.createElement('div');
-                            container.setAttribute('data-fg-loaded-page', '1');
-                            container.innerHTML = html;
-                            body.appendChild(container);
-                        }""",
-                        captured_html,
-                    )
-                    stats["manual_appends"] += 1
-                    page.wait_for_timeout(500)
-                    current = self._product_link_count(page)
-
             except Exception as exc:
-                stats["stop_reason"] = f"load_more_click_error:{type(exc).__name__}"
-                stats["request_error"] = str(exc)
-                break
+                stats["last_click_error"] = f"{type(exc).__name__}: {exc}"
+
+            # In this Windows environment window.fetch is instrumented by the
+            # storefront and can fail. XMLHttpRequest uses the page's native
+            # same-origin browser connection and is a closer match to SFCC AJAX.
+            if current <= previous and next_url:
+                try:
+                    xhr_result = page.evaluate(
+                        """url => new Promise(resolve => {
+                            const xhr = new XMLHttpRequest();
+                            xhr.open('GET', url, true);
+                            xhr.withCredentials = true;
+                            xhr.timeout = 30000;
+                            xhr.setRequestHeader('Accept', 'text/html, */*; q=0.01');
+                            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+                            xhr.onload = () => resolve({
+                                ok: xhr.status >= 200 && xhr.status < 400,
+                                status: xhr.status,
+                                url: xhr.responseURL || url,
+                                html: xhr.responseText || ''
+                            });
+                            xhr.onerror = () => resolve({
+                                ok: false,
+                                status: 0,
+                                url,
+                                html: '',
+                                error: 'xhr_error'
+                            });
+                            xhr.ontimeout = () => resolve({
+                                ok: false,
+                                status: 0,
+                                url,
+                                html: '',
+                                error: 'xhr_timeout'
+                            });
+                            xhr.send();
+                        })""",
+                        next_url,
+                    )
+                    stats["xhr_fallbacks"] += 1
+                    xhr_html = xhr_result.get("html") or ""
+                    page_requests.append(
+                        {
+                            "transport": "page_xmlhttprequest",
+                            "url": xhr_result.get("url") or next_url,
+                            "status": xhr_result.get("status"),
+                            "ok": bool(xhr_result.get("ok")),
+                            "html_length": len(xhr_html),
+                            "error": xhr_result.get("error"),
+                        }
+                    )
+                    if xhr_result.get("ok") and xhr_html.strip():
+                        captured_html = xhr_html
+                except Exception as exc:
+                    stats["xhr_error"] = f"{type(exc).__name__}: {exc}"
+
+            # If we obtained the official grid response but the storefront did not
+            # append it, append that exact response fragment ourselves.
+            if current <= previous and (captured_html or "").strip():
+                try:
+                    button.evaluate("el => el.remove()")
+                except Exception:
+                    pass
+
+                page.locator("body").evaluate(
+                    """(body, html) => {
+                        const container = document.createElement('div');
+                        container.setAttribute('data-fg-loaded-page', '1');
+                        container.innerHTML = html;
+                        body.appendChild(container);
+                    }""",
+                    captured_html,
+                )
+                stats["manual_appends"] += 1
+                page.wait_for_timeout(500)
+                current = self._product_link_count(page)
 
             stats["final_links"] = current
 
-            if current <= previous and captured_response is None and target:
-                # Fallback: stay on the normal SEO category route (which is known
-                # to load correctly in Edge) and ask the storefront to render a
-                # larger grid through its ordinary search query parameters.
-                # This avoids navigating directly to Search-UpdateGrid.
-                base_category_url = page.url.split("#", 1)[0]
-                widened_url = self._with_query(
-                    base_category_url,
-                    start=0,
-                    sz=min(int(target), 500),
-                )
-                try:
-                    widened_response = self._goto_with_retries(page, widened_url)
-                    page.wait_for_timeout(3_000)
-                    widened_count = self._product_link_count(page)
-                    stats["wide_page_attempt"] = {
-                        "url": widened_url,
-                        "status": widened_response.status if widened_response else None,
-                        "product_links": widened_count,
-                    }
-                    current = widened_count
-                    stats["final_links"] = current
-                except Exception as exc:
-                    stats["wide_page_attempt"] = {
-                        "url": widened_url,
-                        "error": f"{type(exc).__name__}: {exc}",
-                    }
-
             if current <= previous:
-                stats["stop_reason"] = (
-                    "native_request_without_growth"
-                    if captured_response is not None
-                    else "no_native_request_after_click"
-                )
+                stats["stop_reason"] = "load_more_no_growth"
                 break
 
             previous = current
