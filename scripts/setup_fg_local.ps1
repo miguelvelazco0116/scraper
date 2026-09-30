@@ -49,28 +49,21 @@ if (-not (Test-Path $PythonExe)) {
     throw "Python del ambiente virtual no encontrado: $PythonExe"
 }
 
-$programFilesX86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
-$chromeCandidates = @()
-if ($env:ProgramFiles) {
-    $chromeCandidates += Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"
-}
-if ($programFilesX86) {
-    $chromeCandidates += Join-Path $programFilesX86 "Google\Chrome\Application\chrome.exe"
-}
-if ($env:LOCALAPPDATA) {
-    $chromeCandidates += Join-Path $env:LOCALAPPDATA "Google\Chrome\Application\chrome.exe"
-}
+$edgeCandidates = @(
+    "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    "C:\Program Files\Microsoft\Edge\Application\msedge.exe"
+)
 
-$chrome = $chromeCandidates |
+$edge = $edgeCandidates |
     Where-Object { Test-Path $_ } |
     Select-Object -First 1
 
-if (-not $chrome) {
-    throw "Google Chrome no esta instalado en una ruta estandar."
+if (-not $edge) {
+    throw "Microsoft Edge no esta instalado en una ruta estandar."
 }
 
 Write-Host "Python venv : $PythonExe"
-Write-Host "Chrome      : $chrome"
+Write-Host "Edge        : $edge"
 Write-Host ""
 Write-Host "Instalando dependencias..."
 
