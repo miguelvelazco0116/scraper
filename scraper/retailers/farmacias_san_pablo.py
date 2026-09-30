@@ -474,19 +474,8 @@ class FarmaciasSanPabloScraper:
                 href = clean_text(card.get("href")) or ""
                 title = clean_text(card.get("title")) or ""
                 text = clean_text(card.get("text")) or ""
-                # Use a composite identity here. Some San Pablo cards share a
-                # container-level product id or URL, so preferring only the
-                # first non-empty identifier can collapse two legitimate
-                # catalog items into one.
-                key = "|".join(
-                    [
-                        code,
-                        href,
-                        title,
-                        text[:220],
-                    ]
-                )
-                if key.strip("|"):
+                key = code or href or f"{title}|{text[:180]}"
+                if key:
                     collected[key] = card
 
             total = len(collected)
@@ -605,15 +594,8 @@ class FarmaciasSanPabloScraper:
                 href = clean_text(card.get("href")) or ""
                 title = clean_text(card.get("title")) or ""
                 text = clean_text(card.get("text")) or ""
-                key = "|".join(
-                    [
-                        code,
-                        href,
-                        title,
-                        text[:220],
-                    ]
-                )
-                if key.strip("|"):
+                key = code or href or f"{title}|{text[:180]}"
+                if key:
                     all_cards[key] = card
 
             after = len(all_cards)
@@ -807,21 +789,20 @@ class FarmaciasSanPabloScraper:
                     }
                 )
 
-            # Deduplicate by a composite signature. Do not collapse two
-            # catalog items merely because San Pablo exposes the same parent
-            # data-product-id or URL on both cards.
             unique: dict[str, dict] = {}
             for row in rows:
-                key = "|".join(
-                    [
-                        clean_text(row.get("sku")) or "",
-                        clean_text(row.get("url")) or "",
-                        clean_text(row.get("product")) or "",
-                        str(row.get("price_current") or ""),
-                        clean_text(row.get("price_raw")) or "",
-                    ]
+                key = (
+                    clean_text(row.get("sku"))
+                    or clean_text(row.get("url"))
+                    or "|".join(
+                        [
+                            clean_text(row.get("product")) or "",
+                            str(row.get("price_current") or ""),
+                            clean_text(row.get("price_raw")) or "",
+                        ]
+                    )
                 )
-                if key.strip("|"):
+                if key:
                     unique[key] = row
             rows = list(unique.values())
 
