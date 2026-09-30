@@ -38,6 +38,37 @@ COLUMNS = [
 CONSOLIDATED_PATH = Path("output/concentrado_scraper.xlsx")
 
 
+def deduplicate_catalog(df: pd.DataFrame) -> pd.DataFrame:
+    """Deduplicate without collapsing rows that have no SKU and no URL.
+
+    Some retailers (notably San Pablo category cards) expose valid products
+    without a stable SKU/URL. Those rows must be deduplicated by content
+    instead of treating every (NaN, NaN) pair as the same product.
+    """
+    if df.empty:
+        return df.copy()
+
+    work = df.copy()
+    for col in ("sku", "url", "product", "price_current", "price_raw"):
+        if col not in work.columns:
+            work[col] = None
+
+    sku = work["sku"].fillna("").astype(str).str.strip()
+    url = work["url"].fillna("").astype(str).str.strip()
+    has_identifier = sku.ne("") | url.ne("")
+
+    with_id = work.loc[has_identifier].drop_duplicates(
+        subset=["sku", "url"],
+        keep="last",
+    )
+    without_id = work.loc[~has_identifier].drop_duplicates(
+        subset=["product", "price_current", "price_raw"],
+        keep="last",
+    )
+
+    return pd.concat([with_id, without_id], ignore_index=True)
+
+
 def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATED_PATH) -> Path:
     """Actualiza un único Excel consolidado con la extracción actual."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -76,10 +107,23 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
     combined = pd.concat([existing, incoming], ignore_index=True)
     if not combined.empty:
         combined["sku"] = combined["sku"].astype(str)
-        combined = combined.drop_duplicates(
+        id_mask = (
+            combined["sku"].fillna("").astype(str).str.strip().ne("")
+            | combined["url"].fillna("").astype(str).str.strip().ne("")
+        )
+
+        with_id = combined.loc[id_mask].drop_duplicates(
             subset=["retailer", "category_id", "city", "store_id", "sku", "url"],
             keep="last",
         )
+        without_id = combined.loc[~id_mask].drop_duplicates(
+            subset=[
+                "retailer", "category_id", "city", "store_id",
+                "product", "price_current", "price_raw",
+            ],
+            keep="last",
+        )
+        combined = pd.concat([with_id, without_id], ignore_index=True)
         combined = combined.sort_values(
             ["retailer", "category_id", "brand", "product"],
             na_position="last",
@@ -260,7 +304,7 @@ def main() -> int:
 
     df = pd.DataFrame(rows, columns=COLUMNS)
     if not df.empty:
-        df = df.drop_duplicates(subset=["sku", "url"], keep="last")
+        df = deduplicate_catalog(df)
         df = df.sort_values(["brand", "product"], na_position="last").reset_index(drop=True)
 
     consolidated_path = update_consolidated_output(df)
