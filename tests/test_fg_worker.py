@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+import sys
 
 import pytest
 
@@ -25,7 +25,7 @@ def test_rows_from_stdout_handles_utf8_and_mojibake():
     assert worker._rows_from_stdout("sin conteo") is None
 
 
-def test_wait_for_devtools_active_port_reads_edge_marker(tmp_path):
+def test_wait_for_devtools_active_port_reads_chrome_marker(tmp_path):
     profile = tmp_path / "profile"
     profile.mkdir()
     (profile / "DevToolsActivePort").write_text(
@@ -45,7 +45,7 @@ def test_wait_for_devtools_active_port_detects_early_exit(tmp_path):
     profile = tmp_path / "profile"
     profile.mkdir()
 
-    with pytest.raises(RuntimeError, match="terminó antes"):
+    with pytest.raises(RuntimeError, match="Chrome terminó antes"):
         worker._wait_for_devtools_active_port(
             FakeProcess(returncode=1),
             profile,
@@ -53,12 +53,12 @@ def test_wait_for_devtools_active_port_detects_early_exit(tmp_path):
         )
 
 
-def test_start_native_edge_uses_edge_assigned_port_and_unique_profile(
+def test_start_native_chrome_uses_chrome_assigned_port_and_unique_profile(
     monkeypatch,
     tmp_path,
 ):
-    edge = tmp_path / "msedge.exe"
-    edge.write_text("", encoding="utf-8")
+    chrome = tmp_path / "chrome.exe"
+    chrome.write_text("", encoding="utf-8")
     control = tmp_path / "control"
 
     calls = {}
@@ -73,7 +73,7 @@ def test_start_native_edge_uses_edge_assigned_port_and_unique_profile(
 
     monkeypatch.setattr(worker, "CONTROL_DIR", control)
     monkeypatch.setattr(worker, "ROOT", tmp_path)
-    monkeypatch.setattr(worker, "_edge_executable", lambda: edge)
+    monkeypatch.setattr(worker, "_chrome_executable", lambda: chrome)
     monkeypatch.setattr(worker.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(
         worker,
@@ -81,24 +81,24 @@ def test_start_native_edge_uses_edge_assigned_port_and_unique_profile(
         lambda process, profile, timeout=60.0: 45678,
     )
 
-    process, cdp_url, profile = worker._start_native_edge(
+    process, cdp_url, profile = worker._start_native_chrome(
         "request-abc",
         attempts=1,
     )
 
     assert process.pid == 9876
     assert cdp_url == "http://127.0.0.1:45678"
-    assert profile == control / "edge_profiles" / "request-abc-1"
+    assert profile == control / "chrome_profiles" / "request-abc-1"
     assert "--remote-debugging-port=0" in calls["command"]
     assert (
-        f"--user-data-dir={control / 'edge_profiles' / 'request-abc-1'}"
+        f"--user-data-dir={control / 'chrome_profiles' / 'request-abc-1'}"
         in calls["command"]
     )
 
 
-def test_start_native_edge_retries_after_failed_start(monkeypatch, tmp_path):
-    edge = tmp_path / "msedge.exe"
-    edge.write_text("", encoding="utf-8")
+def test_start_native_chrome_retries_after_failed_start(monkeypatch, tmp_path):
+    chrome = tmp_path / "chrome.exe"
+    chrome.write_text("", encoding="utf-8")
     control = tmp_path / "control"
 
     starts = []
@@ -117,13 +117,13 @@ def test_start_native_edge_retries_after_failed_start(monkeypatch, tmp_path):
 
     monkeypatch.setattr(worker, "CONTROL_DIR", control)
     monkeypatch.setattr(worker, "ROOT", tmp_path)
-    monkeypatch.setattr(worker, "_edge_executable", lambda: edge)
+    monkeypatch.setattr(worker, "_chrome_executable", lambda: chrome)
     monkeypatch.setattr(worker.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(worker, "_wait_for_devtools_active_port", fake_wait)
     monkeypatch.setattr(worker, "_kill_process_tree", lambda process: None)
     monkeypatch.setattr(worker.time, "sleep", lambda seconds: None)
 
-    process, cdp_url, profile = worker._start_native_edge(
+    process, cdp_url, profile = worker._start_native_chrome(
         "request-retry",
         attempts=2,
     )
@@ -132,3 +132,10 @@ def test_start_native_edge_retries_after_failed_start(monkeypatch, tmp_path):
     assert process is starts[1]
     assert cdp_url == "http://127.0.0.1:45679"
     assert profile.name == "request-retry-2"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Validación específica de Windows")
+def test_google_chrome_is_installed_on_windows_runner():
+    chrome = worker._chrome_executable()
+    assert chrome.exists()
+    assert chrome.name.casefold() == "chrome.exe"
