@@ -125,16 +125,23 @@ def _wait_for_devtools_active_port(
 ) -> int:
     marker = profile / "DevToolsActivePort"
     deadline = time.monotonic() + timeout
+    launcher_exit_code: int | None = None
 
     while time.monotonic() < deadline:
-        if process.poll() is not None:
-            raise RuntimeError(
-                f"Chrome terminó antes de publicar CDP (exit_code={process.returncode})"
-            )
+        # On Windows, chrome.exe can act only as a launcher: the original
+        # process may exit with code 0 after handing the browser off to another
+        # chrome.exe process. That is not a startup failure. The authoritative
+        # signal is DevToolsActivePort in the requested user-data-dir.
+        current_exit = process.poll()
+        if current_exit is not None and launcher_exit_code is None:
+            launcher_exit_code = int(current_exit)
 
         if marker.exists():
             try:
-                lines = marker.read_text(encoding="utf-8", errors="replace").splitlines()
+                lines = marker.read_text(
+                    encoding="utf-8",
+                    errors="replace",
+                ).splitlines()
                 port = int(lines[0].strip())
                 if port > 0:
                     return port
@@ -143,8 +150,13 @@ def _wait_for_devtools_active_port(
 
         time.sleep(0.25)
 
+    detail = (
+        f"; launcher_exit_code={launcher_exit_code}"
+        if launcher_exit_code is not None
+        else ""
+    )
     raise TimeoutError(
-        f"Chrome no publicó {marker.name} en {timeout:.0f}s"
+        f"Chrome no publicó {marker.name} en {timeout:.0f}s{detail}"
     )
 
 
