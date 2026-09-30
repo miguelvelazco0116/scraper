@@ -42,4 +42,6 @@ Write-Host ""
 Write-Host "Salida: $ProjectDir\output\farmacias_san_pablo_test.xlsx"
 Write-Host "Consolidado: $ProjectDir\output\concentrado_scraper.xlsx"
 
-exit $code
+if ($code -ne 0) {
+    Write-Warning "El test termino con observaciones (exit_code=$code). Revisa la hoja Resumen; el archivo de salida se conserva."
+}
