@@ -186,166 +186,161 @@ class FarmaciasGuadalajaraScraper:
 
     def _expand_all_products(self, page, target: int | None) -> dict:
         previous = self._product_link_count(page)
-        network_events: list[dict] = []
-
-        def on_response(response) -> None:
-            try:
-                request = response.request
-                if request.resource_type in {"xhr", "fetch"}:
-                    network_events.append(
-                        {
-                            "status": response.status,
-                            "resource_type": request.resource_type,
-                            "method": request.method,
-                            "url": response.url,
-                        }
-                    )
-            except Exception:
-                pass
-
-        page.on("response", on_response)
+        page_requests: list[dict] = []
 
         stats = {
             "target_products": target,
             "initial_links": previous,
             "clicks": 0,
+            "direct_loads": 0,
             "final_links": previous,
             "stop_reason": None,
             "button": None,
-            "network_events": network_events,
+            "page_requests": page_requests,
         }
 
-        try:
-            for _ in range(self.max_load_more):
-                if target and previous >= target:
-                    stats["stop_reason"] = "target_reached"
-                    break
+        for _ in range(self.max_load_more):
+            if target and previous >= target:
+                stats["stop_reason"] = "target_reached"
+                break
 
-                role_candidates = page.get_by_role(
-                    "button",
-                    name=re.compile(
-                        r"(Ver\\s+m[aá]s\\s+productos|Mostrar\\s+los\\s+siguientes.*productos)",
-                        re.IGNORECASE,
-                    ),
-                )
-                text_candidates = page.get_by_text(
-                    re.compile(
-                        r"(Ver\\s+m[aá]s\\s+productos|Mostrar\\s+los\\s+siguientes.*productos)",
-                        re.IGNORECASE,
-                    )
-                )
-
-                button = None
-                candidate_sets = (role_candidates, text_candidates)
-                for candidates in candidate_sets:
-                    for idx in range(candidates.count()):
-                        candidate = candidates.nth(idx)
-                        try:
-                            if candidate.is_visible(timeout=700):
-                                button = candidate
-                                break
-                        except Exception:
-                            continue
-                    if button is not None:
-                        break
-
-                if button is None:
-                    try:
-                        stats["button_candidates"] = page.locator("button").evaluate_all(
-                            """els => els.map((el, i) => ({
-                                index: i,
-                                text: (el.innerText || el.textContent || '').trim(),
-                                visible: !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length),
-                                disabled: !!el.disabled,
-                                id: el.id || null,
-                                className: el.className || null,
-                                outerHTML: el.outerHTML.slice(0, 1200)
-                            })).filter(x => /Ver\\s+m[aá]s\\s+productos|Mostrar\\s+los\\s+siguientes.*productos/i.test(x.text))"""
-                        )
-                    except Exception:
-                        stats["button_candidates"] = []
-                    stats["stop_reason"] = "load_more_not_visible"
-                    break
-
+            # Farmacias Guadalajara exposes the next catalog block in data-url.
+            # Prefer that stable contract over matching the rendered button text,
+            # which can arrive with mojibake in some Windows/browser contexts.
+            button = None
+            data_buttons = page.locator('button.more[data-url]')
+            for idx in range(data_buttons.count() - 1, -1, -1):
+                candidate = data_buttons.nth(idx)
                 try:
-                    stats["button"] = button.evaluate(
-                        """el => ({
-                            tag: el.tagName,
+                    if candidate.is_visible(timeout=700):
+                        button = candidate
+                        break
+                except Exception:
+                    continue
+
+            if button is None:
+                stats["stop_reason"] = "load_more_not_visible"
+                try:
+                    stats["button_candidates"] = page.locator("button").evaluate_all(
+                        """els => els.map((el, i) => ({
+                            index: i,
                             text: (el.innerText || el.textContent || '').trim(),
-                            outerHTML: el.outerHTML,
-                            href: el.href || null,
-                            onclick: el.getAttribute('onclick'),
+                            visible: !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length),
+                            disabled: !!el.disabled,
                             id: el.id || null,
                             className: el.className || null,
-                            dataset: {...el.dataset}
-                        })"""
+                            dataUrl: el.getAttribute('data-url'),
+                            outerHTML: el.outerHTML.slice(0, 1200)
+                        })).filter(x => x.dataUrl || /productos/i.test(x.text))"""
                     )
                 except Exception:
-                    pass
+                    stats["button_candidates"] = []
+                break
 
-                before_events = len(network_events)
+            try:
+                stats["button"] = button.evaluate(
+                    """el => ({
+                        tag: el.tagName,
+                        text: (el.innerText || el.textContent || '').trim(),
+                        outerHTML: el.outerHTML,
+                        href: el.href || null,
+                        dataUrl: el.getAttribute('data-url'),
+                        id: el.id || null,
+                        className: el.className || null,
+                        dataset: {...el.dataset}
+                    })"""
+                )
+            except Exception:
+                pass
 
+            next_url = button.get_attribute("data-url")
+            current = previous
+
+            if next_url:
+                try:
+                    payload = page.evaluate(
+                        """async url => {
+                            const response = await fetch(url, {
+                                credentials: 'include',
+                                headers: {
+                                    'X-Requested-With': 'XMLHttpRequest',
+                                    'Accept': 'text/html, */*; q=0.01'
+                                }
+                            });
+                            const html = await response.text();
+                            return {
+                                ok: response.ok,
+                                status: response.status,
+                                url: response.url,
+                                html
+                            };
+                        }""",
+                        next_url,
+                    )
+
+                    html = payload.get("html") or ""
+                    page_requests.append(
+                        {
+                            "url": payload.get("url") or next_url,
+                            "status": payload.get("status"),
+                            "ok": payload.get("ok"),
+                            "html_length": len(html),
+                        }
+                    )
+
+                    if not payload.get("ok") or not html.strip():
+                        stats["stop_reason"] = "catalog_page_request_failed"
+                        break
+
+                    # Remove the consumed button and append the official next-grid
+                    # fragment to the current DOM. Relative product links resolve
+                    # against the category page as normal.
+                    button.evaluate("el => el.remove()")
+                    page.locator("body").evaluate(
+                        """(body, html) => {
+                            const container = document.createElement('div');
+                            container.setAttribute('data-fg-loaded-page', '1');
+                            container.innerHTML = html;
+                            body.appendChild(container);
+                        }""",
+                        html,
+                    )
+                    stats["direct_loads"] += 1
+                    page.wait_for_timeout(500)
+                    current = self._product_link_count(page)
+                except Exception as exc:
+                    stats["stop_reason"] = f"catalog_page_request_error:{type(exc).__name__}"
+                    stats["request_error"] = str(exc)
+                    break
+            else:
+                # Conservative fallback for a future markup change.
                 try:
                     button.scroll_into_view_if_needed(timeout=5_000)
-                    page.wait_for_timeout(600)
                     button.click(timeout=10_000)
                     stats["clicks"] += 1
+                    for _ in range(15):
+                        page.wait_for_timeout(1_000)
+                        current = self._product_link_count(page)
+                        if current > previous:
+                            break
                 except Exception as exc:
                     stats["stop_reason"] = f"load_more_click_error:{type(exc).__name__}"
                     break
 
-                # The site appends the next catalog block asynchronously. Waiting
-                # for the actual product-link count is more reliable than a fixed sleep.
-                deadline_ms = 20_000
-                elapsed_ms = 0
-                current = previous
-                while elapsed_ms < deadline_ms:
-                    page.wait_for_timeout(1_000)
-                    elapsed_ms += 1_000
-                    current = self._product_link_count(page)
-                    if current > previous:
-                        break
+            stats["final_links"] = current
 
-                # One conservative DOM-click fallback for pages whose delegated
-                # click handler ignores the first synthetic pointer sequence.
-                if current <= previous:
-                    try:
-                        button.evaluate("el => el.click()")
-                        stats["clicks"] += 1
-                        for _ in range(10):
-                            page.wait_for_timeout(1_000)
-                            current = self._product_link_count(page)
-                            if current > previous:
-                                break
-                    except Exception:
-                        pass
+            if current <= previous:
+                stats["stop_reason"] = "no_growth_after_load"
+                break
 
-                stats["final_links"] = current
+            previous = current
+        else:
+            stats["stop_reason"] = "max_load_more_reached"
 
-                if current <= previous:
-                    new_events = network_events[before_events:]
-                    stats["network_after_last_click"] = new_events[-20:]
-                    stats["stop_reason"] = (
-                        "request_without_dom_growth"
-                        if new_events
-                        else "no_request_after_click"
-                    )
-                    break
-
-                previous = current
-            else:
-                stats["stop_reason"] = "max_load_more_reached"
-
-            stats["final_links"] = self._product_link_count(page)
-            if stats["stop_reason"] is None:
-                stats["stop_reason"] = "completed"
-            stats["network_events"] = network_events[-100:]
-            return stats
-        finally:
-            try:
-                page.remove_listener("response", on_response)
-            except Exception:
-                pass
+        stats["final_links"] = self._product_link_count(page)
+        if stats["stop_reason"] is None:
+            stats["stop_reason"] = "completed"
+        return stats
 
     @staticmethod
     def _extract_cards(page) -> list[dict]:
