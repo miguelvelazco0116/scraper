@@ -31,7 +31,10 @@ $interactive = Get-Process -Name explorer -IncludeUserName -ErrorAction Silently
     Where-Object {
         $_.SessionId -gt 0 -and
         -not [string]::IsNullOrWhiteSpace($_.UserName) -and
-        $_.UserName -notmatch '^(NT AUTHORITY|Window Manager)\'
+            -not (
+                $_.UserName -like 'NT AUTHORITY\*' -or
+                $_.UserName -like 'Window Manager\*'
+            )
     } |
     Sort-Object SessionId -Descending |
     Select-Object -First 1
