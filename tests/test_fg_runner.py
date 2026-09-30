@@ -336,6 +336,7 @@ def test_local_mode_runs_main_with_visible_chrome(monkeypatch):
     assert env["FG_BROWSER_CHANNEL"] == "chrome"
     assert env["FG_DISABLE_HTTP2"] == "0"
     assert env["FG_DISABLE_QUIC"] == "0"
+    assert env["FG_GRID_REQUEST_FALLBACK"] == "1"
     assert "FG_CDP_URL" not in env
 
 
