@@ -210,21 +210,22 @@ class FarmaciasGuadalajaraScraper:
         )
 
     @staticmethod
-    def _extract_cards(driver) -> list[dict]:
-        script = r"""
+    def _extract_cards_from_root_script() -> str:
+        return r"""
+        const root = arguments[0] || document;
         const out = [];
         const seen = new Set();
-        const productRe = /-\d{5,14}\.html(?:$|[?#])/i;
-        const moneyRe = /\$\s*[0-9][0-9,]*(?:\.\d{1,2})?/;
+        const productRe = /-\\d{5,14}\\.html(?:$|[?#])/i;
+        const moneyRe = /\\$\\s*[0-9][0-9,]*(?:\\.\\d{1,2})?/;
 
-        for (const a of Array.from(document.querySelectorAll('a[href*=".html"]'))) {
-          const href = a.href || '';
+        for (const a of Array.from(root.querySelectorAll('a[href*=".html"]'))) {
+          const href = a.href || a.getAttribute('href') || '';
           if (!productRe.test(href) || seen.has(href)) continue;
 
           let node = a;
           let card = null;
           for (let i = 0; i < 9 && node; i++, node = node.parentElement) {
-            const text = (node.innerText || '').trim();
+            const text = (node.innerText || node.textContent || '').trim();
             if (moneyRe.test(text) && text.length >= 15 && text.length <= 3000) {
               card = node;
               if (/Agregar|Comparar|Favoritos/i.test(text)) break;
@@ -232,7 +233,7 @@ class FarmaciasGuadalajaraScraper:
           }
 
           const source = card || a.parentElement || a;
-          const text = (source.innerText || '').trim();
+          const text = (source.innerText || source.textContent || '').trim();
           if (!moneyRe.test(text)) continue;
 
           const brandNode = source.querySelector('[class*="brand" i]');
@@ -242,17 +243,18 @@ class FarmaciasGuadalajaraScraper:
 
           let name = (
             a.innerText ||
+            a.textContent ||
             a.getAttribute('aria-label') ||
             a.getAttribute('title') ||
             ''
           ).trim();
 
           if (!name && titleNode) {
-            name = (titleNode.innerText || '').trim();
+            name = (titleNode.innerText || titleNode.textContent || '').trim();
           }
 
           if (!name) {
-            const lines = text.split(/\n+/).map(x => x.trim()).filter(Boolean);
+            const lines = text.split(/\\n+/).map(x => x.trim()).filter(Boolean);
             name = lines.find(x =>
               !moneyRe.test(x) &&
               !/Agregar|Comparar|Oferta|Favoritos/i.test(x) &&
@@ -266,7 +268,9 @@ class FarmaciasGuadalajaraScraper:
           out.push({
             href,
             name,
-            brand: brandNode ? (brandNode.innerText || '').trim() : '',
+            brand: brandNode
+              ? (brandNode.innerText || brandNode.textContent || '').trim()
+              : '',
             text,
             dataPid:
               source.getAttribute('data-product-id') ||
@@ -278,7 +282,132 @@ class FarmaciasGuadalajaraScraper:
 
         return out;
         """
-        return driver.execute_script(script) or []
+
+    @classmethod
+    def _extract_cards(cls, driver) -> list[dict]:
+        script = cls._extract_cards_from_root_script()
+        return driver.execute_script(script, None) or []
+
+    @classmethod
+    def _fetch_grid_cards(cls, driver, url: str) -> dict:
+        driver.set_script_timeout(30)
+
+        extract = cls._extract_cards_from_root_script()
+        # The public grid URL is exposed by the site's own "Ver más productos"
+        # button. Request it from the already-open category page using a normal
+        # same-origin XHR-style fetch, matching the storefront interaction
+        # more closely than a full browser navigation.
+        script = r"""
+        const url = arguments[0];
+        const done = arguments[arguments.length - 1];
+
+        fetch(url, {
+          method: 'GET',
+          credentials: 'same-origin',
+          headers: {
+            'Accept': 'text/html, */*; q=0.01',
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        })
+        .then(async response => {
+          const html = await response.text();
+          const doc = new DOMParser().parseFromString(html, 'text/html');
+
+          const root = doc;
+          const out = [];
+          const seen = new Set();
+          const productRe = /-\\d{5,14}\\.html(?:$|[?#])/i;
+          const moneyRe = /\\$\\s*[0-9][0-9,]*(?:\\.\\d{1,2})?/;
+
+          for (const a of Array.from(root.querySelectorAll('a[href*=".html"]'))) {
+            let href = a.getAttribute('href') || '';
+            try { href = new URL(href, location.origin).href; } catch (_) {}
+            if (!productRe.test(href) || seen.has(href)) continue;
+
+            let node = a;
+            let card = null;
+            for (let i = 0; i < 9 && node; i++, node = node.parentElement) {
+              const text = (node.textContent || '').trim();
+              if (moneyRe.test(text) && text.length >= 15 && text.length <= 3000) {
+                card = node;
+                if (/Agregar|Comparar|Favoritos/i.test(text)) break;
+              }
+            }
+
+            const source = card || a.parentElement || a;
+            const text = (source.textContent || '').trim();
+            if (!moneyRe.test(text)) continue;
+
+            const brandNode = source.querySelector('[class*="brand" i]');
+            const titleNode = source.querySelector(
+              'h2, h3, h4, [class*="name" i], [class*="title" i]'
+            );
+
+            let name = (
+              a.textContent ||
+              a.getAttribute('aria-label') ||
+              a.getAttribute('title') ||
+              ''
+            ).trim();
+
+            if (!name && titleNode) {
+              name = (titleNode.textContent || '').trim();
+            }
+
+            if (!name) {
+              const lines = text.split(/\\n+/).map(x => x.trim()).filter(Boolean);
+              name = lines.find(x =>
+                !moneyRe.test(x) &&
+                !/Agregar|Comparar|Oferta|Favoritos/i.test(x) &&
+                x.length > 8
+              ) || '';
+            }
+
+            if (!name) continue;
+
+            seen.add(href);
+            out.push({
+              href,
+              name,
+              brand: brandNode ? (brandNode.textContent || '').trim() : '',
+              text,
+              dataPid:
+                source.getAttribute('data-product-id') ||
+                source.getAttribute('data-part-number') ||
+                a.getAttribute('data-product-id') ||
+                ''
+            });
+          }
+
+          done({
+            ok: response.ok,
+            status: response.status,
+            final_url: response.url,
+            content_type: response.headers.get('content-type') || '',
+            html_length: html.length,
+            cards: out,
+            body_preview: (doc.body ? doc.body.textContent : html)
+              .replace(/\\s+/g, ' ')
+              .trim()
+              .slice(0, 300)
+          });
+        })
+        .catch(error => {
+          done({
+            ok: false,
+            status: null,
+            final_url: url,
+            content_type: '',
+            html_length: 0,
+            cards: [],
+            error: String(error)
+          });
+        });
+        """
+        result = driver.execute_async_script(script, url) or {}
+        if not isinstance(result, dict):
+            return {"ok": False, "cards": [], "error": "invalid_fetch_result"}
+        return result
 
     def _collect_catalog(
         self,
@@ -299,6 +428,7 @@ class FarmaciasGuadalajaraScraper:
             "initial_cards": len(all_cards),
             "grid_url": grid_url,
             "pages_loaded": 0,
+            "requests": [],
             "final_cards": len(all_cards),
             "stop_reason": None,
         }
@@ -316,11 +446,22 @@ class FarmaciasGuadalajaraScraper:
                 break
 
             page_url = self._with_start(grid_url, start=start, size=size)
-            self._goto(driver, page_url)
-            self._assert_not_blocked(driver)
-
-            page_cards = self._extract_cards(driver)
+            result = self._fetch_grid_cards(driver, page_url)
+            page_cards = result.get("cards") or []
             stats["pages_loaded"] += 1
+            stats["requests"].append(
+                {
+                    "start": start,
+                    "status": result.get("status"),
+                    "ok": result.get("ok"),
+                    "final_url": result.get("final_url"),
+                    "content_type": result.get("content_type"),
+                    "html_length": result.get("html_length"),
+                    "cards": len(page_cards),
+                    "body_preview": result.get("body_preview"),
+                    "error": result.get("error"),
+                }
+            )
 
             before = len(all_cards)
             for card in page_cards:
@@ -330,9 +471,15 @@ class FarmaciasGuadalajaraScraper:
             after = len(all_cards)
 
             print(
-                f"Farmacias Guadalajara grid start={start}: "
+                f"Farmacias Guadalajara XHR start={start}: "
+                f"status={result.get('status')}, "
+                f"html={result.get('html_length')}, "
                 f"page={len(page_cards)}, cumulative={after}"
             )
+
+            if not result.get("ok"):
+                stats["stop_reason"] = "grid_request_failed"
+                break
 
             if after <= before:
                 stats["stop_reason"] = "page_no_growth"
@@ -348,13 +495,6 @@ class FarmaciasGuadalajaraScraper:
             stats["stop_reason"] = "max_load_more_reached"
 
         stats["final_cards"] = len(all_cards)
-
-        # Return to category only for diagnostics/screenshot.
-        try:
-            self._goto(driver, category_url)
-        except Exception:
-            pass
-
         return list(all_cards.values()), stats
 
     @staticmethod
