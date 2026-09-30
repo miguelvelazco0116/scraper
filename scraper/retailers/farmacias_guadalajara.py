@@ -4,15 +4,10 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from selenium import webdriver
-from selenium.common.exceptions import (
-    ElementClickInterceptedException,
-    NoSuchElementException,
-    TimeoutException,
-    WebDriverException,
-)
+from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
@@ -34,10 +29,17 @@ class FarmaciasGuadalajaraNetworkUnavailable(RuntimeError):
 
 
 class FarmaciasGuadalajaraScraper:
-    """Scraper limpio de Farmacias Guadalajara usando Google Chrome + Selenium.
+    """Scraper de Farmacias Guadalajara con Chrome + Selenium.
 
-    No usa Playwright, CDP, perfiles persistentes, OpenAI API ni técnicas de
-    evasión. El navegador se abre con Selenium WebDriver estándar.
+    Flujo:
+    1. Abre la categoría en Google Chrome.
+    2. Lee la URL pública que el propio botón "Ver más productos" expone
+       en su atributo data-url.
+    3. Navega directamente por esas páginas del grid cambiando start=20,40...
+       en vez de depender del handler JavaScript del botón.
+    4. Extrae y deduplica productos.
+
+    No usa Playwright, CDP, perfiles persistentes, OpenAI ni técnicas stealth.
     """
 
     PRODUCT_RE = re.compile(r"-(\d{5,14})\.html(?:$|[?#])", re.IGNORECASE)
@@ -127,6 +129,18 @@ class FarmaciasGuadalajaraScraper:
         return current, regular, promotion
 
     @staticmethod
+    def _build_driver(headless: bool):
+        options = webdriver.ChromeOptions()
+        options.add_argument("--lang=es-MX")
+        options.add_argument("--window-size=1440,1000")
+        if headless:
+            options.add_argument("--headless=new")
+
+        driver = webdriver.Chrome(options=options)
+        driver.set_page_load_timeout(60)
+        return driver
+
+    @staticmethod
     def _body_text(driver) -> str:
         try:
             return driver.find_element(By.TAG_NAME, "body").text or ""
@@ -149,45 +163,6 @@ class FarmaciasGuadalajaraScraper:
             )
 
     @classmethod
-    def _target_count(cls, driver) -> int | None:
-        text = cls._body_text(driver)
-        matches = re.findall(
-            r"\(?\b(\d{1,5})\s+productos?\b\)?",
-            text,
-            flags=re.IGNORECASE,
-        )
-        if not matches:
-            return None
-        return max(int(x) for x in matches)
-
-    @staticmethod
-    def _product_link_count(driver) -> int:
-        script = r"""
-        const re = /-\d{5,14}\.html(?:$|[?#])/i;
-        const links = Array.from(document.querySelectorAll('a[href*=".html"]'))
-          .map(a => a.href)
-          .filter(h => re.test(h));
-        return new Set(links).size;
-        """
-        try:
-            return int(driver.execute_script(script) or 0)
-        except Exception:
-            return 0
-
-    @staticmethod
-    def _build_driver(headless: bool):
-        options = webdriver.ChromeOptions()
-        options.add_argument("--lang=es-MX")
-        options.add_argument("--window-size=1440,1000")
-        if headless:
-            options.add_argument("--headless=new")
-
-        # Selenium Manager resuelve ChromeDriver automáticamente.
-        driver = webdriver.Chrome(options=options)
-        driver.set_page_load_timeout(60)
-        return driver
-
-    @classmethod
     def _goto(cls, driver, url: str) -> None:
         try:
             driver.get(url)
@@ -199,66 +174,40 @@ class FarmaciasGuadalajaraScraper:
                 f"No se pudo cargar {url}. {type(exc).__name__}: {exc}"
             ) from exc
 
-    def _expand_all_products(self, driver, target: int | None) -> dict:
-        previous = self._product_link_count(driver)
-        stats = {
-            "target_products": target,
-            "initial_links": previous,
-            "clicks": 0,
-            "final_links": previous,
-            "stop_reason": None,
-        }
+    @classmethod
+    def _target_count(cls, driver) -> int | None:
+        text = cls._body_text(driver)
+        matches = re.findall(
+            r"\(?\b(\d{1,5})\s+productos?\b\)?",
+            text,
+            flags=re.IGNORECASE,
+        )
+        return max((int(x) for x in matches), default=None)
 
-        for _ in range(self.max_load_more):
-            self._assert_not_blocked(driver)
+    @staticmethod
+    def _grid_url(driver) -> str | None:
+        try:
+            button = driver.find_element(By.CSS_SELECTOR, "button.more[data-url]")
+        except Exception:
+            return None
+        raw = (button.get_attribute("data-url") or "").strip()
+        return urljoin(driver.current_url, raw) if raw else None
 
-            if target and previous >= target:
-                stats["stop_reason"] = "target_reached"
-                break
-
-            try:
-                button = WebDriverWait(driver, 8).until(
-                    EC.visibility_of_element_located(
-                        (By.CSS_SELECTOR, "button.more[data-url]")
-                    )
-                )
-            except TimeoutException:
-                stats["stop_reason"] = "load_more_not_visible"
-                break
-
-            try:
-                driver.execute_script(
-                    "arguments[0].scrollIntoView({block:'center'});",
-                    button,
-                )
-                WebDriverWait(driver, 5).until(
-                    EC.element_to_be_clickable(
-                        (By.CSS_SELECTOR, "button.more[data-url]")
-                    )
-                )
-                button.click()
-                stats["clicks"] += 1
-            except (ElementClickInterceptedException, WebDriverException):
-                stats["stop_reason"] = "load_more_click_failed"
-                break
-
-            try:
-                WebDriverWait(driver, 20).until(
-                    lambda d: self._product_link_count(d) > previous
-                )
-            except TimeoutException:
-                stats["stop_reason"] = "load_more_no_growth"
-                break
-
-            current = self._product_link_count(driver)
-            print(f"Farmacias Guadalajara: {previous} -> {current}")
-            previous = current
-            stats["final_links"] = current
-
-        if stats["stop_reason"] is None:
-            stats["stop_reason"] = "max_load_more_reached"
-        stats["final_links"] = self._product_link_count(driver)
-        return stats
+    @staticmethod
+    def _with_start(url: str, start: int, size: int = 20) -> str:
+        parts = urlsplit(url)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        query["start"] = str(start)
+        query["sz"] = str(size)
+        return urlunsplit(
+            (
+                parts.scheme,
+                parts.netloc,
+                parts.path,
+                urlencode(query),
+                parts.fragment,
+            )
+        )
 
     @staticmethod
     def _extract_cards(driver) -> list[dict]:
@@ -331,6 +280,83 @@ class FarmaciasGuadalajaraScraper:
         """
         return driver.execute_script(script) or []
 
+    def _collect_catalog(
+        self,
+        driver,
+        category_url: str,
+        target: int | None,
+    ) -> tuple[list[dict], dict]:
+        initial_cards = self._extract_cards(driver)
+        all_cards: dict[str, dict] = {
+            str(card.get("href")): card
+            for card in initial_cards
+            if card.get("href")
+        }
+
+        grid_url = self._grid_url(driver)
+        stats = {
+            "target_products": target,
+            "initial_cards": len(all_cards),
+            "grid_url": grid_url,
+            "pages_loaded": 0,
+            "final_cards": len(all_cards),
+            "stop_reason": None,
+        }
+
+        if not grid_url:
+            stats["stop_reason"] = "grid_url_not_found"
+            return list(all_cards.values()), stats
+
+        size = 20
+        start = 20
+
+        for _ in range(self.max_load_more):
+            if target and len(all_cards) >= target:
+                stats["stop_reason"] = "target_reached"
+                break
+
+            page_url = self._with_start(grid_url, start=start, size=size)
+            self._goto(driver, page_url)
+            self._assert_not_blocked(driver)
+
+            page_cards = self._extract_cards(driver)
+            stats["pages_loaded"] += 1
+
+            before = len(all_cards)
+            for card in page_cards:
+                href = str(card.get("href") or "")
+                if href:
+                    all_cards[href] = card
+            after = len(all_cards)
+
+            print(
+                f"Farmacias Guadalajara grid start={start}: "
+                f"page={len(page_cards)}, cumulative={after}"
+            )
+
+            if after <= before:
+                stats["stop_reason"] = "page_no_growth"
+                break
+
+            if len(page_cards) < size:
+                stats["stop_reason"] = "last_partial_page"
+                break
+
+            start += size
+
+        if stats["stop_reason"] is None:
+            stats["stop_reason"] = "max_load_more_reached"
+
+        stats["final_cards"] = len(all_cards)
+
+        # Return to category only for diagnostics/screenshot.
+        try:
+            self._goto(driver, category_url)
+        except Exception:
+            pass
+
+        return list(all_cards.values()), stats
+
     @staticmethod
     def _write_diagnostics(
         driver,
@@ -368,15 +394,20 @@ class FarmaciasGuadalajaraScraper:
             self._assert_not_blocked(driver)
 
             target = self._target_count(driver)
-            initial_links = self._product_link_count(driver)
+            initial_cards = len(self._extract_cards(driver))
+            grid_url = self._grid_url(driver)
+
             print(
                 f"Farmacias Guadalajara [{category.id}]: "
-                f"target={target}, initial_links={initial_links}"
+                f"target={target}, initial_cards={initial_cards}"
             )
+            print(f"Grid URL: {grid_url}")
 
-            expansion = self._expand_all_products(driver, target)
-            final_links = self._product_link_count(driver)
-            cards = self._extract_cards(driver)
+            cards, pagination = self._collect_catalog(
+                driver,
+                category_url=category.url,
+                target=target,
+            )
 
             now = datetime.now().astimezone().isoformat(timespec="seconds")
             rows: list[dict] = []
@@ -421,7 +452,7 @@ class FarmaciasGuadalajaraScraper:
                         "promotion": promotion,
                         "pickup_available": None,
                         "store_context_verified": False,
-                        "store_context_method": "selenium_chrome_online_catalog",
+                        "store_context_method": "selenium_chrome_grid_pagination",
                         "url": url,
                         "price_raw": clean_text(card.get("text")),
                     }
@@ -434,20 +465,22 @@ class FarmaciasGuadalajaraScraper:
                 "category_id": category.id,
                 "url": category.url,
                 "target_products": target,
-                "initial_links": initial_links,
-                "product_links": final_links,
+                "initial_cards": initial_cards,
+                "grid_url": grid_url,
+                "cards_collected": len(cards),
                 "rows": len(rows),
-                "expansion": expansion,
+                "pagination": pagination,
                 "browser": "Google Chrome",
                 "engine": "Selenium WebDriver",
+                "strategy": "official data-url grid pagination",
             }
             self._write_diagnostics(driver, category, meta)
 
-            if target and final_links < target:
+            if target and len(cards) < target:
                 raise RuntimeError(
                     "Catálogo incompleto: "
-                    f"target={target}, links={final_links}, "
-                    f"stop_reason={expansion.get('stop_reason')}"
+                    f"target={target}, cards={len(cards)}, "
+                    f"stop_reason={pagination.get('stop_reason')}"
                 )
 
             if target and len(rows) < target:
