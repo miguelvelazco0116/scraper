@@ -36,7 +36,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "No se pudieron instalar las dependencias GPT."
 }
 
-& $PythonExe -c "import openai, pyautogui, pyperclip, PIL; print('GPT dependencies OK')"
+& $PythonExe -c "import openai, httpx, pyautogui, pyperclip, PIL; print('GPT dependencies OK')"
 if ($LASTEXITCODE -ne 0) {
     throw "Fallo validando dependencias GPT."
 }
