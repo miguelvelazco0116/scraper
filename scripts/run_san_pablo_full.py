@@ -163,7 +163,9 @@ def main() -> int:
         # than an intermediate scraper status.
         if products == 0:
             status = "EMPTY"
-        elif target is not None and products < int(target):
+        elif target is None:
+            status = "UNVERIFIED"
+        elif products < int(target):
             status = "PARTIAL"
         else:
             status = "SUCCESS"
@@ -222,10 +224,8 @@ def main() -> int:
 
     successful = all(
         item["status"] == "SUCCESS"
-        and (
-            item["target_products"] is None
-            or int(item["products_extracted"]) >= int(item["target_products"])
-        )
+        and item["target_products"] is not None
+        and int(item["products_extracted"]) >= int(item["target_products"])
         for item in summaries
     )
     return 0 if successful else 2
