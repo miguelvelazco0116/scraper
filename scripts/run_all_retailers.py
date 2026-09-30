@@ -41,6 +41,7 @@ def run_case(
     *,
     walmart_profile_dir: Path | None = None,
     walmart_storage_state: Path | None = None,
+    local_browser: bool = False,
 ) -> dict:
     category_id = category["id"]
     if retailer == "walmart":
@@ -59,6 +60,8 @@ def run_case(
             sys.executable, "main.py", "--retailer", "chedraui", "--category", category_id,
             "--store", "chedraui-polanco",
         ]
+        if local_browser:
+            cmd.extend(["--headed", "--browser-channel", "chrome"])
         location = "chedraui-polanco"
         store = "Chedraui Selecto México Polanco"
     elif retailer == "farmacias-guadalajara":
@@ -87,6 +90,8 @@ def run_case(
             sys.executable, "main.py", "--retailer", "soriana", "--category", category_id,
             "--location", "cdmx",
         ]
+        if local_browser:
+            cmd.extend(["--headed", "--browser-channel", "chrome"])
         location = "cdmx"
         store = None
 
@@ -96,10 +101,12 @@ def run_case(
         proc = subprocess.run(cmd, text=True, capture_output=True)
         attempts.append((proc.returncode, proc.stdout, proc.stderr))
         attempt_text = f"{proc.stdout}\n{proc.stderr}"
-        if classify_result(proc.returncode, attempt_text) != "NETWORK_UNAVAILABLE":
+        attempt_status = classify_result(proc.returncode, attempt_text)
+        retryable = attempt_status in {"NETWORK_UNAVAILABLE", "STORE_CONTEXT_ERROR"}
+        if not retryable:
             break
         if attempt < 2:
-            print("     NETWORK_UNAVAILABLE; reintentando una vez...")
+            print(f"     {attempt_status}; reintentando una vez...")
 
     assert proc is not None
     text = f"{proc.stdout}\n{proc.stderr}"
@@ -176,7 +183,12 @@ def apply_quality(results: list[dict]) -> tuple[pd.DataFrame, pd.DataFrame]:
         result["price_current_complete"] = int(subset["price_current"].notna().sum())
         result["price_regular_complete"] = int(subset["price_regular"].notna().sum())
         result["url_complete"] = count_nonempty(subset["url"])
-        result["duplicates_sku_url"] = int(subset.duplicated(subset=["sku", "url"]).sum())
+        sku_text = subset["sku"].fillna("").astype(str).str.strip()
+        url_text = subset["url"].fillna("").astype(str).str.strip()
+        valid_id = sku_text.ne("") | url_text.ne("")
+        result["duplicates_sku_url"] = int(
+            subset.loc[valid_id].duplicated(subset=["sku", "url"]).sum()
+        )
         if "store_context_verified" in subset.columns:
             values = subset["store_context_verified"].fillna(False).astype(bool)
             result["store_context_verified"] = int(values.sum())
@@ -208,6 +220,11 @@ def main() -> int:
     )
     parser.add_argument("--walmart-profile-dir")
     parser.add_argument("--walmart-storage-state")
+    parser.add_argument(
+        "--local-browser",
+        action="store_true",
+        help="Usa Google Chrome visible para Soriana y Chedraui en ejecución local.",
+    )
     parser.add_argument(
         "--include-paused",
         action="store_true",
@@ -251,6 +268,7 @@ def main() -> int:
     retailers = active_retailers + (paused_retailers if args.include_paused else [])
 
     print("Retailers activos:", ", ".join(active_retailers))
+    print("Modo navegador:", "Chrome local visible" if args.local_browser else "Playwright por defecto")
     if not args.include_paused:
         print("En pausa: Farmacias Guadalajara, Walmart")
     print("")
@@ -271,6 +289,7 @@ def main() -> int:
             category,
             walmart_profile_dir=walmart_profile,
             walmart_storage_state=walmart_state,
+            local_browser=args.local_browser,
         )
         results.append(result)
         print(f"  -> {result['status']} (exit={result['exit_code']}, reported={result['reported_products']})")
