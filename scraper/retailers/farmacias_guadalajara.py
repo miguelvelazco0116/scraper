@@ -526,8 +526,21 @@ class FarmaciasGuadalajaraScraper:
         DIAGNOSTICS.mkdir(parents=True, exist_ok=True)
         slug = category.id
         with sync_playwright() as p:
-            browser = p.chromium.launch(**self._browser_launch_options(self.headless))
-            context = browser.new_context(**self._browser_context_options())
+            cdp_url = (os.getenv("FG_CDP_URL") or "").strip()
+            owns_context = False
+
+            if cdp_url:
+                browser = p.chromium.connect_over_cdp(cdp_url)
+                if not browser.contexts:
+                    raise FarmaciasGuadalajaraNetworkUnavailable(
+                        f"Edge CDP conectado sin contexto disponible: {cdp_url}"
+                    )
+                context = browser.contexts[0]
+            else:
+                browser = p.chromium.launch(**self._browser_launch_options(self.headless))
+                context = browser.new_context(**self._browser_context_options())
+                owns_context = True
+
             page = context.new_page()
             try:
                 try:
@@ -615,7 +628,12 @@ class FarmaciasGuadalajaraScraper:
                 )
                 return rows
             finally:
-                context.close()
+                try:
+                    page.close()
+                except Exception:
+                    pass
+                if owns_context:
+                    context.close()
                 browser.close()
 
 
