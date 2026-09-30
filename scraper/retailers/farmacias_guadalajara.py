@@ -257,44 +257,47 @@ class FarmaciasGuadalajaraScraper:
             current = previous
 
             if next_url:
+                loader = None
                 try:
-                    payload = page.evaluate(
-                        """async url => {
-                            const response = await fetch(url, {
-                                credentials: 'include',
-                                headers: {
-                                    'X-Requested-With': 'XMLHttpRequest',
-                                    'Accept': 'text/html, */*; q=0.01'
-                                }
-                            });
-                            const html = await response.text();
-                            return {
-                                ok: response.ok,
-                                status: response.status,
-                                url: response.url,
-                                html
-                            };
-                        }""",
-                        next_url,
-                    )
+                    # A page-level fetch is modified/intercepted by the retailer's
+                    # frontend and can fail even though normal Edge navigation works.
+                    # Load the official Search-UpdateGrid URL in a second tab so the
+                    # request uses the browser's native network stack and the same
+                    # browser context/cookies as the working category page.
+                    loader = page.context.new_page()
+                    response = self._goto_with_retries(loader, next_url)
 
-                    html = payload.get("html") or ""
-                    page_requests.append(
-                        {
-                            "url": payload.get("url") or next_url,
-                            "status": payload.get("status"),
-                            "ok": payload.get("ok"),
-                            "html_length": len(html),
-                        }
-                    )
-
-                    if not payload.get("ok") or not html.strip():
+                    status = response.status if response else None
+                    if response and status >= 400:
+                        page_requests.append(
+                            {
+                                "url": loader.url,
+                                "status": status,
+                                "ok": False,
+                                "html_length": 0,
+                            }
+                        )
                         stats["stop_reason"] = "catalog_page_request_failed"
                         break
 
-                    # Remove the consumed button and append the official next-grid
-                    # fragment to the current DOM. Relative product links resolve
-                    # against the category page as normal.
+                    loader.wait_for_selector("body", state="attached", timeout=10_000)
+                    html = loader.locator("body").inner_html(timeout=10_000)
+                    page_requests.append(
+                        {
+                            "url": loader.url,
+                            "status": status,
+                            "ok": bool(response is None or status < 400),
+                            "html_length": len(html or ""),
+                        }
+                    )
+
+                    if not (html or "").strip():
+                        stats["stop_reason"] = "catalog_page_empty"
+                        break
+
+                    # Remove the consumed button and append the official grid fragment
+                    # to the category DOM. The newly appended fragment contains the
+                    # next button.more[data-url], so the loop can continue naturally.
                     button.evaluate("el => el.remove()")
                     page.locator("body").evaluate(
                         """(body, html) => {
@@ -312,6 +315,12 @@ class FarmaciasGuadalajaraScraper:
                     stats["stop_reason"] = f"catalog_page_request_error:{type(exc).__name__}"
                     stats["request_error"] = str(exc)
                     break
+                finally:
+                    if loader is not None:
+                        try:
+                            loader.close()
+                        except Exception:
+                            pass
             else:
                 # Conservative fallback for a future markup change.
                 try:
