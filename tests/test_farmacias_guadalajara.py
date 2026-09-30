@@ -77,12 +77,12 @@ def test_farmacias_guadalajara_launch_options(monkeypatch):
     assert "--disable-http2" in default_options["args"]
     assert "channel" not in default_options
 
-    monkeypatch.setenv("FG_BROWSER_CHANNEL", "msedge")
+    monkeypatch.setenv("FG_BROWSER_CHANNEL", "chrome")
     monkeypatch.setenv("FG_DISABLE_HTTP2", "0")
     monkeypatch.setenv("FG_DISABLE_QUIC", "0")
 
     worker_options = FarmaciasGuadalajaraScraper._browser_launch_options(False)
-    assert worker_options == {"headless": False, "channel": "msedge"}
+    assert worker_options == {"headless": False, "channel": "chrome"}
 
 
 def test_farmacias_guadalajara_uses_native_user_agent_by_default(monkeypatch):
