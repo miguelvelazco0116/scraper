@@ -184,36 +184,79 @@ class FarmaciasGuadalajaraScraper:
             f"Detalle: {detail}"
         )
 
-    def _expand_all_products(self, page, target: int | None) -> None:
-        stable_rounds = 0
+    def _expand_all_products(self, page, target: int | None) -> dict:
         previous = self._product_link_count(page)
+        stats = {
+            "target_products": target,
+            "initial_links": previous,
+            "clicks": 0,
+            "final_links": previous,
+            "stop_reason": None,
+        }
+
         for _ in range(self.max_load_more):
             if target and previous >= target:
+                stats["stop_reason"] = "target_reached"
                 break
 
-            button = page.get_by_text(
-                re.compile(
-                    r"^(Ver más productos|Mostrar los siguientes .*productos)$",
+            button = page.get_by_role(
+                "button",
+                name=re.compile(
+                    r"(Ver más productos|Mostrar los siguientes .*productos)",
                     re.IGNORECASE,
-                )
+                ),
             ).last
+
             try:
-                if button.count() == 0 or not button.is_visible(timeout=1_500):
+                if button.count() == 0:
+                    button = page.locator(
+                        'button:has-text("Ver más productos"), '
+                        'a:has-text("Ver más productos")'
+                    ).last
+
+                if button.count() == 0 or not button.is_visible(timeout=2_000):
+                    stats["stop_reason"] = "load_more_not_visible"
                     break
-                button.scroll_into_view_if_needed()
+
+                button.scroll_into_view_if_needed(timeout=5_000)
+                page.wait_for_timeout(400)
                 button.click(timeout=10_000)
-                page.wait_for_timeout(1_500)
-            except Exception:
+                stats["clicks"] += 1
+
+                try:
+                    page.wait_for_function(
+                        """({before}) => {
+                            const re = /-\\d{5,14}\\.html(?:$|[?#])/i;
+                            const hrefs = Array.from(document.querySelectorAll('a[href*=".html"]'))
+                                .map(a => a.href || '')
+                                .filter(h => re.test(h));
+                            return new Set(hrefs).size > before;
+                        }""",
+                        arg={"before": previous},
+                        timeout=12_000,
+                    )
+                except Exception:
+                    page.wait_for_timeout(2_000)
+
+            except Exception as exc:
+                stats["stop_reason"] = f"load_more_error:{type(exc).__name__}"
                 break
 
             current = self._product_link_count(page)
+            stats["final_links"] = current
+
             if current <= previous:
-                stable_rounds += 1
-            else:
-                stable_rounds = 0
-            previous = current
-            if stable_rounds >= 2:
+                stats["stop_reason"] = "no_growth_after_click"
                 break
+
+            previous = current
+        else:
+            stats["stop_reason"] = "max_load_more_reached"
+
+        stats["final_links"] = self._product_link_count(page)
+        if stats["stop_reason"] is None:
+            stats["stop_reason"] = "completed"
+        return stats
 
     @staticmethod
     def _extract_cards(page) -> list[dict]:
@@ -341,7 +384,7 @@ class FarmaciasGuadalajaraScraper:
                 page.wait_for_timeout(3_000)
                 self._assert_not_blocked(page)
                 target = self._target_count(page)
-                self._expand_all_products(page, target)
+                expansion = self._expand_all_products(page, target)
                 cards = self._extract_cards(page)
 
                 now = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -397,6 +440,7 @@ class FarmaciasGuadalajaraScraper:
                     "target_products": target,
                     "product_links": self._product_link_count(page),
                     "rows": len(rows),
+                    "expansion": expansion,
                     "store_context": "online_catalog_no_store_requested",
                 }
                 (DIAGNOSTICS / f"farmacias_guadalajara_{slug}.json").write_text(
