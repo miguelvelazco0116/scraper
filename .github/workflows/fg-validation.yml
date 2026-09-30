@@ -11,6 +11,9 @@ on:
       - "scripts/run_fg_server.ps1"
       - "scripts/setup_fg_local.ps1"
       - "scripts/run_fg_local.ps1"
+      - "scripts/setup_fg_gpt.ps1"
+      - "scripts/run_fg_gpt.ps1"
+      - "requirements-gpt.txt"
       - "tests/test_farmacias_guadalajara.py"
       - "tests/test_fg_worker.py"
       - "tests/test_fg_runner.py"
@@ -50,6 +53,8 @@ jobs:
           $null = [scriptblock]::Create((Get-Content .\scripts\run_fg_server.ps1 -Raw))
           $null = [scriptblock]::Create((Get-Content .\scripts\setup_fg_local.ps1 -Raw))
           $null = [scriptblock]::Create((Get-Content .\scripts\run_fg_local.ps1 -Raw))
+          $null = [scriptblock]::Create((Get-Content .\scripts\setup_fg_gpt.ps1 -Raw))
+          $null = [scriptblock]::Create((Get-Content .\scripts\run_fg_gpt.ps1 -Raw))
           Write-Host "PowerShell syntax OK"
 
       - name: Run Guadalajara unit tests
