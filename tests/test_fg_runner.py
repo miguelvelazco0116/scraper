@@ -287,3 +287,19 @@ def test_blocked_category_is_not_retried(monkeypatch, tmp_path):
         )
 
     assert calls["count"] == 1
+
+
+def test_cli_help_is_valid_on_python_314(monkeypatch, capsys):
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        ["run_farmacias_guadalajara.py", "--help"],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        runner.main()
+
+    assert exc.value.code == 0
+    output = capsys.readouterr().out
+    assert "--min-row-coverage" in output
+    assert "cobertura completa" in output
