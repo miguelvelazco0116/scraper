@@ -344,15 +344,41 @@ class FarmaciasGuadalajaraScraper:
                         y = box["y"] + box["height"] / 2
                         page.mouse.move(x, y)
                         page.wait_for_timeout(250)
-                        page.mouse.click(x, y)
+                        page.mouse.down()
+                        page.wait_for_timeout(120)
+                        page.mouse.up()
                         stats["clicks"] += 1
-                        stats["last_click_strategy"] = "mouse_click"
+                        stats["last_click_strategy"] = "mouse_down_up"
+
+                        for _ in range(12):
+                            page.wait_for_timeout(500)
+                            current = self._product_link_count(page)
+                            if current > previous or observed_responses:
+                                break
+
+                # The screenshot from the local Chrome test shows that the
+                # button receives focus (focus ring is visible) but pointer
+                # activation does not fire the storefront action. A focused
+                # native <button> can also be activated with Enter; this is a
+                # normal browser interaction and produces the button's click
+                # event without calling the endpoint directly.
+                if current <= previous and not observed_responses:
+                    try:
+                        button.focus(timeout=5_000)
+                        page.wait_for_timeout(250)
+                        button.press("Enter", timeout=5_000)
+                        stats["clicks"] += 1
+                        stats["last_click_strategy"] = "keyboard_enter"
 
                         for _ in range(16):
                             page.wait_for_timeout(500)
                             current = self._product_link_count(page)
                             if current > previous or observed_responses:
                                 break
+                    except Exception as exc:
+                        stats["keyboard_click_error"] = (
+                            f"{type(exc).__name__}: {exc}"
+                        )
 
                 if observed_responses:
                     captured_response = observed_responses[-1]
