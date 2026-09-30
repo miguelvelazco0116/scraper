@@ -61,7 +61,7 @@ Remove-Item Env:FG_GRID_REQUEST_FALLBACK -ErrorAction SilentlyContinue
 
 Write-Host "Python  : $PythonExe"
 Write-Host "Edge    : $edge"
-Write-Host "Modo    : local, headed, sin Task Scheduler, sin CDP"
+Write-Host "Modo    : Edge nativo + CDP local; Playwright solo se adjunta"
 Write-Host "Category: $Category"
 Write-Host ""
 
@@ -76,8 +76,8 @@ if (-not $SkipTests) {
 }
 
 Write-Host ""
-Write-Host "[2/2] Ejecutando preflight grafico y scraping con Edge..."
-& $PythonExe .\scripts\run_farmacias_guadalajara.py --execution-mode local --browser-channel msedge --category $Category --max-load-more 100 --timeout $Timeout --min-row-coverage 1.0 --attempts 2 --retry-pause 10
+Write-Host "[2/2] Ejecutando Edge nativo y adjuntando el scraper por CDP..."
+& $PythonExe .\scripts\run_farmacias_guadalajara.py --execution-mode local --browser-channel msedge-cdp --category $Category --max-load-more 100 --timeout $Timeout --min-row-coverage 1.0 --attempts 2 --retry-pause 10
 
 if ($LASTEXITCODE -ne 0) {
     throw "Farmacias Guadalajara termino con exit_code=$LASTEXITCODE"
