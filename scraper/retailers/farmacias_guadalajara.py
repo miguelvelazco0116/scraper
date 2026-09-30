@@ -284,56 +284,122 @@ class FarmaciasGuadalajaraScraper:
             current = previous
             captured_html = ""
             captured_response = None
+            observed_responses = []
+
+            def _capture_grid_response(response):
+                try:
+                    if "Search-UpdateGrid" in response.url:
+                        observed_responses.append(response)
+                except Exception:
+                    pass
 
             # Use only the website's normal "Ver más productos" interaction.
-            # No extra direct HTTP/XHR fallback is issued, which keeps request
-            # volume conservative and aligned with normal browser behavior.
+            # First try Playwright's regular locator click. If that produces no
+            # request and no DOM growth, retry once with a physical mouse click
+            # at the visible button's center. No direct HTTP/XHR request is made.
+            page.on("response", _capture_grid_response)
             try:
                 button.scroll_into_view_if_needed(timeout=5_000)
                 page.wait_for_timeout(750)
 
-                with page.expect_response(
-                    lambda response: "Search-UpdateGrid" in response.url,
-                    timeout=20_000,
-                ) as response_info:
+                try:
+                    button.hover(timeout=5_000)
+                except Exception:
+                    pass
+                try:
+                    button.focus(timeout=5_000)
+                except Exception:
+                    pass
+
+                try:
                     button.click(timeout=10_000)
                     stats["clicks"] += 1
-
-                captured_response = response_info.value
-                try:
-                    captured_html = captured_response.text()
-                except Exception:
-                    captured_html = ""
-
-                stats["captured_responses"] += 1
-                page_requests.append(
-                    {
-                        "transport": "native_button_click",
-                        "url": captured_response.url,
-                        "status": captured_response.status,
-                        "ok": captured_response.ok,
-                        "html_length": len(captured_html or ""),
-                        "expected_data_url": expected_url,
-                    }
-                )
-
-                if not captured_response.ok:
-                    stats["stop_reason"] = (
-                        f"load_more_http_{captured_response.status}"
+                    stats["last_click_strategy"] = "locator_click"
+                except Exception as exc:
+                    stats["locator_click_error"] = (
+                        f"{type(exc).__name__}: {exc}"
                     )
-                    break
 
-                # Allow the site's own callback to update the product grid.
-                for _ in range(10):
+                # Give the storefront callback time to issue its request and
+                # append the new cards.
+                for _ in range(12):
                     page.wait_for_timeout(500)
                     current = self._product_link_count(page)
-                    if current > previous:
+                    if current > previous or observed_responses:
                         break
 
-            except Exception as exc:
-                stats["last_click_response_error"] = (
-                    f"{type(exc).__name__}: {exc}"
-                )
+                # On some Windows/Chrome combinations the visible button is
+                # present but its delegated handler does not react to the
+                # locator click. A single real pointer click is the closest
+                # equivalent to the user's successful visual interaction.
+                if current <= previous and not observed_responses:
+                    try:
+                        box = button.bounding_box(timeout=5_000)
+                    except Exception:
+                        box = None
+
+                    if box:
+                        x = box["x"] + box["width"] / 2
+                        y = box["y"] + box["height"] / 2
+                        page.mouse.move(x, y)
+                        page.wait_for_timeout(250)
+                        page.mouse.click(x, y)
+                        stats["clicks"] += 1
+                        stats["last_click_strategy"] = "mouse_click"
+
+                        for _ in range(16):
+                            page.wait_for_timeout(500)
+                            current = self._product_link_count(page)
+                            if current > previous or observed_responses:
+                                break
+
+                if observed_responses:
+                    captured_response = observed_responses[-1]
+                    try:
+                        captured_html = captured_response.text()
+                    except Exception:
+                        captured_html = ""
+
+                    stats["captured_responses"] += len(observed_responses)
+                    page_requests.append(
+                        {
+                            "transport": stats.get(
+                                "last_click_strategy",
+                                "native_click",
+                            ),
+                            "url": captured_response.url,
+                            "status": captured_response.status,
+                            "ok": captured_response.ok,
+                            "html_length": len(captured_html or ""),
+                            "expected_data_url": expected_url,
+                        }
+                    )
+
+                    if not captured_response.ok:
+                        stats["stop_reason"] = (
+                            f"load_more_http_{captured_response.status}"
+                        )
+                        break
+
+                    # The request can arrive before the site's JS finishes
+                    # inserting the cards, so wait again for actual DOM growth.
+                    if current <= previous:
+                        for _ in range(12):
+                            page.wait_for_timeout(500)
+                            current = self._product_link_count(page)
+                            if current > previous:
+                                break
+
+                if current <= previous and not observed_responses:
+                    stats["last_click_response_error"] = (
+                        "No Search-UpdateGrid response and no DOM growth "
+                        "after locator + mouse click"
+                    )
+            finally:
+                try:
+                    page.remove_listener("response", _capture_grid_response)
+                except Exception:
+                    pass
 
             # If Chrome received the official grid response but the page callback
             # did not append it, reuse that same response body. This does not make
