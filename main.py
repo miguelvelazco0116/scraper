@@ -106,11 +106,9 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
 
     combined = pd.concat([existing, incoming], ignore_index=True)
     if not combined.empty:
-        combined["sku"] = combined["sku"].astype(str)
-        id_mask = (
-            combined["sku"].fillna("").astype(str).str.strip().ne("")
-            | combined["url"].fillna("").astype(str).str.strip().ne("")
-        )
+        sku_text = combined["sku"].fillna("").astype(str).str.strip()
+        url_text = combined["url"].fillna("").astype(str).str.strip()
+        id_mask = sku_text.ne("") | url_text.ne("")
 
         with_id = combined.loc[id_mask].drop_duplicates(
             subset=["retailer", "category_id", "city", "store_id", "sku", "url"],
