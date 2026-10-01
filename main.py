@@ -34,6 +34,11 @@ from scraper.retailers.ibarra_mayoreo import (
     IbarraMayoreoNetworkUnavailable,
     IbarraMayoreoScraper,
 )
+from scraper.retailers.bodega_aurrera import (
+    BodegaAurreraBlocked,
+    BodegaAurreraNetworkUnavailable,
+    BodegaAurreraScraper,
+)
 from scraper.retailers.soriana import SorianaBlocked, SorianaScraper
 from scraper.retailers.walmart import WalmartBlocked, WalmartScraper, WalmartStoreContextError
 from scraper.retailers.walmart_persistent import WalmartPersistentScraper
@@ -195,7 +200,7 @@ def main() -> int:
         choices=[
             "soriana", "walmart", "chedraui", "farmacias-guadalajara",
             "farmacias-del-ahorro", "farmacias-san-pablo", "la-comer",
-            "ibarra-mayoreo",
+            "ibarra-mayoreo", "bodega-aurrera",
         ],
     )
     parser.add_argument("--category", default="cuidado-bucal")
@@ -228,6 +233,8 @@ def main() -> int:
         default_location = "la-comer-online-287"
     elif args.retailer == "ibarra-mayoreo":
         default_location = "ibarra-online"
+    elif args.retailer == "bodega-aurrera":
+        default_location = "bodega-aurrera-online"
     else:
         default_location = "cdmx"
     location_id = args.store or args.location or default_location
@@ -352,6 +359,20 @@ def main() -> int:
             print(f"BLOCKED: {exc}")
             return 2
         except IbarraMayoreoNetworkUnavailable as exc:
+            print(f"NETWORK_UNAVAILABLE: {exc}")
+            return 5
+    elif args.retailer == "bodega-aurrera":
+        scraper = BodegaAurreraScraper(
+            headless=not args.headed,
+            browser_channel=args.browser_channel or "chrome",
+            max_pages=args.max_load_more,
+        )
+        try:
+            rows = scraper.scrape_category(category, location)
+        except BodegaAurreraBlocked as exc:
+            print(f"BLOCKED: {exc}")
+            return 2
+        except BodegaAurreraNetworkUnavailable as exc:
             print(f"NETWORK_UNAVAILABLE: {exc}")
             return 5
     else:
