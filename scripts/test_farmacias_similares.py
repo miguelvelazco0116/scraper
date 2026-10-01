@@ -88,6 +88,25 @@ def main() -> int:
     no_price = meta.get("products_without_price") or []
     detail_errors = meta.get("detail_errors") or []
 
+    promotional_products = 0
+    promotion_price_errors = 0
+    if not df.empty:
+        current = pd.to_numeric(df["price_current"], errors="coerce")
+        regular = pd.to_numeric(df["price_regular"], errors="coerce")
+        promotional_products = int((current < regular).sum())
+
+        promo_text = df["promotion"].fillna("").astype(str).str.strip()
+        promotion_price_errors = int(
+            (
+                promo_text.ne("")
+                & (
+                    current.isna()
+                    | regular.isna()
+                    | (current >= regular)
+                )
+            ).sum()
+        )
+
     summary = pd.DataFrame(
         [
             {
@@ -110,6 +129,8 @@ def main() -> int:
                 ) if not df.empty else 0,
                 "products_without_price": len(no_price),
                 "detail_errors": len(detail_errors),
+                "promotional_products": promotional_products,
+                "promotion_price_errors": promotion_price_errors,
                 "blocked_detected": bool(meta.get("blocked_detected")),
                 "manual_verification_required": bool(
                     meta.get("manual_verification_required")
@@ -160,6 +181,8 @@ def main() -> int:
         "url_complete",
         "products_without_price",
         "detail_errors",
+        "promotional_products",
+        "promotion_price_errors",
         "blocked_detected",
         "manual_verification_required",
         "manual_verification_resolved",
@@ -183,6 +206,7 @@ def main() -> int:
         and int(row["url_complete"]) == len(df)
         and int(row["products_without_price"]) == 0
         and int(row["detail_errors"]) == 0
+        and int(row["promotion_price_errors"]) == 0
     )
 
     return 0 if acceptable else 2
