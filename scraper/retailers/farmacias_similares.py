@@ -73,6 +73,8 @@ class FarmaciasSimilaresScraper:
         "Iliadin",
         "Neilmed",
         "Sinomarin",
+        "Alfa",
+        "Simicondon",
     )
 
     def __init__(
