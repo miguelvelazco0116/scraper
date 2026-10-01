@@ -180,7 +180,11 @@ class IbarraMayoreoScraper:
                   continue;
                 }
 
-                let card = a;
+                const path = (() => {
+                  try { return new URL(href).pathname; } catch (_) { return ''; }
+                })();
+                const rootProductPath =
+                  /^\/[a-z0-9áéíóúüñ%._~!                let card = a;
                 let found = null;
                 for (let i = 0; i < 10 && card; i++, card = card.parentElement) {
                   const text = normalize(card.innerText || card.textContent);
@@ -202,6 +206,34 @@ class IbarraMayoreoScraper:
                 // Discovery must include every catalogue product, even when
                 // the card currently exposes only BOLSA/BARRA/etc. The Caja
                 // rule is enforced later from the individual product page.
+                const heading = found.querySelector(
+'()*+,;=:@-]+\/?$/i.test(path);
+
+                let card = a;
+                let found = null;
+                for (let i = 0; i < 10 && card; i++, card = card.parentElement) {
+                  const text = normalize(card.innerText || card.textContent);
+                  const looksLikeProductCard =
+                    /Agregar al carrito|No disponible|Agotado|Sin existencia|art[ií]culo(?:\(s\)|s)?\s+por/i.test(text) ||
+                    money.test(text);
+
+                  if (
+                    rootProductPath &&
+                    looksLikeProductCard &&
+                    text.length >= 8 &&
+                    text.length <= 2600
+                  ) {
+                    found = card;
+                    break;
+                  }
+                }
+                if (!found) continue;
+
+                const cardText = (found.innerText || found.textContent || '').trim();
+                const text = normalize(cardText);
+
+                // Discovery includes unavailable cards and non-Caja cards.
+                // The authoritative Caja rule is enforced on product detail.
                 const heading = found.querySelector(
                   'h1,h2,h3,h4,h5,[class*="name"],[class*="title"]'
                 );
