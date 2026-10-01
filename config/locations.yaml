@@ -52,3 +52,12 @@ locations:
     store: null
     store_id: null
     enabled: true
+
+  - id: la-comer-online-287
+    city: Catálogo online
+    state: Nacional
+    country: México
+    postal_code: null
+    store: La Comer online (succId 287)
+    store_id: "287"
+    enabled: true
