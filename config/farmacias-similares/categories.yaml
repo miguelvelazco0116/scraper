@@ -7,3 +7,11 @@ categories:
     sub_subcategory: null
     url: https://www.farmaciasdesimilares.com/aparato-respiratorio/aparato-respiratorio
     enabled: true
+
+  - id: condones
+    department: Salud sexual
+    name: Salud sexual
+    subcategory: Condones
+    sub_subcategory: null
+    url: https://www.farmaciasdesimilares.com/salud-sexual/condones
+    enabled: true
