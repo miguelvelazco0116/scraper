@@ -15,3 +15,11 @@ categories:
     sub_subcategory: null
     url: https://ibarramayoreo.com/catalogo/marca-propia/detergentes%2C-lavatrastes-y-jab
     enabled: true
+
+  - id: dentifricos-abarrotes
+    department: Abarrotes
+    name: Abarrotes
+    subcategory: Dentifricos
+    sub_subcategory: null
+    url: https://ibarramayoreo.com/catalogo/abarrotes/dentifricos/
+    enabled: true
