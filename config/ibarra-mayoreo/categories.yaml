@@ -23,3 +23,11 @@ categories:
     sub_subcategory: null
     url: https://ibarramayoreo.com/catalogo/abarrotes/dentifricos/
     enabled: true
+
+  - id: perfumeria-abarrotes
+    department: Abarrotes
+    name: Abarrotes
+    subcategory: Perfumeria
+    sub_subcategory: null
+    url: https://ibarramayoreo.com/catalogo/abarrotes/perfumeria/
+    enabled: true
