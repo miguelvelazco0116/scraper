@@ -24,6 +24,11 @@ from scraper.retailers.farmacias_san_pablo import (
     FarmaciasSanPabloNetworkUnavailable,
     FarmaciasSanPabloScraper,
 )
+from scraper.retailers.la_comer import (
+    LaComerBlocked,
+    LaComerNetworkUnavailable,
+    LaComerScraper,
+)
 from scraper.retailers.soriana import SorianaBlocked, SorianaScraper
 from scraper.retailers.walmart import WalmartBlocked, WalmartScraper, WalmartStoreContextError
 from scraper.retailers.walmart_persistent import WalmartPersistentScraper
@@ -184,7 +189,7 @@ def main() -> int:
         default="soriana",
         choices=[
             "soriana", "walmart", "chedraui", "farmacias-guadalajara",
-            "farmacias-del-ahorro", "farmacias-san-pablo",
+            "farmacias-del-ahorro", "farmacias-san-pablo", "la-comer",
         ],
     )
     parser.add_argument("--category", default="cuidado-bucal")
@@ -213,6 +218,8 @@ def main() -> int:
         default_location = "fahorro-online"
     elif args.retailer == "farmacias-san-pablo":
         default_location = "san-pablo-online"
+    elif args.retailer == "la-comer":
+        default_location = "la-comer-online-287"
     else:
         default_location = "cdmx"
     location_id = args.store or args.location or default_location
@@ -309,6 +316,20 @@ def main() -> int:
             print(f"BLOCKED: {exc}")
             return 2
         except FarmaciasSanPabloNetworkUnavailable as exc:
+            print(f"NETWORK_UNAVAILABLE: {exc}")
+            return 5
+    elif args.retailer == "la-comer":
+        scraper = LaComerScraper(
+            headless=not args.headed,
+            browser_channel=args.browser_channel or "chrome",
+            max_scroll_rounds=args.max_load_more,
+        )
+        try:
+            rows = scraper.scrape_category(category, location)
+        except LaComerBlocked as exc:
+            print(f"BLOCKED: {exc}")
+            return 2
+        except LaComerNetworkUnavailable as exc:
             print(f"NETWORK_UNAVAILABLE: {exc}")
             return 5
     else:
