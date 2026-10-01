@@ -1,9 +1,17 @@
 retailer: ibarra-mayoreo
 categories:
-  - id: detergentes-lavatrastes-jab
+  - id: detergentes-lavatrastes-jab-abarrotes
     department: Abarrotes
     name: Abarrotes
     subcategory: Detergentes, lavatrastes y jab
     sub_subcategory: null
     url: https://ibarramayoreo.com/catalogo/abarrotes/detergentes%2C-lavatrastes-y-jab/
+    enabled: true
+
+  - id: detergentes-lavatrastes-jab-marca-propia
+    department: Marca propia
+    name: Marca propia
+    subcategory: Detergentes, lavatrastes y jab
+    sub_subcategory: null
+    url: https://ibarramayoreo.com/catalogo/marca-propia/detergentes%2C-lavatrastes-y-jab/
     enabled: true
