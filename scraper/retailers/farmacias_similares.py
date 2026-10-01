@@ -360,6 +360,36 @@ class FarmaciasSimilaresScraper:
             "has_por": por_match is not None,
         }
 
+    def _detail_body_after_hydration(self, page) -> str:
+        """Return the richest PDP text after client-side price hydration.
+
+        Similares may first render the list price and inject De/Por/Ahorra
+        shortly afterwards. We sample multiple snapshots and prefer the one
+        containing explicit promotional price labels when present.
+        """
+        snapshots: list[str] = []
+
+        for delay_ms in (0, 900, 1200, 1500):
+            if delay_ms:
+                page.wait_for_timeout(delay_ms)
+            body = self._body_text(page)
+            if body:
+                snapshots.append(body)
+
+        if not snapshots:
+            return ""
+
+        def score(text: str) -> tuple[int, int, int]:
+            promo_labels = sum(
+                int(bool(pattern.search(text)))
+                for pattern in (self.DE_RE, self.POR_RE, self.AHORRA_RE)
+            )
+            money_count = len(self.MONEY_RE.findall(text))
+            has_reference = int(bool(self.SKU_RE.search(text)))
+            return (promo_labels, money_count, has_reference)
+
+        return max(snapshots, key=score)
+
     def _discover_links(
         self,
         page,
@@ -471,7 +501,7 @@ class FarmaciasSimilaresScraper:
 
                     try:
                         self._goto(page, href)
-                        body = self._body_text(page)
+                        body = self._detail_body_after_hydration(page)
                         detail = self._parse_detail(body, fallback_title)
                     except (
                         FarmaciasSimilaresBlocked,
@@ -511,6 +541,7 @@ class FarmaciasSimilaresScraper:
                         {
                             "detail_current": detail.get("price_current"),
                             "detail_regular": detail.get("price_regular"),
+                            "promotion": detail.get("promotion"),
                             "has_de": detail.get("has_de"),
                             "has_por": detail.get("has_por"),
                         },
