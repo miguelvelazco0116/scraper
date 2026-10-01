@@ -454,6 +454,267 @@ class BodegaAurreraScraper:
         )
         return rows
 
+    @staticmethod
+    def _product_link_count(page) -> int:
+        try:
+            return page.locator('a[href*="/ip/"]').count()
+        except Exception:
+            return 0
+
+    def _expand_current_page(
+        self,
+        page,
+        *,
+        source_url: str,
+        max_rounds: int = 30,
+    ) -> dict:
+        """Expand lazy-loaded content until the visible product set stabilizes."""
+        rounds: list[dict] = []
+        stale_rounds = 0
+        previous = self._product_link_count(page)
+
+        for round_number in range(1, max_rounds + 1):
+            clicked = False
+            for label in (
+                "Ver más",
+                "Ver mas",
+                "Mostrar más",
+                "Mostrar mas",
+                "Cargar más",
+                "Cargar mas",
+            ):
+                try:
+                    button = page.get_by_text(label, exact=False).first
+                    if button.count() and button.is_visible():
+                        button.click(timeout=2_000)
+                        clicked = True
+                        page.wait_for_timeout(500)
+                        break
+                except Exception:
+                    continue
+
+            try:
+                page.evaluate(
+                    "window.scrollTo(0, document.body.scrollHeight)"
+                )
+            except Exception:
+                pass
+            page.wait_for_timeout(max(self.wait_ms, 900))
+
+            current = self._product_link_count(page)
+            rounds.append(
+                {
+                    "round": round_number,
+                    "product_links": current,
+                    "clicked_load_more": clicked,
+                }
+            )
+
+            if current > previous:
+                stale_rounds = 0
+            else:
+                stale_rounds += 1
+
+            previous = max(previous, current)
+            if stale_rounds >= 3:
+                break
+
+        return {
+            "source_url": source_url,
+            "product_links": previous,
+            "scroll_rounds": len(rounds),
+            "stabilized": stale_rounds >= 3,
+            "rounds": rounds,
+        }
+
+    @staticmethod
+    def _explicit_page_urls(page) -> list[str]:
+        try:
+            raw = page.locator('a[href*="page="]').evaluate_all(
+                r"""
+                anchors => Array.from(
+                  new Set(
+                    anchors
+                      .map(a => a.href || '')
+                      .filter(Boolean)
+                  )
+                )
+                """
+            )
+        except Exception:
+            return []
+
+        urls: list[str] = []
+        for href in raw:
+            try:
+                query = dict(
+                    parse_qsl(
+                        urlsplit(href).query,
+                        keep_blank_values=True,
+                    )
+                )
+                page_number = int(query.get("page", "0"))
+            except (TypeError, ValueError):
+                continue
+            if page_number > 1 and href not in urls:
+                urls.append(href)
+
+        return sorted(
+            urls,
+            key=lambda href: int(
+                dict(
+                    parse_qsl(
+                        urlsplit(href).query,
+                        keep_blank_values=True,
+                    )
+                ).get("page", "0")
+            ),
+        )
+
+    @staticmethod
+    def _content_child_urls(page, category: Category) -> list[str]:
+        """Discover direct content subsections from a parent content category."""
+        parent = urlsplit(category.url)
+        parent_path = parent.path.rstrip("/")
+        if "/content/" not in parent_path:
+            return []
+
+        try:
+            hrefs = page.locator("a[href]").evaluate_all(
+                "anchors => anchors.map(a => a.href || '').filter(Boolean)"
+            )
+        except Exception:
+            return []
+
+        children: list[str] = []
+        prefix = parent_path + "/"
+        for href in hrefs:
+            try:
+                parts = urlsplit(href)
+            except Exception:
+                continue
+
+            if parts.netloc != parent.netloc:
+                continue
+
+            child_path = parts.path.rstrip("/")
+            if not child_path.startswith(prefix):
+                continue
+            if child_path == parent_path:
+                continue
+
+            # Direct content subsections have one extra slug plus their id.
+            # Keep them as catalogue sources and deduplicate later by SKU.
+            clean_url = urlunsplit(
+                (parts.scheme, parts.netloc, parts.path, "", "")
+            )
+            if clean_url not in children:
+                children.append(clean_url)
+
+        return children
+
+    def _collect_source(
+        self,
+        page,
+        source_url: str,
+        category: Category,
+        location: Location,
+        seen_skus: set[str],
+    ) -> tuple[list[dict], dict]:
+        self._goto(page, source_url)
+
+        try:
+            page.wait_for_selector(
+                'a[href*="/ip/"]',
+                timeout=25_000,
+            )
+        except PlaywrightTimeoutError:
+            source_meta = {
+                "source_url": source_url,
+                "actual_url": page.url,
+                "rows": 0,
+                "new_rows": 0,
+                "product_links": 0,
+                "explicit_pages": 0,
+                "stabilized": False,
+                "no_product_links": True,
+            }
+            self._save_diagnostics(
+                page,
+                "no_products_" + str(len(self.run_meta.get("sources", [])) + 1),
+            )
+            return [], source_meta
+
+        expansion = self._expand_current_page(
+            page,
+            source_url=source_url,
+        )
+        explicit_pages = self._explicit_page_urls(page)
+
+        page_rows = self._extract_rows(
+            page,
+            category,
+            location,
+        )
+
+        all_rows = list(page_rows)
+        explicit_page_meta: list[dict] = []
+        visited_page_urls = {page.url}
+
+        for page_url in explicit_pages:
+            if page_url in visited_page_urls:
+                continue
+            visited_page_urls.add(page_url)
+
+            self._goto(page, page_url)
+            page_expansion = self._expand_current_page(
+                page,
+                source_url=page_url,
+            )
+            extra_rows = self._extract_rows(
+                page,
+                category,
+                location,
+            )
+            all_rows.extend(extra_rows)
+            explicit_page_meta.append(
+                {
+                    "requested_url": page_url,
+                    "actual_url": page.url,
+                    "rows": len(extra_rows),
+                    "product_links": page_expansion.get("product_links"),
+                    "scroll_rounds": page_expansion.get("scroll_rounds"),
+                    "stabilized": page_expansion.get("stabilized"),
+                }
+            )
+
+        unique_source: dict[str, dict] = {}
+        for row in all_rows:
+            sku = clean_text(str(row.get("sku") or ""))
+            if sku:
+                unique_source[sku] = row
+
+        new_rows = [
+            row
+            for sku, row in unique_source.items()
+            if sku not in seen_skus
+        ]
+        for row in new_rows:
+            seen_skus.add(str(row.get("sku")))
+
+        source_meta = {
+            "source_url": source_url,
+            "actual_url": page.url,
+            "rows": len(unique_source),
+            "new_rows": len(new_rows),
+            "product_links": expansion.get("product_links"),
+            "scroll_rounds": expansion.get("scroll_rounds"),
+            "stabilized": expansion.get("stabilized"),
+            "explicit_pages": len(explicit_pages),
+            "explicit_page_meta": explicit_page_meta,
+        }
+        return new_rows, source_meta
+
     def scrape_category(
         self,
         category: Category,
@@ -466,7 +727,7 @@ class BodegaAurreraScraper:
             "blocked_detected": False,
             "manual_verification_required": False,
             "manual_verification_resolved": False,
-            "pages": [],
+            "sources": [],
         }
 
         with sync_playwright() as p:
@@ -482,75 +743,41 @@ class BodegaAurreraScraper:
             page = context.new_page()
 
             try:
+                # Open the configured category first so we can discover
+                # content subsections instead of inventing ?page=N URLs.
+                self._goto(page, category.url)
+                child_urls = self._content_child_urls(page, category)
+                sources = [category.url] + [
+                    url for url in child_urls if url != category.url
+                ]
+
+                self.run_meta["content_child_urls"] = child_urls
+                self.run_meta["sources_discovered"] = len(sources)
+
                 rows: list[dict] = []
                 seen_skus: set[str] = set()
-                no_new_pages = 0
 
-                for page_number in range(1, self.max_pages + 1):
-                    url = self._paged_url(category.url, page_number)
-                    self._goto(page, url)
-
-                    try:
-                        page.wait_for_selector(
-                            'a[href*="/ip/"]',
-                            timeout=25_000,
-                        )
-                    except PlaywrightTimeoutError:
-                        self.run_meta["pages"].append(
-                            {
-                                "page": page_number,
-                                "url": page.url,
-                                "rows": 0,
-                                "new_rows": 0,
-                                "no_product_links": True,
-                            }
-                        )
-                        self._save_diagnostics(
-                            page,
-                            f"no_products_page_{page_number}",
-                        )
-                        break
-
-                    page_rows = self._extract_rows(
+                for source_index, source_url in enumerate(sources, start=1):
+                    source_rows, source_meta = self._collect_source(
                         page,
+                        source_url,
                         category,
                         location,
+                        seen_skus,
                     )
-
-                    new_rows = [
-                        row
-                        for row in page_rows
-                        if str(row.get("sku")) not in seen_skus
-                    ]
-                    for row in new_rows:
-                        seen_skus.add(str(row.get("sku")))
-
-                    rows.extend(new_rows)
-
-                    self.run_meta["pages"].append(
-                        {
-                            "page": page_number,
-                            "url": page.url,
-                            "rows": len(page_rows),
-                            "new_rows": len(new_rows),
-                        }
-                    )
+                    rows.extend(source_rows)
+                    source_meta["source_index"] = source_index
+                    self.run_meta["sources"].append(source_meta)
 
                     print(
-                        f"Bodega Aurrera page={page_number}: "
-                        f"rows={len(page_rows)}, "
-                        f"new={len(new_rows)}, "
-                        f"cumulative={len(rows)}",
+                        f"Bodega Aurrera source={source_index}/{len(sources)}: "
+                        f"rows={source_meta.get('rows')}, "
+                        f"new={source_meta.get('new_rows')}, "
+                        f"cumulative={len(rows)}, "
+                        f"explicit_pages={source_meta.get('explicit_pages')}, "
+                        f"stabilized={source_meta.get('stabilized')}",
                         flush=True,
                     )
-
-                    if new_rows:
-                        no_new_pages = 0
-                    else:
-                        no_new_pages += 1
-
-                    if no_new_pages >= 2:
-                        break
 
                 self.run_meta["unique_products"] = len(rows)
                 self.run_meta["sku_complete"] = sum(
@@ -562,7 +789,20 @@ class BodegaAurreraScraper:
                 self.run_meta["url_complete"] = sum(
                     bool(row.get("url")) for row in rows
                 )
-                self.run_meta["status"] = "SUCCESS" if rows else "EMPTY"
+
+                stabilized = all(
+                    bool(item.get("stabilized"))
+                    for item in self.run_meta.get("sources", [])
+                    if not item.get("no_product_links")
+                )
+                self.run_meta["pagination_verified"] = stabilized
+                self.run_meta["status"] = (
+                    "SUCCESS"
+                    if rows and stabilized
+                    else "PARTIAL"
+                    if rows
+                    else "EMPTY"
+                )
 
                 self._save_diagnostics(
                     page,
