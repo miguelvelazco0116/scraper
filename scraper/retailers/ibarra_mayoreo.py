@@ -4,7 +4,7 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlsplit, urlunsplit
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
@@ -231,48 +231,57 @@ class IbarraMayoreoScraper:
         )
 
     @staticmethod
-    def _catalogue_metadata(page) -> dict:
-        """Read category target and last pagination page from rendered links."""
+    def _catalogue_metadata(page, category: Category) -> dict:
+        """Read the count for the exact category URL plus the last page."""
+        target = None
+        last_page = None
+
+        target_path = unquote(urlsplit(category.url).path).rstrip("/").casefold()
+
         try:
-            return page.locator("body").evaluate(
-                r"""
-                () => {
-                  const normalize = value =>
-                    String(value || '').replace(/\s+/g, ' ').trim();
+            anchors = page.locator("a[href]")
+            for index in range(min(anchors.count(), 2500)):
+                anchor = anchors.nth(index)
+                href = anchor.get_attribute("href")
+                if not href:
+                    continue
 
-                  let target = null;
-                  let lastPage = null;
+                try:
+                    full_url = urljoin(page.url, href)
+                    path = unquote(urlsplit(full_url).path).rstrip("/").casefold()
+                except Exception:
+                    path = ""
 
-                  for (const a of Array.from(document.querySelectorAll('a[href]'))) {
-                    const text = normalize(a.innerText || a.textContent);
-                    const match = text.match(
-                      /DETERGENTES.*?LAVATRASTES.*?JAB\s*\(([\d,]+)\)/i
-                    );
-                    if (match) {
-                      const parsed = Number(match[1].replace(/,/g, ''));
-                      if (Number.isFinite(parsed)) {
-                        target = Math.max(target || 0, parsed);
-                      }
-                    }
+                if path == target_path:
+                    try:
+                        text = clean_text(anchor.inner_text(timeout=500)) or ""
+                    except Exception:
+                        text = ""
+                    match = re.search(r"\(([\d,]+)\)", text)
+                    if match:
+                        try:
+                            value = int(match.group(1).replace(",", ""))
+                            target = max(target or 0, value)
+                        except ValueError:
+                            pass
 
-                    try {
-                      const u = new URL(a.href, location.href);
-                      const p = Number(u.searchParams.get('p'));
-                      if (Number.isInteger(p) && p > 0) {
-                        lastPage = Math.max(lastPage || 0, p);
-                      }
-                    } catch (_) {}
-                  }
-
-                  return {
-                    target_products: target,
-                    last_page: lastPage,
-                  };
-                }
-                """
-            )
+                try:
+                    parts = urlsplit(full_url)
+                    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+                    raw_page = query.get("p")
+                    if raw_page is not None:
+                        page_number = int(raw_page)
+                        if page_number > 0:
+                            last_page = max(last_page or 0, page_number)
+                except Exception:
+                    pass
         except Exception:
-            return {"target_products": None, "last_page": None}
+            pass
+
+        return {
+            "target_products": target,
+            "last_page": last_page,
+        }
 
     @classmethod
     def _target_count(cls, body: str) -> int | None:
@@ -302,21 +311,26 @@ class IbarraMayoreoScraper:
             url = self._page_url(category.url, page_number)
             self._goto(page, url)
 
-            body = self._body_text(page)
-            page_target = self._target_count(body)
-            rendered_meta = self._catalogue_metadata(page)
+            rendered_meta = self._catalogue_metadata(page, category)
 
             rendered_target = rendered_meta.get("target_products")
             if rendered_target is not None:
-                page_target = max(page_target or 0, int(rendered_target))
-            if page_target is not None:
-                target = max(target or 0, page_target)
+                target = max(target or 0, int(rendered_target))
 
             rendered_last_page = rendered_meta.get("last_page")
             if rendered_last_page is not None:
                 last_page = max(last_page or 0, int(rendered_last_page))
 
             page_links = self._extract_product_links(page)
+
+            if (
+                page_number == 1
+                and last_page is None
+                and page_links
+                and len(page_links) < 12
+            ):
+                last_page = 1
+
             before = len(products)
             for item in page_links:
                 href = clean_text(item.get("href"))
