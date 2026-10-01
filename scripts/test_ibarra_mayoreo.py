@@ -21,28 +21,15 @@ from scraper.retailers.ibarra_mayoreo import (
 OUTPUT_PATH = ROOT / "output" / "ibarra_mayoreo_test.xlsx"
 
 
-def main() -> int:
-    category = next(
-        x
-        for x in load_categories(
-            ROOT / "config" / "ibarra-mayoreo" / "categories.yaml"
-        )
-        if x.id == "detergentes-lavatrastes-jab"
-    )
-    location = next(
-        x
-        for x in load_locations(ROOT / "config" / "locations.yaml")
-        if x.id == "ibarra-online"
-    )
-
-    print("=" * 72)
-    print("IBARRA MAYOREO - TEST DETergentes, lavatrastes y jab")
-    print("=" * 72)
-    print(f"Departamento : {category.department}")
-    print(f"Subcategoría : {category.subcategory}")
-    print(f"URL          : {category.url}")
-    print("Regla precio : SIEMPRE precio de presentación CAJA")
-    print(f"Salida       : {OUTPUT_PATH}")
+def run_category(category, location) -> tuple[pd.DataFrame, dict, list[dict], list[dict]]:
+    print("")
+    print("-" * 72)
+    print(f"IBARRA MAYOREO | {category.department}")
+    print("-" * 72)
+    print(f"category_id : {category.id}")
+    print(f"subcategoría: {category.subcategory}")
+    print(f"URL         : {category.url}")
+    print("Precio      : SIEMPRE presentación CAJA")
     print("")
 
     scraper = IbarraMayoreoScraper(
@@ -71,13 +58,11 @@ def main() -> int:
 
     df = pd.DataFrame(rows, columns=COLUMNS)
     if not df.empty:
-        df = df.drop_duplicates(
-            subset=["sku", "url"],
-            keep="last",
-        ).sort_values(
-            ["brand", "product"],
-            na_position="last",
-        ).reset_index(drop=True)
+        df = (
+            df.drop_duplicates(subset=["sku", "url"], keep="last")
+            .sort_values(["brand", "product"], na_position="last")
+            .reset_index(drop=True)
+        )
 
     meta = scraper.last_meta or {}
     target = meta.get("target_products")
@@ -87,43 +72,117 @@ def main() -> int:
     without_box = meta.get("products_without_box_price") or []
     parse_errors = meta.get("parse_errors") or []
 
-    summary = pd.DataFrame(
-        [
-            {
-                "retailer": "Ibarra Mayoreo",
-                "category_id": category.id,
-                "target_products": target,
-                "last_page": last_page,
-                "product_links": links,
-                "discovery_complete": discovery_complete,
-                "products_with_box_price": len(df),
-                "sku_complete": int(
-                    df["sku"].fillna("").astype(str).str.strip().ne("").sum()
-                ) if not df.empty else 0,
-                "price_complete": int(
-                    df["price_current"].notna().sum()
-                ) if not df.empty else 0,
-                "url_complete": int(
-                    df["url"].fillna("").astype(str).str.strip().ne("").sum()
-                ) if not df.empty else 0,
-                "products_without_box_price": len(without_box),
-                "parse_errors": len(parse_errors),
-                "status": status,
-                "error": error,
-            }
-        ]
+    summary = {
+        "retailer": "Ibarra Mayoreo",
+        "department": category.department,
+        "category": category.name,
+        "subcategory": category.subcategory,
+        "category_id": category.id,
+        "target_products": target,
+        "last_page": last_page,
+        "product_links": links,
+        "discovery_complete": discovery_complete,
+        "products_with_box_price": len(df),
+        "sku_complete": int(
+            df["sku"].fillna("").astype(str).str.strip().ne("").sum()
+        ) if not df.empty else 0,
+        "price_complete": int(df["price_current"].notna().sum()) if not df.empty else 0,
+        "url_complete": int(
+            df["url"].fillna("").astype(str).str.strip().ne("").sum()
+        ) if not df.empty else 0,
+        "products_without_box_price": len(without_box),
+        "parse_errors": len(parse_errors),
+        "status": status,
+        "error": error,
+    }
+
+    print("RESULTADO")
+    print(f"department                 : {category.department}")
+    print(f"status                     : {status}")
+    print(f"target_products            : {target}")
+    print(f"last_page                  : {last_page}")
+    print(f"product_links              : {links}")
+    print(f"discovery_complete         : {discovery_complete}")
+    print(f"products_with_box_price    : {len(df)}")
+    print(f"sku_complete               : {summary['sku_complete']}")
+    print(f"price_complete             : {summary['price_complete']}")
+    print(f"url_complete               : {summary['url_complete']}")
+    print(f"products_without_box_price : {len(without_box)}")
+    print(f"parse_errors               : {len(parse_errors)}")
+    if error:
+        print(f"error                      : {error}")
+
+    no_box_rows = [
+        {
+            "department": category.department,
+            "category_id": category.id,
+            **item,
+        }
+        for item in without_box
+    ]
+    error_rows = [
+        {
+            "department": category.department,
+            "category_id": category.id,
+            **item,
+        }
+        for item in parse_errors
+    ]
+
+    return df, summary, no_box_rows, error_rows
+
+
+def main() -> int:
+    categories = load_categories(
+        ROOT / "config" / "ibarra-mayoreo" / "categories.yaml"
     )
+    location = next(
+        x
+        for x in load_locations(ROOT / "config" / "locations.yaml")
+        if x.id == "ibarra-online"
+    )
+
+    print("=" * 72)
+    print("IBARRA MAYOREO - TEST COMPLETO")
+    print("=" * 72)
+    print("Fuentes a extraer:")
+    for category in categories:
+        print(f"  - {category.department} > {category.subcategory}")
+    print("Regla de precio: SIEMPRE presentación CAJA")
+    print(f"Salida: {OUTPUT_PATH}")
+
+    frames: list[pd.DataFrame] = []
+    summaries: list[dict] = []
+    no_box_rows: list[dict] = []
+    error_rows: list[dict] = []
+
+    for category in categories:
+        df, summary, category_no_box, category_errors = run_category(
+            category,
+            location,
+        )
+        frames.append(df)
+        summaries.append(summary)
+        no_box_rows.extend(category_no_box)
+        error_rows.extend(category_errors)
+
+    concentrated = (
+        pd.concat(frames, ignore_index=True)
+        if frames
+        else pd.DataFrame(columns=COLUMNS)
+    )
+    summary_df = pd.DataFrame(summaries)
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     with pd.ExcelWriter(OUTPUT_PATH, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Concentrado")
-        summary.to_excel(writer, index=False, sheet_name="Resumen")
-        pd.DataFrame(without_box).to_excel(
+        concentrated.to_excel(writer, index=False, sheet_name="Concentrado")
+        summary_df.to_excel(writer, index=False, sheet_name="Resumen")
+        pd.DataFrame(no_box_rows).to_excel(
             writer,
             index=False,
             sheet_name="SinPrecioCaja",
         )
-        pd.DataFrame(parse_errors).to_excel(
+        pd.DataFrame(error_rows).to_excel(
             writer,
             index=False,
             sheet_name="Errores",
@@ -131,30 +190,41 @@ def main() -> int:
 
     print("")
     print("=" * 72)
-    print("RESULTADO IBARRA MAYOREO")
+    print("RESUMEN IBARRA MAYOREO")
     print("=" * 72)
-    print(f"status                     : {status}")
-    print(f"target_products            : {target}")
-    print(f"last_page                  : {last_page}")
-    print(f"product_links              : {links}")
-    print(f"discovery_complete         : {discovery_complete}")
-    print(f"products_with_box_price    : {len(df)}")
-    print(f"sku_complete               : {summary.iloc[0]['sku_complete']}")
-    print(f"price_complete             : {summary.iloc[0]['price_complete']}")
-    print(f"url_complete               : {summary.iloc[0]['url_complete']}")
-    print(f"products_without_box_price : {len(without_box)}")
-    print(f"parse_errors               : {len(parse_errors)}")
-    if error:
-        print(f"error                      : {error}")
+    if not summary_df.empty:
+        print(
+            summary_df[
+                [
+                    "department",
+                    "category_id",
+                    "status",
+                    "target_products",
+                    "last_page",
+                    "product_links",
+                    "discovery_complete",
+                    "products_with_box_price",
+                    "products_without_box_price",
+                    "parse_errors",
+                ]
+            ].to_string(index=False)
+        )
+
     print("")
+    print(f"Total filas con precio CAJA: {len(concentrated)}")
     print(f"Archivo: {OUTPUT_PATH}")
     print("Diagnósticos: diagnostics\\ibarra_mayoreo_*")
 
-    acceptable = (
-        status in {"SUCCESS", "PARTIAL"}
-        and len(df) > 0
-        and int(summary.iloc[0]["price_complete"]) == len(df)
-    )
+    acceptable = True
+    for summary in summaries:
+        acceptable = acceptable and (
+            summary["status"] in {"SUCCESS", "PARTIAL"}
+            and bool(summary["discovery_complete"])
+            and summary["products_with_box_price"] > 0
+            and summary["price_complete"] == summary["products_with_box_price"]
+            and summary["parse_errors"] == 0
+        )
+
     return 0 if acceptable else 2
 
 
