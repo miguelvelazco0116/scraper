@@ -411,11 +411,15 @@ class IbarraMayoreoScraper:
             "last_page": last_page,
             "product_links": len(products),
             "discovery_complete": bool(
-                (last_page is not None and pages and pages[-1]["page"] >= last_page)
-                or (
-                    last_page is None
-                    and target is not None
+                (
+                    target is not None
                     and len(products) >= target
+                )
+                or (
+                    target is None
+                    and last_page is not None
+                    and pages
+                    and pages[-1]["page"] >= last_page
                 )
             ),
             "pages": pages,
