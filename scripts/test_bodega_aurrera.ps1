@@ -26,7 +26,7 @@ if ([string]::IsNullOrWhiteSpace($PythonExe) -or -not (Test-Path $PythonExe)) {
 }
 
 Write-Host "============================================================"
-Write-Host "Bodega Aurrera - test cuidado bucal"
+Write-Host "Bodega Aurrera - test categorias activas"
 Write-Host "============================================================"
 Write-Host "Python: $PythonExe"
 Write-Host ""
@@ -38,7 +38,7 @@ Write-Host ""
 $code = $LASTEXITCODE
 
 Write-Host ""
-Write-Host "Salida: $ProjectDir\output\bodega_aurrera_cuidado_bucal_test.xlsx"
+Write-Host "Salida: $ProjectDir\output\bodega_aurrera_test.xlsx"
 Write-Host "Diagnosticos: $ProjectDir\diagnostics\bodega_aurrera_*"
 
 if ($code -ne 0) {
