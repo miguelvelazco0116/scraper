@@ -250,7 +250,9 @@ class IbarraMayoreoScraper:
                     );
                     if (match) {
                       const parsed = Number(match[1].replace(/,/g, ''));
-                      if (Number.isFinite(parsed)) target = parsed;
+                      if (Number.isFinite(parsed)) {
+                        target = Math.max(target || 0, parsed);
+                      }
                     }
 
                     try {
@@ -274,13 +276,13 @@ class IbarraMayoreoScraper:
 
     @classmethod
     def _target_count(cls, body: str) -> int | None:
-        match = cls.TARGET_RE.search(body or "")
-        if match:
+        values: list[int] = []
+        for match in cls.TARGET_RE.finditer(body or ""):
             try:
-                return int(match.group(1).replace(",", ""))
+                values.append(int(match.group(1).replace(",", "")))
             except ValueError:
-                return None
-        return None
+                continue
+        return max(values) if values else None
 
     def _discover_product_links(
         self,
@@ -339,10 +341,10 @@ class IbarraMayoreoScraper:
                 f"target={target}, last_page={last_page}"
             )
 
-            if target is not None and after >= target:
+            if last_page is not None and page_number >= last_page:
                 break
 
-            if last_page is not None and page_number >= last_page:
+            if last_page is None and target is not None and after >= target:
                 break
 
             if after == before:
@@ -363,8 +365,12 @@ class IbarraMayoreoScraper:
             "last_page": last_page,
             "product_links": len(products),
             "discovery_complete": bool(
-                (target is not None and len(products) >= target)
-                or (last_page is not None and pages and pages[-1]["page"] >= last_page)
+                (last_page is not None and pages and pages[-1]["page"] >= last_page)
+                or (
+                    last_page is None
+                    and target is not None
+                    and len(products) >= target
+                )
             ),
             "pages": pages,
         }
