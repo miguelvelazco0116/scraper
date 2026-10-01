@@ -26,22 +26,21 @@ if ([string]::IsNullOrWhiteSpace($PythonExe) -or -not (Test-Path $PythonExe)) {
 }
 
 Write-Host "============================================================"
-Write-Host "SCRAPER COMPLETO - RETAILERS ACTIVOS"
+Write-Host "Bodega Aurrera - test categorias activas"
 Write-Host "============================================================"
-Write-Host "Activos : Soriana, Chedraui, Farmacias del Ahorro, Farmacias San Pablo, Ibarra Mayoreo, Bodega Aurrera"
-Write-Host "Pausa   : Walmart, Farmacias Guadalajara"
-Write-Host "Aviso   : Bodega Aurrera puede solicitar verificacion manual en Chrome."
-Write-Host "          Si aparece, completala y deja la ventana abierta para continuar."
-Write-Host "Python  : $PythonExe"
+Write-Host "Python: $PythonExe"
+Write-Host ""
+Write-Host "IMPORTANTE: si aparece una verificacion de identidad en Chrome,"
+Write-Host "completala manualmente. El scraper no intenta evadirla."
 Write-Host ""
 
-& $PythonExe .\scripts\run_all_retailers.py --local-browser
+& $PythonExe .\scripts\test_bodega_aurrera.py
 $code = $LASTEXITCODE
 
 Write-Host ""
-Write-Host "Salida final: $ProjectDir\output\concentrado_scraper.xlsx"
-Write-Host "Logs: $ProjectDir\diagnostics\run_all"
+Write-Host "Salida: $ProjectDir\output\bodega_aurrera_test.xlsx"
+Write-Host "Diagnosticos: $ProjectDir\diagnostics\bodega_aurrera_*"
 
 if ($code -ne 0) {
-    Write-Warning "La corrida termino con observaciones (exit_code=$code). Revisa el RESUMEN FINAL y diagnostics\run_all."
+    Write-Warning "El test termino con observaciones (exit_code=$code)."
 }

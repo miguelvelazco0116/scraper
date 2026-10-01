@@ -103,6 +103,15 @@ def run_case(
             cmd.extend(["--headed", "--browser-channel", "chrome"])
         location = "ibarra-online"
         store = "Ibarra Mayoreo online"
+    elif retailer == "bodega-aurrera":
+        cmd = [
+            sys.executable, "main.py", "--retailer", "bodega-aurrera",
+            "--category", category_id, "--location", "bodega-aurrera-online",
+        ]
+        if local_browser:
+            cmd.extend(["--headed", "--browser-channel", "chrome"])
+        location = "bodega-aurrera-online"
+        store = "Bodega Aurrera online"
     else:
         cmd = [
             sys.executable, "main.py", "--retailer", "soriana", "--category", category_id,
@@ -151,6 +160,7 @@ def run_case(
         "farmacias-san-pablo": "Farmacias San Pablo",
         "la-comer": "La Comer",
         "ibarra-mayoreo": "Ibarra Mayoreo",
+        "bodega-aurrera": "Bodega Aurrera",
     }
 
     return {
@@ -243,7 +253,7 @@ def main() -> int:
     parser.add_argument(
         "--local-browser",
         action="store_true",
-        help="Usa Google Chrome visible para Soriana y Chedraui en ejecución local.",
+        help="Usa Google Chrome visible para retailers que requieren navegador local.",
     )
     parser.add_argument(
         "--include-paused",
@@ -280,6 +290,7 @@ def main() -> int:
         "farmacias-del-ahorro",
         "farmacias-san-pablo",
         "ibarra-mayoreo",
+        "bodega-aurrera",
     ]
     paused_retailers = [
         "farmacias-guadalajara",
