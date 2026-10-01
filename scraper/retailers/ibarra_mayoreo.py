@@ -50,8 +50,8 @@ class IbarraMayoreoScraper:
         re.IGNORECASE | re.DOTALL,
     )
     TARGET_RE = re.compile(
-        r"DETERGENTES\s*,?\s*LAVATRASTES\s+Y\s+JAB\s*\((\d+)\)",
-        re.IGNORECASE,
+        r"DETERGENTES.*?LAVATRASTES.*?JAB\s*\(([\d,]+)\)",
+        re.IGNORECASE | re.DOTALL,
     )
     BLOCK_MARKERS = (
         "access denied",
@@ -198,13 +198,10 @@ class IbarraMayoreoScraper:
 
                 const cardText = (found.innerText || found.textContent || '').trim();
                 const text = normalize(cardText);
-                if (
-                  !/art[ií]culo(?:\(s\)|s)?\s+por\s+caja/i.test(text) &&
-                  !/\bCAJA\b/i.test(text)
-                ) {
-                  continue;
-                }
 
+                // Discovery must include every catalogue product, even when
+                // the card currently exposes only BOLSA/BARRA/etc. The Caja
+                // rule is enforced later from the individual product page.
                 const heading = found.querySelector(
                   'h1,h2,h3,h4,h5,[class*="name"],[class*="title"]'
                 );
@@ -233,12 +230,54 @@ class IbarraMayoreoScraper:
             """
         )
 
+    @staticmethod
+    def _catalogue_metadata(page) -> dict:
+        """Read category target and last pagination page from rendered links."""
+        try:
+            return page.locator("body").evaluate(
+                r"""
+                () => {
+                  const normalize = value =>
+                    String(value || '').replace(/\s+/g, ' ').trim();
+
+                  let target = null;
+                  let lastPage = null;
+
+                  for (const a of Array.from(document.querySelectorAll('a[href]'))) {
+                    const text = normalize(a.innerText || a.textContent);
+                    const match = text.match(
+                      /DETERGENTES.*?LAVATRASTES.*?JAB\s*\(([\d,]+)\)/i
+                    );
+                    if (match) {
+                      const parsed = Number(match[1].replace(/,/g, ''));
+                      if (Number.isFinite(parsed)) target = parsed;
+                    }
+
+                    try {
+                      const u = new URL(a.href, location.href);
+                      const p = Number(u.searchParams.get('p'));
+                      if (Number.isInteger(p) && p > 0) {
+                        lastPage = Math.max(lastPage || 0, p);
+                      }
+                    } catch (_) {}
+                  }
+
+                  return {
+                    target_products: target,
+                    last_page: lastPage,
+                  };
+                }
+                """
+            )
+        except Exception:
+            return {"target_products": None, "last_page": None}
+
     @classmethod
     def _target_count(cls, body: str) -> int | None:
         match = cls.TARGET_RE.search(body or "")
         if match:
             try:
-                return int(match.group(1))
+                return int(match.group(1).replace(",", ""))
             except ValueError:
                 return None
         return None
@@ -251,16 +290,29 @@ class IbarraMayoreoScraper:
         products: dict[str, dict] = {}
         pages: list[dict] = []
         target: int | None = None
+        last_page: int | None = None
         stale_pages = 0
 
         for page_number in range(1, self.max_pages + 1):
+            if last_page is not None and page_number > last_page:
+                break
+
             url = self._page_url(category.url, page_number)
             self._goto(page, url)
 
             body = self._body_text(page)
             page_target = self._target_count(body)
+            rendered_meta = self._catalogue_metadata(page)
+
+            rendered_target = rendered_meta.get("target_products")
+            if rendered_target is not None:
+                page_target = max(page_target or 0, int(rendered_target))
             if page_target is not None:
                 target = max(target or 0, page_target)
+
+            rendered_last_page = rendered_meta.get("last_page")
+            if rendered_last_page is not None:
+                last_page = max(last_page or 0, int(rendered_last_page))
 
             page_links = self._extract_product_links(page)
             before = len(products)
@@ -278,14 +330,19 @@ class IbarraMayoreoScraper:
                     "new_links": after - before,
                     "cumulative_links": after,
                     "target": target,
+                    "last_page": last_page,
                 }
             )
             print(
                 f"Ibarra page={page_number}: links={len(page_links)}, "
-                f"new={after - before}, cumulative={after}, target={target}"
+                f"new={after - before}, cumulative={after}, "
+                f"target={target}, last_page={last_page}"
             )
 
             if target is not None and after >= target:
+                break
+
+            if last_page is not None and page_number >= last_page:
                 break
 
             if after == before:
@@ -293,17 +350,22 @@ class IbarraMayoreoScraper:
             else:
                 stale_pages = 0
 
-            if stale_pages >= 2:
-                break
-
-            if page_links and len(page_links) < 12:
+            # Only use the stale-page guard when the site did not expose a
+            # definite last page. If pagination says p=13, walk through p=13
+            # even if one intermediate page renders fewer cards.
+            if last_page is None and stale_pages >= 2:
                 break
 
         meta = {
             "category_id": category.id,
             "category_url": category.url,
             "target_products": target,
+            "last_page": last_page,
             "product_links": len(products),
+            "discovery_complete": bool(
+                (target is not None and len(products) >= target)
+                or (last_page is not None and pages and pages[-1]["page"] >= last_page)
+            ),
             "pages": pages,
         }
         return list(products.values()), meta
@@ -491,6 +553,15 @@ class IbarraMayoreoScraper:
                         unique[key] = row
                 rows = list(unique.values())
 
+                discovery_complete = bool(
+                    self.last_meta.get("discovery_complete")
+                )
+                status = "SUCCESS" if rows else "EMPTY"
+                if parse_errors:
+                    status = "PARTIAL"
+                elif not discovery_complete:
+                    status = "PARTIAL"
+
                 self.last_meta.update(
                     {
                         "rows": len(rows),
@@ -503,13 +574,9 @@ class IbarraMayoreoScraper:
                         "url_complete": sum(bool(x.get("url")) for x in rows),
                         "products_without_box_price": no_box,
                         "parse_errors": parse_errors,
-                        "status": "SUCCESS" if rows else "EMPTY",
+                        "status": status,
                     }
                 )
-
-                target = self.last_meta.get("target_products")
-                if target is not None and len(rows) < int(target):
-                    self.last_meta["status"] = "PARTIAL"
 
                 self._save_diagnostics(
                     page,
