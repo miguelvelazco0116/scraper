@@ -81,7 +81,9 @@ def main() -> int:
 
     meta = scraper.last_meta or {}
     target = meta.get("target_products")
+    last_page = meta.get("last_page")
     links = meta.get("product_links")
+    discovery_complete = bool(meta.get("discovery_complete"))
     without_box = meta.get("products_without_box_price") or []
     parse_errors = meta.get("parse_errors") or []
 
@@ -91,7 +93,9 @@ def main() -> int:
                 "retailer": "Ibarra Mayoreo",
                 "category_id": category.id,
                 "target_products": target,
+                "last_page": last_page,
                 "product_links": links,
+                "discovery_complete": discovery_complete,
                 "products_with_box_price": len(df),
                 "sku_complete": int(
                     df["sku"].fillna("").astype(str).str.strip().ne("").sum()
@@ -131,7 +135,9 @@ def main() -> int:
     print("=" * 72)
     print(f"status                     : {status}")
     print(f"target_products            : {target}")
+    print(f"last_page                  : {last_page}")
     print(f"product_links              : {links}")
+    print(f"discovery_complete         : {discovery_complete}")
     print(f"products_with_box_price    : {len(df)}")
     print(f"sku_complete               : {summary.iloc[0]['sku_complete']}")
     print(f"price_complete             : {summary.iloc[0]['price_complete']}")
