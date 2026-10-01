@@ -28,7 +28,7 @@ if ([string]::IsNullOrWhiteSpace($PythonExe) -or -not (Test-Path $PythonExe)) {
 Write-Host "============================================================"
 Write-Host "SCRAPER COMPLETO - RETAILERS ACTIVOS"
 Write-Host "============================================================"
-Write-Host "Activos : Soriana, Chedraui, Farmacias del Ahorro, Farmacias San Pablo"
+Write-Host "Activos : Soriana, Chedraui, Farmacias del Ahorro, Farmacias San Pablo, Ibarra Mayoreo"
 Write-Host "Pausa   : Walmart, Farmacias Guadalajara"
 Write-Host "Python  : $PythonExe"
 Write-Host ""
