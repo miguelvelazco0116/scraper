@@ -153,6 +153,7 @@ class IbarraMayoreoScraper:
 
     @staticmethod
     def _extract_product_links(page) -> list[dict]:
+        """Discover every product card shown on the current catalogue page."""
         return page.locator("body").evaluate(
             r"""
             () => {
@@ -162,82 +163,59 @@ class IbarraMayoreoScraper:
               const out = [];
               const seen = new Set();
 
-              const anchors = Array.from(document.querySelectorAll('a[href]'));
-              for (const a of anchors) {
+              for (const a of Array.from(document.querySelectorAll('a[href]'))) {
                 const href = a.href || '';
-                const hrefLower = href.toLowerCase();
+                if (!href.startsWith(location.origin)) continue;
 
+                let parsed;
+                try {
+                  parsed = new URL(href);
+                } catch (_) {
+                  continue;
+                }
+
+                const lower = parsed.href.toLowerCase();
+                const parts = parsed.pathname.split('/').filter(Boolean);
+
+                // Product detail pages on Ibarra are root-level slugs.
+                // Category/account/cart/navigation links are deeper paths.
                 if (
-                  !href.startsWith(location.origin) ||
-                  hrefLower.includes('/catalogo/') ||
-                  hrefLower.includes('/carrito') ||
-                  hrefLower.includes('/cuenta') ||
-                  hrefLower.includes('/favorit') ||
-                  hrefLower.includes('/login') ||
-                  hrefLower.includes('facebook.com') ||
-                  hrefLower.includes('wa.me')
+                  parts.length !== 1 ||
+                  lower.includes('/carrito') ||
+                  lower.includes('/cuenta') ||
+                  lower.includes('/favorit') ||
+                  lower.includes('/login')
                 ) {
                   continue;
                 }
 
-                const path = (() => {
-                  try { return new URL(href).pathname; } catch (_) { return ''; }
-                })();
-                const rootProductPath =
-                  /^\/[a-z0-9áéíóúüñ%._~!                let card = a;
-                let found = null;
-                for (let i = 0; i < 10 && card; i++, card = card.parentElement) {
-                  const text = normalize(card.innerText || card.textContent);
-                  if (
-                    /Agregar al carrito/i.test(text) &&
-                    money.test(text) &&
-                    text.length >= 20 &&
-                    text.length <= 2200
-                  ) {
-                    found = card;
-                    break;
-                  }
-                }
-                if (!found) continue;
-
-                const cardText = (found.innerText || found.textContent || '').trim();
-                const text = normalize(cardText);
-
-                // Discovery must include every catalogue product, even when
-                // the card currently exposes only BOLSA/BARRA/etc. The Caja
-                // rule is enforced later from the individual product page.
-                const heading = found.querySelector(
-'()*+,;=:@-]+\/?$/i.test(path);
-
                 let card = a;
                 let found = null;
+
                 for (let i = 0; i < 10 && card; i++, card = card.parentElement) {
                   const text = normalize(card.innerText || card.textContent);
-                  const looksLikeProductCard =
-                    /Agregar al carrito|No disponible|Agotado|Sin existencia|art[ií]culo(?:\(s\)|s)?\s+por/i.test(text) ||
+                  if (!text || text.length < 8 || text.length > 2800) continue;
+
+                  const productSignals =
+                    /Agregar al carrito|No disponible|Agotado|Sin existencia/i.test(text) ||
+                    /art[ií]culo(?:\(s\)|s)?\s+por\s+(caja|bolsa|barra|garrafa|botella|paquete|saco)/i.test(text) ||
                     money.test(text);
 
-                  if (
-                    rootProductPath &&
-                    looksLikeProductCard &&
-                    text.length >= 8 &&
-                    text.length <= 2600
-                  ) {
+                  if (productSignals) {
                     found = card;
                     break;
                   }
                 }
+
                 if (!found) continue;
 
                 const cardText = (found.innerText || found.textContent || '').trim();
-                const text = normalize(cardText);
 
-                // Discovery includes unavailable cards and non-Caja cards.
-                // The authoritative Caja rule is enforced on product detail.
                 const heading = found.querySelector(
                   'h1,h2,h3,h4,h5,[class*="name"],[class*="title"]'
                 );
                 const image = found.querySelector('img[alt]');
+
                 const title =
                   normalize(a.getAttribute('title')) ||
                   normalize(a.getAttribute('aria-label')) ||
@@ -247,7 +225,7 @@ class IbarraMayoreoScraper:
 
                 if (!title || title.length < 3 || title.length > 220) continue;
 
-                const key = href.split('#')[0];
+                const key = parsed.origin + parsed.pathname.replace(/\/$/, '');
                 if (seen.has(key)) continue;
                 seen.add(key);
 
@@ -257,6 +235,7 @@ class IbarraMayoreoScraper:
                   card_text: cardText,
                 });
               }
+
               return out;
             }
             """
