@@ -579,6 +579,15 @@ class BodegaAurreraScraper:
         if "/content/" not in parent_path:
             return []
 
+        # Parent URLs end in the category id, e.g.
+        # /content/cuidado-de-la-ropa/3680083
+        # while child sections are siblings below the slug, e.g.
+        # /content/cuidado-de-la-ropa/detergente/3680083_3570057
+        parts = [part for part in parent_path.split("/") if part]
+        if len(parts) < 3:
+            return []
+        prefix = "/" + "/".join(parts[:-1]) + "/"
+
         try:
             hrefs = page.locator("a[href]").evaluate_all(
                 "anchors => anchors.map(a => a.href || '').filter(Boolean)"
@@ -587,7 +596,6 @@ class BodegaAurreraScraper:
             return []
 
         children: list[str] = []
-        prefix = parent_path + "/"
         for href in hrefs:
             try:
                 parts = urlsplit(href)
@@ -711,6 +719,10 @@ class BodegaAurreraScraper:
             "scroll_rounds": expansion.get("scroll_rounds"),
             "stabilized": expansion.get("stabilized"),
             "explicit_pages": len(explicit_pages),
+            "explicit_pages_stabilized": all(
+                bool(item.get("stabilized"))
+                for item in explicit_page_meta
+            ),
             "explicit_page_meta": explicit_page_meta,
         }
         return new_rows, source_meta
@@ -792,6 +804,7 @@ class BodegaAurreraScraper:
 
                 stabilized = all(
                     bool(item.get("stabilized"))
+                    and bool(item.get("explicit_pages_stabilized", True))
                     for item in self.run_meta.get("sources", [])
                     if not item.get("no_product_links")
                 )
