@@ -79,3 +79,12 @@ locations:
     store: Bodega Aurrera online
     store_id: null
     enabled: true
+
+  - id: similares-online
+    city: Catálogo online
+    state: Nacional
+    country: México
+    postal_code: null
+    store: Farmacias Similares online
+    store_id: null
+    enabled: true
