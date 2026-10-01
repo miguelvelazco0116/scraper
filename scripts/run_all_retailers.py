@@ -253,7 +253,7 @@ def main() -> int:
     parser.add_argument(
         "--local-browser",
         action="store_true",
-        help="Usa Google Chrome visible para Soriana y Chedraui en ejecución local.",
+        help="Usa Google Chrome visible para retailers que requieren navegador local.",
     )
     parser.add_argument(
         "--include-paused",
@@ -290,6 +290,7 @@ def main() -> int:
         "farmacias-del-ahorro",
         "farmacias-san-pablo",
         "ibarra-mayoreo",
+        "bodega-aurrera",
     ]
     paused_retailers = [
         "farmacias-guadalajara",
