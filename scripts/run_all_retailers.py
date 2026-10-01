@@ -279,6 +279,7 @@ def main() -> int:
         "chedraui",
         "farmacias-del-ahorro",
         "farmacias-san-pablo",
+        "ibarra-mayoreo",
     ]
     paused_retailers = [
         "farmacias-guadalajara",
