@@ -1,70 +1,334 @@
 # Scraper multi-retailer
 
-Base modular para extraer catálogos públicos de retailers de México, generar un único Excel consolidado y ejecutar validaciones desde GitHub Actions.
+Proyecto modular para extraer catálogos públicos de retailers en México, validar cobertura y precios, y concentrar los resultados en un único Excel.
 
-## Retailers
+El proyecto está pensado para ejecutarse localmente en Windows Server con Python/Playwright y, cuando un retailer lo requiere, Google Chrome visible. No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadir controles de acceso.
 
-| Retailer | Estado | Categorías implementadas |
-|---|---|---|
-| Soriana | Implementado y validado | Cuidado bucal; Cuidado del hogar > Limpiadores; Cuidado del hogar > Limpiadores > Detergentes; Cuidado personal > Afeitado y depilación > Afeitado y depilación para dama |
-| Walmart | Implementado; requiere sesión verificada portable para SC Toreo | Cuidado bucal; Cuidado de la ropa; Depilación y rasurado |
-| Chedraui | Implementado para Chedraui Selecto México Polanco (232) | Higiene bucal; Lavandería |
-| Farmacias Guadalajara | Código/configuración implementados; el dominio no respondió desde GitHub-hosted durante la validación | Vías respiratorias; Lavandería; Cuidado bucal; Preservativos |
-| Farmacias del Ahorro | Implementado y validado como catálogo online nacional | Farmacia > Gripa y tos > Congestión nasal; Bienestar sexual > Preservativos; Cuidado personal > Higiene bucal > Enjuagues bucales; Cuidado personal > Higiene bucal > Cremas dentales |
-| Farmacias San Pablo | Implementado como catálogo online; GitHub-hosted recibe 403 Access Denied de Akamai | Medicamentos > Gripe y tos > Descongestionantes; Salud sexual > Bienestar sexual > Preservativos; Cuidado personal y belleza > Cuidado bucal > Enjuagues bucales; Cuidado personal y belleza > Cuidado bucal > Pastas dentales |
+## Estado actual
 
-## Ejecución recomendada
+Última actualización: 1 de octubre de 2026.
 
-- **Soriana:** GitHub-hosted Actions.
-- **Chedraui:** GitHub-hosted Actions con Chedraui Selecto México Polanco / tienda 232.
-- **Farmacias del Ahorro:** GitHub-hosted Actions, contexto `fahorro-online`.
-- **Farmacias Guadalajara:** contexto `fg-online`; si la red no recibe respuesta del dominio oficial se clasifica `NETWORK_UNAVAILABLE`.
-- **Farmacias San Pablo:** contexto `san-pablo-online`. La implementación usa navegador y ficha individual; si Akamai devuelve 403 se clasifica `BLOCKED`. Debe ejecutarse desde una red que tenga acceso normal al sitio oficial.
-- **Walmart:** GitHub-hosted Actions reutilizando una sesión Playwright verificada manualmente.
-- No se automatizan CAPTCHAs ni desafíos de identidad y no se evaden controles de acceso.
+| Retailer | Runner activo | Categorías configuradas | Última validación conocida | Observaciones |
+|---|---:|---|---:|---|
+| Soriana | Sí | Cuidado bucal; Limpiadores; Detergentes; Afeitado y depilación para dama | 1,678 productos | Catálogo validado |
+| Chedraui | Sí | Higiene bucal; Lavandería | 651 productos | Tienda Chedraui Selecto México Polanco, store_id 232 |
+| Farmacias del Ahorro | Sí | Congestión nasal; Preservativos; Enjuagues bucales; Cremas dentales | 288 productos | Catálogo online nacional |
+| Farmacias San Pablo | Sí | Descongestionantes; Preservativos; Enjuagues bucales; Pastas dentales | 239 productos | Selenium/Chrome; algunas fichas no exponen SKU o URL estable |
+| Ibarra Mayoreo | Sí | Detergentes Abarrotes; Detergentes Marca propia; Dentífricos; Perfumería | 570 productos con precio CAJA | Sólo se guardan presentaciones con precio por caja |
+| Bodega Aurrera | Sí | Cuidado bucal; Cuidado de la ropa | 261 productos | Puede solicitar verificación manual; cobertura y precios validados |
+| Farmacias Similares | Sí | Aparato respiratorio; Condones | 30 productos | Cobertura 100% en la validación local |
+| La Comer | No | Detergentes y suavizantes; Cuidado bucal | Pendiente de validación live | Implementado, aún no activado en el runner principal |
+| Walmart | No | Cuidado bucal; Cuidado de la ropa; Depilación y rasurado | Pausado | Sesiones automatizadas pueden ser bloqueadas |
+| Farmacias Guadalajara | No | Vías respiratorias; Lavandería; Cuidado bucal; Preservativos | Pausado | Problemas de conectividad/bloqueo en validaciones previas |
 
-## Farmacias San Pablo
+> Los conteos anteriores corresponden a las últimas validaciones individuales conocidas. Una corrida completa con todos los retailers activos debe volver a ejecutarse después de cambios relevantes en el código o en los sitios.
+
+## Retailers activos
+
+El runner principal procesa actualmente:
+
+```text
+Soriana
+Chedraui
+Farmacias del Ahorro
+Farmacias San Pablo
+Ibarra Mayoreo
+Bodega Aurrera
+Farmacias Similares
+```
+
+Walmart y Farmacias Guadalajara permanecen en pausa. La Comer está implementado pero pendiente de validación live antes de activarse.
+
+## Ejecución completa
+
+En Windows PowerShell:
+
+```powershell
+cd C:\Proyectos\scraper
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+& .\scripts\run_active_retailers.ps1
+```
+
+El wrapper ejecuta:
+
+```powershell
+python .\scripts\run_all_retailers.py --local-browser
+```
+
+El modo `--local-browser` usa Chrome visible para los retailers que lo requieren.
+
+### Importante para Bodega Aurrera
+
+Bodega Aurrera puede mostrar una verificación de identidad durante la navegación. Si aparece:
+
+1. Completa manualmente la verificación en Chrome.
+2. No cierres la ventana.
+3. El scraper continuará cuando el sitio libere la sesión.
+
+El scraper no resuelve ni evade esa verificación automáticamente.
+
+## Output consolidado
+
+La corrida principal genera:
+
+```text
+output\concentrado_scraper.xlsx
+```
+
+Hojas:
+
+- `Concentrado`
+- `Resumen`
+
+Columnas principales:
+
+```text
+scrape_timestamp
+retailer
+city
+state
+postal_code
+store
+store_id
+department
+category
+subcategory
+sub_subcategory
+category_id
+sku
+brand
+product
+price_current
+price_regular
+promotion
+pickup_available
+store_context_verified
+store_context_method
+url
+price_raw
+```
+
+Los logs de la corrida completa se guardan en:
+
+```text
+diagnostics\run_all
+```
+
+## Bodega Aurrera
+
+### Cuidado bucal
+
+```text
+Departamento: Belleza y cuidado personal
+Categoría:    Higiene y cuidado personal
+Subcategoría: Cuidado bucal
+category_id:  cuidado-bucal
+```
+
+URL:
+
+```text
+https://despensa.bodegaaurrera.com.mx/browse/higiene-personal-y-belleza/cuidado-bucal/10_1004
+```
+
+Última validación:
+
+```text
+Productos únicos:        120
+SKU:                     120 / 120
+Precio actual:           120 / 120
+URL:                     120 / 120
+Fuentes visitadas:       1 / 1
+pagination_verified:     True
+Errores de precio:       0
+Bloqueo:                 Sí, resuelto manualmente
+```
+
+### Cuidado de la ropa
+
+```text
+Departamento: Limpieza del hogar y cuidado de la ropa
+Categoría:    Cuidado de la ropa
+category_id:  cuidado-de-la-ropa
+```
+
+URL:
+
+```text
+https://www.bodegaaurrera.com.mx/content/cuidado-de-la-ropa/3680083
+```
+
+La validación no inventa páginas `?page=N`. Descubre las secciones reales de la landing page, entra en ellas, sigue las páginas explícitas que publica el sitio y carga contenido hasta que el número de productos se estabiliza.
+
+Última validación:
+
+```text
+Productos únicos:        141
+SKU:                     141 / 141
+Precio actual:           141 / 141
+URL:                     141 / 141
+Fuentes descubiertas:    6
+Fuentes visitadas:       6
+Páginas explícitas:      8
+pagination_verified:     True
+Precio actual validado:  141 / 141
+Precio regular validado: 51 / 51
+Errores de precio:       0
+```
+
+Test dedicado:
+
+```powershell
+& .\scripts\test_bodega_aurrera.ps1
+```
+
+Output:
+
+```text
+output\bodega_aurrera_test.xlsx
+```
+
+Hojas de auditoría:
+
+- `Concentrado`
+- `Resumen`
+- `Fuentes`
+- `Extraccion`
+- `ValidacionPrecios`
+
+## Farmacias Similares
 
 Contexto:
 
 ```text
-id: san-pablo-online
+id: similares-online
 city: Catálogo online
 state: Nacional
-store: null
-store_id: null
-postal_code: null
+store: Farmacias Similares online
+```
+
+### Aparato respiratorio
+
+```text
+Categoría:    Aparato respiratorio
+Subcategoría: Aparato respiratorio
+category_id:  aparato-respiratorio
+URL:          https://www.farmaciasdesimilares.com/aparato-respiratorio/aparato-respiratorio
+```
+
+Última validación:
+
+```text
+Target publicado:         21
+Links descubiertos:       21
+Productos:                21
+SKU:                      21 / 21
+Precio actual:            21 / 21
+Precio regular:           21 / 21
+URL:                      21 / 21
+discovery_complete:       True
+Sin precio:               0
+Errores de detalle:       0
+Errores de promoción:     0
+Bloqueo:                  No
+Páginas visitadas:        2
+```
+
+### Salud sexual > Condones
+
+```text
+Categoría:    Salud sexual
+Subcategoría: Condones
+category_id:  condones
+URL:          https://www.farmaciasdesimilares.com/salud-sexual/condones
+```
+
+Última validación:
+
+```text
+Target publicado:         9
+Links descubiertos:       9
+Productos:                9
+SKU:                      9 / 9
+Precio actual:            9 / 9
+Precio regular:           9 / 9
+URL:                      9 / 9
+discovery_complete:       True
+Sin precio:               0
+Errores de detalle:       0
+Errores de promoción:     0
+Bloqueo:                  No
+Páginas visitadas:        1
+```
+
+El scraper visita cada ficha de producto y obtiene:
+
+- SKU desde `Referencia:`.
+- `price_regular` desde `De $...` cuando existe.
+- `price_current` desde `Por $...` cuando existe.
+- Promoción desde `Ahorra $...`.
+- En productos sin promoción, `price_current` y `price_regular` quedan iguales.
+
+Se espera la hidratación del PDP antes de fijar el precio para evitar capturar únicamente el precio regular cuando una promoción aparece después del primer render.
+
+Test dedicado:
+
+```powershell
+& .\scripts\test_farmacias_similares.ps1
+```
+
+Output:
+
+```text
+output\farmacias_similares_test.xlsx
+```
+
+## Ibarra Mayoreo
+
+Contexto:
+
+```text
+id: ibarra-online
+city: Catálogo online
+state: Nacional
+store: Ibarra Mayoreo online
 ```
 
 Categorías:
 
 ```text
-descongestionantes -> Medicamentos > Gripe y tos > Descongestionantes
-preservativos      -> Salud sexual > Bienestar sexual > Preservativos
-enjuagues-bucales  -> Cuidado personal y belleza > Cuidado bucal > Enjuagues bucales
-pastas-dentales    -> Cuidado personal y belleza > Cuidado bucal > Pastas dentales
+detergentes-lavatrastes-jab-abarrotes
+detergentes-lavatrastes-jab-marca-propia
+dentifricos-abarrotes
+perfumeria-abarrotes
 ```
 
-Identificadores conocidos del storefront:
+Regla crítica: **sólo se guarda el precio de presentación CAJA**. Un producto sin precio de caja se registra en diagnóstico pero no se agrega al concentrado.
+
+Última validación:
 
 ```text
-Descongestionantes: 060070004
-Enjuagues bucales:  030040003
-Pastas dentales:    030040007
+Detergentes Abarrotes:      152
+Detergentes Marca propia:     2
+Dentífricos:                 86
+Perfumería:                 330
+Total con precio CAJA:      570
+Errores de parseo:            0
 ```
 
-Ejemplos:
+Test dedicado:
 
-```bash
-python main.py --retailer farmacias-san-pablo --category descongestionantes --location san-pablo-online
-python main.py --retailer farmacias-san-pablo --category preservativos --location san-pablo-online
-python main.py --retailer farmacias-san-pablo --category enjuagues-bucales --location san-pablo-online
-python main.py --retailer farmacias-san-pablo --category pastas-dentales --location san-pablo-online
+```powershell
+& .\scripts\test_ibarra_mayoreo.ps1
 ```
 
-La categoría se recorre con `currentPage`. Cuando existe una ficha individual `/p/`, se utiliza como fuente preferida para SKU, nombre, marca y precio. El precio vigente prioriza `h3.priceTotal`; los precios de recomendaciones no se usan como sustituto. Si una cuadrícula no expone enlaces individuales, existe un fallback conservador a tarjeta de categoría. El contexto queda con `store_context_verified=False`, porque no se solicitó una sucursal física.
+Output:
 
-Validación de conectividad del 19 de agosto de 2026: el runner GitHub-hosted de Ubuntu recibió HTTP 403 `Access Denied` en las cuatro rutas probadas, incluida la categoría conocida `030040003`. El scraper reporta este caso como `BLOCKED` y no crea filas parciales ni inventadas.
+```text
+output\ibarra_mayoreo_test.xlsx
+```
 
 ## Farmacias del Ahorro
 
@@ -74,62 +338,43 @@ Contexto:
 id: fahorro-online
 city: Catálogo online
 state: Nacional
-store: null
-store_id: null
-postal_code: null
 ```
 
-Categorías:
+Categorías activas:
 
 ```text
-congestion-nasal  -> Farmacia > Gripa y tos > Congestión nasal
-preservativos     -> Bienestar sexual > Preservativos
-enjuagues-bucales -> Cuidado personal > Higiene bucal > Enjuagues bucales
-cremas-dentales   -> Cuidado personal > Higiene bucal > Cremas dentales
+congestion-nasal
+preservativos
+enjuagues-bucales
+cremas-dentales
 ```
 
-Ejemplos:
+El scraper utiliza el catálogo online y conserva SKU, nombre, marca, URL, precio actual y precio anterior cuando está disponible.
 
-```bash
-python main.py --retailer farmacias-del-ahorro --category congestion-nasal --location fahorro-online
-python main.py --retailer farmacias-del-ahorro --category preservativos --location fahorro-online
-python main.py --retailer farmacias-del-ahorro --category enjuagues-bucales --location fahorro-online
-python main.py --retailer farmacias-del-ahorro --category cremas-dentales --location fahorro-online
-```
+## Farmacias San Pablo
 
-Para descargar las cuatro categorías en una sola ejecución y un solo Excel:
-
-```bash
-python scripts/run_farmacias_del_ahorro.py --category all --location fahorro-online --fresh
-```
-
-El extractor usa los campos `sku`, `ecommTitle`, `ecommBrand`, `ecommUrlKey`, `currentPrice` y `previousPrice` que utiliza el catálogo online. Si `previousPrice` no está informado, `price_regular` se iguala al precio actual para mantener una salida consistente. El contexto se registra como `online_catalog_empathy_nacional` y no se atribuye a una sucursal física.
-
-Validación live final del 19 de agosto de 2026 (workflow dedicado #54, run `32302275204`):
+Contexto:
 
 ```text
-Congestión nasal: 54 productos
-Preservativos: 72 productos
-Enjuagues bucales: 41 productos
-Cremas dentales: 113 productos
-Total: 280 filas de categoría
+id: san-pablo-online
+city: Catálogo online
+state: Nacional
 ```
 
-Cobertura de la corrida final:
+Categorías activas:
 
 ```text
-SKU:            280 / 280
-Precio actual:  280 / 280
-Precio regular: 280 / 280
-URL:            280 / 280
-Tests:           48 / 48
+descongestionantes
+preservativos
+enjuagues-bucales
+pastas-dentales
 ```
 
-## Farmacias Guadalajara
+La implementación usa Chrome/Selenium. Algunas tarjetas no exponen un SKU o URL estable; por eso el concentrado conserva filas válidas aun cuando ambos identificadores no estén presentes.
 
-Contexto `fg-online`, sin sucursal asignada. En las pruebas del 19 de agosto de 2026, runners hospedados oficiales de GitHub resolvieron el dominio/Akamai pero no recibieron respuesta HTTP. El scraper distingue ese caso como `NETWORK_UNAVAILABLE` y no crea datos parciales o inventados.
+## Chedraui
 
-## Chedraui / Polanco
+Ubicación validada:
 
 ```text
 id: chedraui-polanco
@@ -140,59 +385,91 @@ city: Miguel Hidalgo
 state: CDMX
 ```
 
-Ejemplos:
-
-```bash
-python main.py --retailer chedraui --category higiene-bucal --store chedraui-polanco
-python main.py --retailer chedraui --category lavanderia --store chedraui-polanco
-```
-
-## Walmart / SC Toreo
+Categorías:
 
 ```text
-id: sc-toreo
-store: SC Toreo
-store_id: 2344
-postal_code: 11220
-city: Miguel Hidalgo
-state: CDMX
+higiene-bucal
+lavanderia
 ```
 
-Para preparar la sesión portable:
+## Soriana
 
-```bash
-pip install -r requirements.txt
-playwright install chromium
-python scripts/export_walmart_session.py
-```
-
-Completa manualmente cualquier verificación y confirma SC Toreo. Guarda el contenido de `walmart_session.secret.txt` en el Repository Secret `WALMART_SESSION_GZIP_B64`. No se automatizan verificaciones de identidad.
-
-## Ejecución completa
-
-Con una sesión Walmart disponible:
-
-```bash
-python scripts/run_all_retailers.py --walmart-profile-dir .walmart_profile
-```
-
-El runner incluye Soriana, Chedraui, Farmacias Guadalajara, Farmacias del Ahorro, Farmacias San Pablo y Walmart. Continúa procesando los casos, concentra las categorías exitosas y distingue `SUCCESS`, `BLOCKED`, `NETWORK_UNAVAILABLE`, `STORE_CONTEXT_ERROR`, `EMPTY` y `ERROR`.
-
-## Output
-
-Todas las categorías exitosas se concentran en:
+Categorías activas:
 
 ```text
-output/concentrado_scraper.xlsx
+cuidado-bucal
+limpiadores
+detergentes
+afeitado-depilacion-dama
 ```
 
-Hojas:
+## La Comer
 
-- `Concentrado`
-- `Resumen`
+Implementado pero todavía no activado en la corrida principal.
 
-## Pruebas
+Categorías configuradas:
 
-```bash
+```text
+detergentes-suavizantes
+cuidado-bucal
+```
+
+Antes de activarlo debe completarse una validación live de catálogo, tienda/contexto y precios.
+
+## Retailers en pausa
+
+### Walmart
+
+Walmart permanece en pausa. El proyecto conserva su implementación, perfil persistente y utilidades de sesión, pero las últimas pruebas mostraron bloqueo de la sesión automatizada.
+
+No se automatizan verificaciones de identidad ni se intenta evadir la protección del sitio.
+
+### Farmacias Guadalajara
+
+Permanece en pausa por problemas de conectividad/bloqueo observados en las validaciones previas.
+
+## Tests dedicados
+
+```powershell
+& .\scripts\test_bodega_aurrera.ps1
+& .\scripts\test_farmacias_similares.ps1
+& .\scripts\test_ibarra_mayoreo.ps1
+```
+
+Para las pruebas generales de Python:
+
+```powershell
 pytest -q
 ```
+
+## Criterios de calidad
+
+Siempre que la estructura del retailer lo permita, las validaciones verifican:
+
+- Cobertura del total publicado por la categoría.
+- Recorrido de todas las páginas/fuentes reales.
+- Deduplicación por SKU y URL.
+- Cobertura de SKU.
+- Cobertura de precio actual.
+- Cobertura de URL.
+- Consistencia de precio promocional frente a precio regular.
+- Conteo de productos sin precio.
+- Errores de detalle/parseo.
+- Detección explícita de bloqueos y desafíos de identidad.
+
+Los resultados incompletos no deben interpretarse automáticamente como catálogos completos.
+
+## Estructura
+
+```text
+config/
+  <retailer>/categories.yaml
+scraper/
+  retailers/
+scripts/
+diagnostics/
+output/
+main.py
+```
+
+Cada retailer mantiene su configuración y extractor por separado, mientras `main.py` normaliza la salida hacia el mismo esquema consolidado.
