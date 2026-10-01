@@ -12,11 +12,6 @@ if ([string]::IsNullOrWhiteSpace($PythonExe) -and $env:VIRTUAL_ENV) {
 }
 
 if ([string]::IsNullOrWhiteSpace($PythonExe)) {
-    $candidate = Join-Path $ProjectDir ".venv\Scripts\python.exe"
-    if (Test-Path $candidate) { $PythonExe = $candidate }
-}
-
-if ([string]::IsNullOrWhiteSpace($PythonExe)) {
     $cmd = Get-Command python.exe -ErrorAction SilentlyContinue
     if ($cmd) { $PythonExe = $cmd.Source }
 }
@@ -26,20 +21,18 @@ if ([string]::IsNullOrWhiteSpace($PythonExe) -or -not (Test-Path $PythonExe)) {
 }
 
 Write-Host "============================================================"
-Write-Host "SCRAPER COMPLETO - RETAILERS ACTIVOS"
+Write-Host "Ibarra Mayoreo - test precio por caja"
 Write-Host "============================================================"
-Write-Host "Activos : Soriana, Chedraui, Farmacias del Ahorro, Farmacias San Pablo, Ibarra Mayoreo"
-Write-Host "Pausa   : Walmart, Farmacias Guadalajara"
-Write-Host "Python  : $PythonExe"
+Write-Host "Python: $PythonExe"
 Write-Host ""
 
-& $PythonExe .\scripts\run_all_retailers.py --local-browser
+& $PythonExe .\scripts\test_ibarra_mayoreo.py
 $code = $LASTEXITCODE
 
 Write-Host ""
-Write-Host "Salida final: $ProjectDir\output\concentrado_scraper.xlsx"
-Write-Host "Logs: $ProjectDir\diagnostics\run_all"
+Write-Host "Salida: $ProjectDir\output\ibarra_mayoreo_test.xlsx"
+Write-Host "Diagnosticos: $ProjectDir\diagnostics\ibarra_mayoreo_*"
 
 if ($code -ne 0) {
-    Write-Warning "La corrida termino con observaciones (exit_code=$code). Revisa el RESUMEN FINAL y diagnostics\run_all."
+    Write-Warning "El test termino con observaciones (exit_code=$code)."
 }
