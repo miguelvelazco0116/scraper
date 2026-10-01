@@ -28,7 +28,7 @@ class LaComerNetworkUnavailable(RuntimeError):
 
 
 class LaComerScraper:
-    """Scraper inicial de La Comer para detergentes y suavizantes.
+    """Scraper de catálogo público de La Comer para categorías configuradas.
 
     El storefront público de La Comer depende del contexto de sucursal.
     Esta primera implementación usa el contexto ecommerce público succId=287
@@ -50,6 +50,13 @@ class LaComerScraper:
     )
     SEARCH_QUERIES = {
         "detergentes-suavizantes": ("detergente", "suavizante"),
+        "cuidado-bucal": (
+            "cuidado bucal",
+            "pasta dental",
+            "cepillo dental",
+            "enjuague bucal",
+            "hilo dental",
+        ),
     }
     EXCLUDE_TERMS = (
         "lavatrastes",
@@ -63,6 +70,33 @@ class LaComerScraper:
         "Bold", "Más Color", "Mas Color", "Carisma", "Viva", "1-2-3",
         "Downy", "Suavitel", "Ensueño", "Ensueño Max", "Members Mark",
         "Great Value", "Golden Hills", "Arm & Hammer", "Dreft", "Gain",
+        "Colgate", "Oral-B", "Listerine", "Sensodyne", "Crest", "GUM",
+        "Corega", "Aquafresh", "Curaprox", "Philips", "Bexident", "Parodontax",
+        "Pro", "Reach",
+    )
+
+    ORAL_CARE_TERMS = (
+        "dental",
+        "bucal",
+        "diente",
+        "dentadura",
+        "prótesis",
+        "protesis",
+        "cepillo",
+        "enjuague",
+        "hilo dental",
+        "floss",
+        "blanqueador",
+        "colgate",
+        "oral-b",
+        "oral b",
+        "listerine",
+        "sensodyne",
+        "crest",
+        "corega",
+        "aquafresh",
+        "curaprox",
+        "parodontax",
     )
 
     def __init__(
@@ -357,17 +391,40 @@ class LaComerScraper:
         return first if first and len(first) > 2 else None
 
     @classmethod
-    def _keep_result(cls, query: str, product: str, text: str) -> bool:
+    def _keep_result(
+        cls,
+        category_id: str,
+        query: str,
+        product: str,
+        text: str,
+    ) -> bool:
         blob = f"{product} {text}".casefold()
-        if any(term in blob for term in cls.EXCLUDE_TERMS):
-            return False
-        if query == "suavizante":
-            return "suaviz" in blob
-        if query == "detergente":
-            return "deterg" in blob or "jabón para ropa" in blob or "jabon para ropa" in blob
+
+        if category_id == "detergentes-suavizantes":
+            if any(term in blob for term in cls.EXCLUDE_TERMS):
+                return False
+            if query == "suavizante":
+                return "suaviz" in blob
+            if query == "detergente":
+                return (
+                    "deterg" in blob
+                    or "jabón para ropa" in blob
+                    or "jabon para ropa" in blob
+                )
+            return True
+
+        if category_id == "cuidado-bucal":
+            return any(term in blob for term in cls.ORAL_CARE_TERMS)
+
         return True
 
-    def _collect_query(self, page, query: str, location: Location) -> list[dict]:
+    def _collect_query(
+        self,
+        page,
+        category: Category,
+        query: str,
+        location: Location,
+    ) -> list[dict]:
         # Prefer normal user-facing search from the homepage. If the search box
         # is not exposed, fall back to La Comer's public search route.
         self._goto(page, HOME_URL)
@@ -439,7 +496,12 @@ class LaComerScraper:
                     ),
                     None,
                 )
-            if not product or not self._keep_result(query, product, text):
+            if not product or not self._keep_result(
+                category.id,
+                query,
+                product,
+                text,
+            ):
                 continue
 
             current, regular = self._prices(text)
@@ -460,11 +522,11 @@ class LaComerScraper:
                     "postal_code": location.postal_code,
                     "store": location.store,
                     "store_id": location.store_id,
-                    "department": "Limpieza del hogar",
-                    "category": "Limpieza del hogar",
-                    "subcategory": "Detergentes y suavizantes",
-                    "sub_subcategory": None,
-                    "category_id": "detergentes-suavizantes",
+                    "department": category.department,
+                    "category": category.name,
+                    "subcategory": category.subcategory,
+                    "sub_subcategory": category.sub_subcategory,
+                    "category_id": category.id,
                     "sku": sku,
                     "brand": self._infer_brand(product),
                     "product": product,
@@ -484,7 +546,7 @@ class LaComerScraper:
         return rows
 
     def scrape_category(self, category: Category, location: Location) -> list[dict]:
-        queries = self.SEARCH_QUERIES.get(category.id, ("detergente", "suavizante"))
+        queries = self.SEARCH_QUERIES.get(category.id, (category.subcategory or category.name,))
         self.run_meta = {
             "retailer": "La Comer",
             "category_id": category.id,
@@ -510,7 +572,9 @@ class LaComerScraper:
             try:
                 all_rows: list[dict] = []
                 for query in queries:
-                    all_rows.extend(self._collect_query(page, query, location))
+                    all_rows.extend(
+                        self._collect_query(page, category, query, location)
+                    )
 
                 unique: dict[str, dict] = {}
                 for row in all_rows:
