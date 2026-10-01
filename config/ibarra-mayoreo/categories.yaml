@@ -1,0 +1,9 @@
+retailer: ibarra-mayoreo
+categories:
+  - id: detergentes-lavatrastes-jab
+    department: Abarrotes
+    name: Abarrotes
+    subcategory: Detergentes, lavatrastes y jab
+    sub_subcategory: null
+    url: https://ibarramayoreo.com/catalogo/abarrotes/detergentes%2C-lavatrastes-y-jab/
+    enabled: true
