@@ -85,6 +85,15 @@ def run_case(
         ]
         location = "san-pablo-online"
         store = None
+    elif retailer == "la-comer":
+        cmd = [
+            sys.executable, "main.py", "--retailer", "la-comer", "--category", category_id,
+            "--location", "la-comer-online-287",
+        ]
+        if local_browser:
+            cmd.extend(["--headed", "--browser-channel", "chrome"])
+        location = "la-comer-online-287"
+        store = "La Comer online (succId 287)"
     else:
         cmd = [
             sys.executable, "main.py", "--retailer", "soriana", "--category", category_id,
@@ -131,6 +140,7 @@ def run_case(
         "farmacias-guadalajara": "Farmacias Guadalajara",
         "farmacias-del-ahorro": "Farmacias del Ahorro",
         "farmacias-san-pablo": "Farmacias San Pablo",
+        "la-comer": "La Comer",
     }
 
     return {
