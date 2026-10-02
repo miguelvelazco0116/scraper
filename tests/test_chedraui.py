@@ -122,6 +122,9 @@ def test_chedraui_product_search_payload_maps_to_output():
     assert row["price_regular"] == 74
     assert row["store_id"] == "232"
     assert row["store_context_verified"] is True
+    assert row["availability_status"] == "AVAILABLE"
+    assert row["is_available"] is True
+    assert "AvailableQuantity=10" in row["availability_raw"]
     assert "productSearchV3" in row["store_context_method"]
 
 
@@ -293,3 +296,60 @@ def test_chedraui_click_text_skips_hidden_duplicate():
     assert ChedrauiScraper._click_text(page, ("Recoger en",))
     assert page.hidden.clicked is False
     assert page.visible.clicked is True
+
+
+
+def test_chedraui_pickup_candidate_matches_polanco():
+    item = {
+        "distance": 1.2,
+        "pickupPoint": {
+            "id": "pickup-polanco",
+            "friendlyName": "Chedraui Selecto México Polanco",
+            "address": {
+                "postalCode": "11500",
+                "neighborhood": "Polanco",
+            },
+        },
+    }
+    assert ChedrauiScraper._pickup_matches_location(item, POLANCO)
+
+
+def test_chedraui_zero_available_quantity_is_unavailable():
+    scraper = ChedrauiAPIScraper()
+    scraper._active_store_context_method = "persistent_profile"
+    payload = {
+        "data": {
+            "productSearch": {
+                "recordsFiltered": 1,
+                "products": [
+                    {
+                        "productId": "999",
+                        "productName": "Producto agotado",
+                        "brand": "Marca",
+                        "link": "/producto-agotado-999/p",
+                        "items": [
+                            {
+                                "sellers": [
+                                    {
+                                        "sellerDefault": True,
+                                        "commertialOffer": {
+                                            "Price": 50,
+                                            "ListPrice": 50,
+                                            "AvailableQuantity": 0,
+                                            "discountHighlights": [],
+                                            "teasers": [],
+                                        },
+                                    }
+                                ]
+                            }
+                        ],
+                    }
+                ],
+            }
+        }
+    }
+    rows, _ = scraper._rows_from_product_search_payload(payload, LAUNDRY, POLANCO)
+    assert len(rows) == 1
+    assert rows[0]["availability_status"] == "UNAVAILABLE"
+    assert rows[0]["is_available"] is False
+    assert rows[0]["pickup_available"] is False
