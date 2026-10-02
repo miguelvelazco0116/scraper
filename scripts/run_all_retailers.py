@@ -42,6 +42,8 @@ def run_case(
     *,
     walmart_profile_dir: Path | None = None,
     walmart_storage_state: Path | None = None,
+    soriana_profile_dir: Path | None = None,
+    chedraui_profile_dir: Path | None = None,
     local_browser: bool = False,
 ) -> dict:
     category_id = category["id"]
@@ -63,6 +65,8 @@ def run_case(
         ]
         if local_browser:
             cmd.extend(["--headed", "--browser-channel", "chrome"])
+        if chedraui_profile_dir is not None:
+            cmd.extend(["--profile-dir", str(chedraui_profile_dir)])
         location = "chedraui-polanco"
         store = "Chedraui Selecto México Polanco"
     elif retailer == "farmacias-guadalajara":
@@ -129,6 +133,8 @@ def run_case(
         ]
         if local_browser:
             cmd.extend(["--headed", "--browser-channel", "chrome"])
+        if soriana_profile_dir is not None:
+            cmd.extend(["--profile-dir", str(soriana_profile_dir)])
         location = "cdmx"
         store = None
 
@@ -337,6 +343,16 @@ def main() -> int:
     parser.add_argument("--walmart-profile-dir")
     parser.add_argument("--walmart-storage-state")
     parser.add_argument(
+        "--soriana-profile-dir",
+        default=".soriana_profile",
+        help="Perfil persistente local de Soriana.",
+    )
+    parser.add_argument(
+        "--chedraui-profile-dir",
+        default=".chedraui_profile",
+        help="Perfil persistente local de Chedraui.",
+    )
+    parser.add_argument(
         "--local-browser",
         action="store_true",
         help="Usa Google Chrome visible para retailers que requieren navegador local.",
@@ -355,7 +371,7 @@ def main() -> int:
     parser.add_argument(
         "--soriana-retry-delay-seconds",
         type=int,
-        default=120,
+        default=300,
         help="Pausa antes del reintento final de categorías Soriana bloqueadas.",
     )
     args = parser.parse_args()
@@ -368,6 +384,10 @@ def main() -> int:
         Path(args.walmart_storage_state).expanduser().resolve()
         if args.walmart_storage_state else None
     )
+    soriana_profile = Path(args.soriana_profile_dir).expanduser().resolve()
+    chedraui_profile = Path(args.chedraui_profile_dir).expanduser().resolve()
+    soriana_profile.mkdir(parents=True, exist_ok=True)
+    chedraui_profile.mkdir(parents=True, exist_ok=True)
     if walmart_state is not None and not walmart_state.exists():
         raise SystemExit(f"Storage state Walmart no encontrado: {walmart_state}")
     if walmart_profile is not None and not walmart_profile.exists():
@@ -379,7 +399,9 @@ def main() -> int:
             "--walmart-storage-state o --walmart-profile-dir"
         )
 
-    OUTPUT.unlink(missing_ok=True)
+    # No borrar el consolidado al inicio. Cada categoría exitosa reemplaza
+    # sólo su propia muestra mediante main.py; si un retailer queda bloqueado,
+    # se conserva la última captura válida y se marca como STALE_RETAINED.
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
     active_retailers = [
@@ -420,6 +442,8 @@ def main() -> int:
             category,
             walmart_profile_dir=walmart_profile,
             walmart_storage_state=walmart_state,
+            soriana_profile_dir=soriana_profile,
+            chedraui_profile_dir=chedraui_profile,
             local_browser=args.local_browser,
         )
         results.append(result)
@@ -483,6 +507,8 @@ def main() -> int:
                 category,
                 walmart_profile_dir=walmart_profile,
                 walmart_storage_state=walmart_state,
+                soriana_profile_dir=soriana_profile,
+                chedraui_profile_dir=chedraui_profile,
                 local_browser=args.local_browser,
             )
             results[result_index] = retry_result
