@@ -435,12 +435,49 @@ def main() -> int:
         print("En pausa: Farmacias Guadalajara, Walmart")
     print("")
 
+    # Soriana se distribuye en tandas de 2 para evitar seis navegaciones
+    # consecutivas al mismo storefront. Entre tandas se procesan otros
+    # retailers, lo que da un enfriamiento natural a la sesión persistente.
+    enabled_by_retailer = {
+        retailer: load_enabled_categories(retailer)
+        for retailer in retailers
+    }
+
     cases: list[tuple[str, dict]] = []
-    for retailer in retailers:
+    soriana_categories = enabled_by_retailer.get("soriana", [])
+    soriana_batches = [
+        soriana_categories[index:index + 2]
+        for index in range(0, len(soriana_categories), 2)
+    ]
+
+    def add_cases(retailer_name: str) -> None:
         cases.extend(
-            (retailer, category)
-            for category in load_enabled_categories(retailer)
+            (retailer_name, category)
+            for category in enabled_by_retailer.get(retailer_name, [])
         )
+
+    if soriana_batches:
+        cases.extend(("soriana", category) for category in soriana_batches[0])
+
+    add_cases("chedraui")
+    add_cases("farmacias-del-ahorro")
+
+    if len(soriana_batches) > 1:
+        cases.extend(("soriana", category) for category in soriana_batches[1])
+
+    add_cases("farmacias-san-pablo")
+    add_cases("ibarra-mayoreo")
+
+    if len(soriana_batches) > 2:
+        for batch in soriana_batches[2:]:
+            cases.extend(("soriana", category) for category in batch)
+
+    add_cases("bodega-aurrera")
+    add_cases("farmacias-similares")
+
+    if args.include_paused:
+        add_cases("farmacias-guadalajara")
+        add_cases("walmart")
 
     results: list[dict] = []
     print(f"Casos configurados: {len(cases)}")
