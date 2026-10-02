@@ -1,0 +1,66 @@
+name: Farmacias Guadalajara validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scraper/retailers/farmacias_guadalajara.py"
+      - "scripts/fg_*.py"
+      - "scripts/run_farmacias_guadalajara.py"
+      - "scripts/install_fg_task.ps1"
+      - "scripts/run_fg_server.ps1"
+      - "scripts/setup_fg_local.ps1"
+      - "scripts/run_fg_local.ps1"
+      - "scripts/setup_fg_gpt.ps1"
+      - "scripts/run_fg_gpt.ps1"
+      - "scripts/test_fg_gpt_connection.ps1"
+      - "scripts/test_openai_connection.py"
+      - "requirements-gpt.txt"
+      - "tests/test_farmacias_guadalajara.py"
+      - "tests/test_fg_worker.py"
+      - "tests/test_fg_runner.py"
+      - "requirements.txt"
+      - ".github/workflows/fg-validation.yml"
+  workflow_dispatch:
+
+jobs:
+  windows-validation:
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Compile Python
+        shell: pwsh
+        run: |
+          python -m compileall -q main.py scraper scripts tests
+
+      - name: Parse PowerShell scripts
+        shell: pwsh
+        run: |
+          $null = [scriptblock]::Create((Get-Content .\scripts\install_fg_task.ps1 -Raw))
+          $null = [scriptblock]::Create((Get-Content .\scripts\run_fg_server.ps1 -Raw))
+          $null = [scriptblock]::Create((Get-Content .\scripts\setup_fg_local.ps1 -Raw))
+          $null = [scriptblock]::Create((Get-Content .\scripts\run_fg_local.ps1 -Raw))
+          $null = [scriptblock]::Create((Get-Content .\scripts\setup_fg_gpt.ps1 -Raw))
+          $null = [scriptblock]::Create((Get-Content .\scripts\run_fg_gpt.ps1 -Raw))
+          $null = [scriptblock]::Create((Get-Content .\scripts\test_fg_gpt_connection.ps1 -Raw))
+          Write-Host "PowerShell syntax OK"
+
+      - name: Run Guadalajara unit tests
+        shell: pwsh
+        run: |
+          python -m pytest tests/test_farmacias_guadalajara.py tests/test_fg_worker.py tests/test_fg_runner.py -q

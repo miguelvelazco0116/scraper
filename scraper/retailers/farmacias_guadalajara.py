@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
@@ -149,6 +150,19 @@ class FarmaciasGuadalajaraScraper:
         return max(values) if values else None
 
     @staticmethod
+    def _with_query(url: str, **params) -> str:
+        parts = urlsplit(url)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        for key, value in params.items():
+            if value is None:
+                query.pop(key, None)
+            else:
+                query[key] = str(value)
+        return urlunsplit(
+            (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
+        )
+
+    @staticmethod
     def _product_link_count(page) -> int:
         try:
             return int(
@@ -183,36 +197,324 @@ class FarmaciasGuadalajaraScraper:
             f"Detalle: {detail}"
         )
 
-    def _expand_all_products(self, page, target: int | None) -> None:
-        stable_rounds = 0
+    def _expand_all_products(self, page, target: int | None) -> dict:
         previous = self._product_link_count(page)
+        page_requests: list[dict] = []
+
+        stats = {
+            "target_products": target,
+            "initial_links": previous,
+            "clicks": 0,
+            "captured_responses": 0,
+            "endpoint_fallbacks": 0,
+            "manual_appends": 0,
+            "final_links": previous,
+            "stop_reason": None,
+            "button": None,
+            "page_requests": page_requests,
+        }
+
+        # Give the storefront time to attach its normal delegated click handlers.
+        try:
+            page.wait_for_load_state("domcontentloaded", timeout=20_000)
+        except Exception:
+            pass
+        try:
+            page.wait_for_load_state("load", timeout=20_000)
+        except Exception:
+            pass
+        page.wait_for_timeout(2_000)
+
         for _ in range(self.max_load_more):
+            self._assert_not_blocked(page)
+
             if target and previous >= target:
+                stats["stop_reason"] = "target_reached"
                 break
 
-            button = page.get_by_text(
-                re.compile(
-                    r"^(Ver más productos|Mostrar los siguientes .*productos)$",
-                    re.IGNORECASE,
+            button = None
+            data_buttons = page.locator('button.more[data-url]')
+            for idx in range(data_buttons.count() - 1, -1, -1):
+                candidate = data_buttons.nth(idx)
+                try:
+                    if candidate.is_visible(timeout=700):
+                        button = candidate
+                        break
+                except Exception:
+                    continue
+
+            if button is None:
+                stats["stop_reason"] = (
+                    "load_more_not_visible_before_target"
+                    if target and previous < target
+                    else "load_more_not_visible"
                 )
-            ).last
-            try:
-                if button.count() == 0 or not button.is_visible(timeout=1_500):
-                    break
-                button.scroll_into_view_if_needed()
-                button.click(timeout=10_000)
-                page.wait_for_timeout(1_500)
-            except Exception:
+                try:
+                    stats["button_candidates"] = page.locator("button").evaluate_all(
+                        """els => els.map((el, i) => ({
+                            index: i,
+                            text: (el.innerText || el.textContent || '').trim(),
+                            visible: !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length),
+                            disabled: !!el.disabled,
+                            id: el.id || null,
+                            className: el.className || null,
+                            dataUrl: el.getAttribute('data-url'),
+                            outerHTML: el.outerHTML.slice(0, 1200)
+                        })).filter(x => x.dataUrl || /productos/i.test(x.text))"""
+                    )
+                except Exception:
+                    stats["button_candidates"] = []
                 break
 
-            current = self._product_link_count(page)
+            try:
+                stats["button"] = button.evaluate(
+                    """el => ({
+                        tag: el.tagName,
+                        text: (el.innerText || el.textContent || '').trim(),
+                        outerHTML: el.outerHTML,
+                        dataUrl: el.getAttribute('data-url'),
+                        id: el.id || null,
+                        className: el.className || null,
+                        dataset: {...el.dataset}
+                    })"""
+                )
+            except Exception:
+                pass
+
+            expected_url = button.get_attribute("data-url")
+            current = previous
+            captured_html = ""
+            captured_response = None
+            observed_responses = []
+
+            def _capture_grid_response(response):
+                try:
+                    if "Search-UpdateGrid" in response.url:
+                        observed_responses.append(response)
+                except Exception:
+                    pass
+
+            # Use only the website's normal "Ver más productos" interaction.
+            # First try Playwright's regular locator click. If that produces no
+            # request and no DOM growth, retry once with a physical mouse click
+            # at the visible button's center. No direct HTTP/XHR request is made.
+            page.on("response", _capture_grid_response)
+            try:
+                button.scroll_into_view_if_needed(timeout=5_000)
+                page.wait_for_timeout(750)
+
+                try:
+                    button.hover(timeout=5_000)
+                except Exception:
+                    pass
+                try:
+                    button.focus(timeout=5_000)
+                except Exception:
+                    pass
+
+                try:
+                    button.click(timeout=10_000)
+                    stats["clicks"] += 1
+                    stats["last_click_strategy"] = "locator_click"
+                except Exception as exc:
+                    stats["locator_click_error"] = (
+                        f"{type(exc).__name__}: {exc}"
+                    )
+
+                # Give the storefront callback time to issue its request and
+                # append the new cards.
+                for _ in range(12):
+                    page.wait_for_timeout(500)
+                    current = self._product_link_count(page)
+                    if current > previous or observed_responses:
+                        break
+
+                # On some Windows/Chrome combinations the visible button is
+                # present but its delegated handler does not react to the
+                # locator click. A single real pointer click is the closest
+                # equivalent to the user's successful visual interaction.
+                if current <= previous and not observed_responses:
+                    try:
+                        box = button.bounding_box(timeout=5_000)
+                    except Exception:
+                        box = None
+
+                    if box:
+                        x = box["x"] + box["width"] / 2
+                        y = box["y"] + box["height"] / 2
+                        page.mouse.move(x, y)
+                        page.wait_for_timeout(250)
+                        page.mouse.down()
+                        page.wait_for_timeout(120)
+                        page.mouse.up()
+                        stats["clicks"] += 1
+                        stats["last_click_strategy"] = "mouse_down_up"
+
+                        for _ in range(12):
+                            page.wait_for_timeout(500)
+                            current = self._product_link_count(page)
+                            if current > previous or observed_responses:
+                                break
+
+                # The screenshot from the local Chrome test shows that the
+                # button receives focus (focus ring is visible) but pointer
+                # activation does not fire the storefront action. A focused
+                # native <button> can also be activated with Enter; this is a
+                # normal browser interaction and produces the button's click
+                # event without calling the endpoint directly.
+                if current <= previous and not observed_responses:
+                    try:
+                        button.focus(timeout=5_000)
+                        page.wait_for_timeout(250)
+                        button.press("Enter", timeout=5_000)
+                        stats["clicks"] += 1
+                        stats["last_click_strategy"] = "keyboard_enter"
+
+                        for _ in range(16):
+                            page.wait_for_timeout(500)
+                            current = self._product_link_count(page)
+                            if current > previous or observed_responses:
+                                break
+                    except Exception as exc:
+                        stats["keyboard_click_error"] = (
+                            f"{type(exc).__name__}: {exc}"
+                        )
+
+                if observed_responses:
+                    captured_response = observed_responses[-1]
+                    try:
+                        captured_html = captured_response.text()
+                    except Exception:
+                        captured_html = ""
+
+                    stats["captured_responses"] += len(observed_responses)
+                    page_requests.append(
+                        {
+                            "transport": stats.get(
+                                "last_click_strategy",
+                                "native_click",
+                            ),
+                            "url": captured_response.url,
+                            "status": captured_response.status,
+                            "ok": captured_response.ok,
+                            "html_length": len(captured_html or ""),
+                            "expected_data_url": expected_url,
+                        }
+                    )
+
+                    if not captured_response.ok:
+                        stats["stop_reason"] = (
+                            f"load_more_http_{captured_response.status}"
+                        )
+                        break
+
+                    # The request can arrive before the site's JS finishes
+                    # inserting the cards, so wait again for actual DOM growth.
+                    if current <= previous:
+                        for _ in range(12):
+                            page.wait_for_timeout(500)
+                            current = self._product_link_count(page)
+                            if current > previous:
+                                break
+
+                if current <= previous and not observed_responses:
+                    stats["last_click_response_error"] = (
+                        "No Search-UpdateGrid response and no DOM growth "
+                        "after locator + mouse click"
+                    )
+
+                    if (
+                        self._env_flag(
+                            "FG_GRID_REQUEST_FALLBACK",
+                            default=False,
+                        )
+                        and expected_url
+                    ):
+                        try:
+                            api_response = page.context.request.get(
+                                expected_url,
+                                headers={
+                                    "Accept": "text/html, */*; q=0.01",
+                                    "X-Requested-With": "XMLHttpRequest",
+                                    "Referer": page.url,
+                                },
+                                timeout=30_000,
+                                fail_on_status_code=False,
+                            )
+                            stats["endpoint_fallbacks"] += 1
+                            stats["captured_responses"] += 1
+                            captured_response = api_response
+                            captured_html = api_response.text()
+                            page_requests.append(
+                                {
+                                    "transport": "browser_context_request",
+                                    "url": api_response.url,
+                                    "status": api_response.status,
+                                    "ok": api_response.ok,
+                                    "html_length": len(
+                                        captured_html or ""
+                                    ),
+                                    "expected_data_url": expected_url,
+                                }
+                            )
+                            stats["last_click_strategy"] = (
+                                "official_grid_endpoint"
+                            )
+                            if not api_response.ok:
+                                stats["stop_reason"] = (
+                                    f"load_more_http_{api_response.status}"
+                                )
+                        except Exception as exc:
+                            stats["endpoint_fallback_error"] = (
+                                f"{type(exc).__name__}: {exc}"
+                            )
+            finally:
+                try:
+                    page.remove_listener("response", _capture_grid_response)
+                except Exception:
+                    pass
+
+            # If Chrome received the official grid response but the page callback
+            # did not append it, reuse that same response body. This does not make
+            # an additional network request.
+            if current <= previous and (captured_html or "").strip():
+                try:
+                    button.evaluate("el => el.remove()")
+                except Exception:
+                    pass
+
+                page.locator("body").evaluate(
+                    """(body, html) => {
+                        const container = document.createElement('div');
+                        container.setAttribute('data-fg-loaded-page', '1');
+                        container.innerHTML = html;
+                        body.appendChild(container);
+                    }""",
+                    captured_html,
+                )
+                stats["manual_appends"] += 1
+                page.wait_for_timeout(500)
+                current = self._product_link_count(page)
+
+            self._assert_not_blocked(page)
+            stats["final_links"] = current
+
             if current <= previous:
-                stable_rounds += 1
-            else:
-                stable_rounds = 0
-            previous = current
-            if stable_rounds >= 2:
+                stats["stop_reason"] = "load_more_no_growth"
                 break
+
+            previous = current
+
+            # Conservative pacing: one storefront request at a time and a fixed
+            # pause before requesting the next 20-product block.
+            page.wait_for_timeout(1_250)
+        else:
+            stats["stop_reason"] = "max_load_more_reached"
+
+        stats["final_links"] = self._product_link_count(page)
+        if stats["stop_reason"] is None:
+            stats["stop_reason"] = "completed"
+        return stats
 
     @staticmethod
     def _extract_cards(page) -> list[dict]:
@@ -279,20 +581,66 @@ class FarmaciasGuadalajaraScraper:
             encoding="utf-8",
         )
 
+    @staticmethod
+    def _env_flag(name: str, default: bool = False) -> bool:
+        raw = os.getenv(name)
+        if raw is None:
+            return default
+        return raw.strip().casefold() in {"1", "true", "yes", "on"}
+
+    @classmethod
+    def _browser_launch_options(cls, headless: bool) -> dict:
+        options: dict = {"headless": headless}
+        args: list[str] = []
+
+        # Preserve the old direct-Jupyter behavior unless the worker overrides it.
+        if cls._env_flag("FG_DISABLE_HTTP2", default=True):
+            args.append("--disable-http2")
+        if cls._env_flag("FG_DISABLE_QUIC", default=False):
+            args.append("--disable-quic")
+
+        executable = (os.getenv("FG_BROWSER_EXECUTABLE") or "").strip()
+        channel = (os.getenv("FG_BROWSER_CHANNEL") or "").strip()
+        if executable:
+            options["executable_path"] = executable
+        elif channel:
+            options["channel"] = channel
+        if args:
+            options["args"] = args
+        return options
+
+    @staticmethod
+    def _browser_context_options() -> dict:
+        options: dict = {
+            "locale": "es-MX",
+            "viewport": {"width": 1440, "height": 1000},
+        }
+        # Normally keep the browser's native User-Agent. A custom UA is only
+        # applied when explicitly configured.
+        user_agent = (os.getenv("FG_USER_AGENT") or "").strip()
+        if user_agent:
+            options["user_agent"] = user_agent
+        return options
+
     def scrape_category(self, category: Category, location: Location) -> list[dict]:
         DIAGNOSTICS.mkdir(parents=True, exist_ok=True)
         slug = category.id
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=self.headless, args=["--disable-http2"])
-            context = browser.new_context(
-                locale="es-MX",
-                viewport={"width": 1440, "height": 1000},
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/139.0.0.0 Safari/537.36"
-                ),
-            )
+            cdp_url = (os.getenv("FG_CDP_URL") or "").strip()
+            owns_context = False
+
+            if cdp_url:
+                browser = p.chromium.connect_over_cdp(cdp_url)
+                if not browser.contexts:
+                    raise FarmaciasGuadalajaraNetworkUnavailable(
+                        f"Chrome CDP conectado sin contexto disponible: {cdp_url}"
+                    )
+                context = browser.contexts[0]
+            else:
+                browser = p.chromium.launch(**self._browser_launch_options(self.headless))
+                context = browser.new_context(**self._browser_context_options())
+                owns_context = True
+
             page = context.new_page()
             try:
                 try:
@@ -307,7 +655,7 @@ class FarmaciasGuadalajaraScraper:
                 page.wait_for_timeout(3_000)
                 self._assert_not_blocked(page)
                 target = self._target_count(page)
-                self._expand_all_products(page, target)
+                expansion = self._expand_all_products(page, target)
                 cards = self._extract_cards(page)
 
                 now = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -357,12 +705,26 @@ class FarmaciasGuadalajaraScraper:
 
                 unique = {(row["sku"], row["url"]): row for row in rows}
                 rows = list(unique.values())
+                product_links = self._product_link_count(page)
+                unique_skus = len({row["sku"] for row in rows if row.get("sku")})
+                unique_urls = len({row["url"] for row in rows if row.get("url")})
                 meta = {
                     "category_id": category.id,
                     "url": category.url,
                     "target_products": target,
-                    "product_links": self._product_link_count(page),
+                    "product_links": product_links,
                     "rows": len(rows),
+                    "unique_skus": unique_skus,
+                    "unique_urls": unique_urls,
+                    "complete_against_target": bool(
+                        isinstance(target, int)
+                        and target > 0
+                        and product_links >= target
+                        and len(rows) >= target
+                        and unique_skus >= target
+                        and unique_urls >= target
+                    ),
+                    "expansion": expansion,
                     "store_context": "online_catalog_no_store_requested",
                 }
                 (DIAGNOSTICS / f"farmacias_guadalajara_{slug}.json").write_text(
@@ -379,7 +741,12 @@ class FarmaciasGuadalajaraScraper:
                 )
                 return rows
             finally:
-                context.close()
+                try:
+                    page.close()
+                except Exception:
+                    pass
+                if owns_context:
+                    context.close()
                 browser.close()
 
 
