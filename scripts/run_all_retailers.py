@@ -41,6 +41,7 @@ def run_case(
     *,
     walmart_profile_dir: Path | None = None,
     walmart_storage_state: Path | None = None,
+    local_browser: bool = False,
 ) -> dict:
     category_id = category["id"]
     if retailer == "walmart":
@@ -59,6 +60,8 @@ def run_case(
             sys.executable, "main.py", "--retailer", "chedraui", "--category", category_id,
             "--store", "chedraui-polanco",
         ]
+        if local_browser:
+            cmd.extend(["--headed", "--browser-channel", "chrome"])
         location = "chedraui-polanco"
         store = "Chedraui Selecto México Polanco"
     elif retailer == "farmacias-guadalajara":
@@ -78,28 +81,82 @@ def run_case(
     elif retailer == "farmacias-san-pablo":
         cmd = [
             sys.executable, "main.py", "--retailer", "farmacias-san-pablo", "--category", category_id,
-            "--location", "san-pablo-online",
+            "--location", "san-pablo-online", "--headed",
         ]
         location = "san-pablo-online"
         store = None
+    elif retailer == "farmacias-similares":
+        cmd = [
+            sys.executable, "main.py", "--retailer", "farmacias-similares",
+            "--category", category_id, "--location", "similares-online",
+        ]
+        if local_browser:
+            cmd.extend(["--headed", "--browser-channel", "chrome"])
+        location = "similares-online"
+        store = "Farmacias Similares online"
+    elif retailer == "la-comer":
+        cmd = [
+            sys.executable, "main.py", "--retailer", "la-comer", "--category", category_id,
+            "--location", "la-comer-online-287",
+        ]
+        if local_browser:
+            cmd.extend(["--headed", "--browser-channel", "chrome"])
+        location = "la-comer-online-287"
+        store = "La Comer online (succId 287)"
+    elif retailer == "ibarra-mayoreo":
+        cmd = [
+            sys.executable, "main.py", "--retailer", "ibarra-mayoreo",
+            "--category", category_id, "--location", "ibarra-online",
+        ]
+        if local_browser:
+            cmd.extend(["--headed", "--browser-channel", "chrome"])
+        location = "ibarra-online"
+        store = "Ibarra Mayoreo online"
+    elif retailer == "bodega-aurrera":
+        cmd = [
+            sys.executable, "main.py", "--retailer", "bodega-aurrera",
+            "--category", category_id, "--location", "bodega-aurrera-online",
+        ]
+        if local_browser:
+            cmd.extend(["--headed", "--browser-channel", "chrome"])
+        location = "bodega-aurrera-online"
+        store = "Bodega Aurrera online"
     else:
         cmd = [
             sys.executable, "main.py", "--retailer", "soriana", "--category", category_id,
             "--location", "cdmx",
         ]
+        if local_browser:
+            cmd.extend(["--headed", "--browser-channel", "chrome"])
         location = "cdmx"
         store = None
 
-    proc = subprocess.run(cmd, text=True, capture_output=True)
+    attempts: list[tuple[int, str, str]] = []
+    proc = None
+    for attempt in range(1, 3):
+        proc = subprocess.run(cmd, text=True, capture_output=True)
+        attempts.append((proc.returncode, proc.stdout, proc.stderr))
+        attempt_text = f"{proc.stdout}\n{proc.stderr}"
+        attempt_status = classify_result(proc.returncode, attempt_text)
+        retryable = attempt_status in {"NETWORK_UNAVAILABLE", "STORE_CONTEXT_ERROR"}
+        if not retryable:
+            break
+        if attempt < 2:
+            print(f"     {attempt_status}; reintentando una vez...")
+
+    assert proc is not None
     text = f"{proc.stdout}\n{proc.stderr}"
     status = classify_result(proc.returncode, text)
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_path = LOG_DIR / f"{retailer}_{category_id}.log"
-    log_path.write_text(
-        f"$ {' '.join(cmd)}\n\nSTDOUT\n{proc.stdout}\n\nSTDERR\n{proc.stderr}\n",
-        encoding="utf-8",
-    )
+    parts = []
+    for attempt_index, (code, stdout, stderr) in enumerate(attempts, start=1):
+        parts.append(
+            f"ATTEMPT {attempt_index} exit={code}\n"
+            f"$ {' '.join(cmd)}\n\nSTDOUT\n{stdout}\n\nSTDERR\n{stderr}\n"
+        )
+    log_path.write_text("\n".join(parts), encoding="utf-8")
 
     match = re.search(r"Productos únicos:\s*(\d+)", text)
     reported_products = int(match.group(1)) if match else 0
@@ -110,6 +167,10 @@ def run_case(
         "farmacias-guadalajara": "Farmacias Guadalajara",
         "farmacias-del-ahorro": "Farmacias del Ahorro",
         "farmacias-san-pablo": "Farmacias San Pablo",
+        "farmacias-similares": "Farmacias Similares",
+        "la-comer": "La Comer",
+        "ibarra-mayoreo": "Ibarra Mayoreo",
+        "bodega-aurrera": "Bodega Aurrera",
     }
 
     return {
@@ -131,6 +192,8 @@ def run_case(
         "url_complete": 0,
         "duplicates_sku_url": 0,
         "store_context_verified": 0,
+        "quality_status": "PENDING",
+        "quality_notes": "",
     }
 
 
@@ -162,10 +225,38 @@ def apply_quality(results: list[dict]) -> tuple[pd.DataFrame, pd.DataFrame]:
         result["price_current_complete"] = int(subset["price_current"].notna().sum())
         result["price_regular_complete"] = int(subset["price_regular"].notna().sum())
         result["url_complete"] = count_nonempty(subset["url"])
-        result["duplicates_sku_url"] = int(subset.duplicated(subset=["sku", "url"]).sum())
+        sku_text = subset["sku"].fillna("").astype(str).str.strip()
+        url_text = subset["url"].fillna("").astype(str).str.strip()
+        valid_id = sku_text.ne("") | url_text.ne("")
+        result["duplicates_sku_url"] = int(
+            subset.loc[valid_id].duplicated(subset=["sku", "url"]).sum()
+        )
         if "store_context_verified" in subset.columns:
-            values = subset["store_context_verified"].fillna(False).astype(bool)
+            values = subset["store_context_verified"].map(
+                lambda value: False if pd.isna(value) else bool(value)
+            )
             result["store_context_verified"] = int(values.sum())
+
+        notes: list[str] = []
+        if result["products"] <= 0:
+            notes.append("sin productos")
+        if result["price_current_complete"] < result["products"]:
+            notes.append(
+                f"precio {result['price_current_complete']}/{result['products']}"
+            )
+
+        # En San Pablo el entregable crítico es precio/promoción.
+        # SKU y URL quedan como cobertura informativa.
+        if result["retailer"] != "Farmacias San Pablo":
+            if result["sku_complete"] < result["products"]:
+                notes.append(f"sku {result['sku_complete']}/{result['products']}")
+            if result["url_complete"] < result["products"]:
+                notes.append(f"url {result['url_complete']}/{result['products']}")
+            if result["duplicates_sku_url"] > 0:
+                notes.append(f"duplicados {result['duplicates_sku_url']}")
+
+        result["quality_status"] = "COMPLETE" if not notes else "REVIEW"
+        result["quality_notes"] = "; ".join(notes)
 
     return concentrated, pd.DataFrame(results)
 
@@ -189,29 +280,73 @@ def write_final_workbook(concentrated: pd.DataFrame, summary: pd.DataFrame) -> N
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Ejecutar todos los retailers y categorías configuradas")
+    parser = argparse.ArgumentParser(
+        description="Ejecutar retailers activos y categorías configuradas"
+    )
     parser.add_argument("--walmart-profile-dir")
     parser.add_argument("--walmart-storage-state")
+    parser.add_argument(
+        "--local-browser",
+        action="store_true",
+        help="Usa Google Chrome visible para retailers que requieren navegador local.",
+    )
+    parser.add_argument(
+        "--include-paused",
+        action="store_true",
+        help="Incluye Walmart y Farmacias Guadalajara, actualmente en pausa.",
+    )
     args = parser.parse_args()
 
-    walmart_profile = Path(args.walmart_profile_dir).expanduser().resolve() if args.walmart_profile_dir else None
-    walmart_state = Path(args.walmart_storage_state).expanduser().resolve() if args.walmart_storage_state else None
+    walmart_profile = (
+        Path(args.walmart_profile_dir).expanduser().resolve()
+        if args.walmart_profile_dir else None
+    )
+    walmart_state = (
+        Path(args.walmart_storage_state).expanduser().resolve()
+        if args.walmart_storage_state else None
+    )
     if walmart_state is not None and not walmart_state.exists():
         raise SystemExit(f"Storage state Walmart no encontrado: {walmart_state}")
     if walmart_profile is not None and not walmart_profile.exists():
         raise SystemExit(f"Perfil Walmart no encontrado: {walmart_profile}")
-    if walmart_state is None and walmart_profile is None:
-        raise SystemExit("Debes proporcionar --walmart-storage-state o --walmart-profile-dir")
+
+    if args.include_paused and walmart_state is None and walmart_profile is None:
+        raise SystemExit(
+            "Para --include-paused debes proporcionar "
+            "--walmart-storage-state o --walmart-profile-dir"
+        )
 
     OUTPUT.unlink(missing_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
+    active_retailers = [
+        "soriana",
+        "chedraui",
+        "farmacias-del-ahorro",
+        "farmacias-san-pablo",
+        "ibarra-mayoreo",
+        "bodega-aurrera",
+        "farmacias-similares",
+    ]
+    paused_retailers = [
+        "farmacias-guadalajara",
+        "walmart",
+    ]
+
+    retailers = active_retailers + (paused_retailers if args.include_paused else [])
+
+    print("Retailers activos:", ", ".join(active_retailers))
+    print("Modo navegador:", "Chrome local visible" if args.local_browser else "Playwright por defecto")
+    if not args.include_paused:
+        print("En pausa: Farmacias Guadalajara, Walmart")
+    print("")
+
     cases: list[tuple[str, dict]] = []
-    for retailer in (
-        "soriana", "chedraui", "farmacias-guadalajara", "farmacias-del-ahorro",
-        "farmacias-san-pablo", "walmart",
-    ):
-        cases.extend((retailer, category) for category in load_enabled_categories(retailer))
+    for retailer in retailers:
+        cases.extend(
+            (retailer, category)
+            for category in load_enabled_categories(retailer)
+        )
 
     results: list[dict] = []
     print(f"Casos configurados: {len(cases)}")
@@ -222,9 +357,26 @@ def main() -> int:
             category,
             walmart_profile_dir=walmart_profile,
             walmart_storage_state=walmart_state,
+            local_browser=args.local_browser,
         )
         results.append(result)
         print(f"  -> {result['status']} (exit={result['exit_code']}, reported={result['reported_products']})")
+        if result["status"] == "ERROR":
+            log_path = LOG_DIR / f"{retailer}_{category['id']}.log"
+            try:
+                lines = log_path.read_text(encoding="utf-8").splitlines()
+                useful = [
+                    line for line in lines
+                    if "Traceback" in line
+                    or "Error" in line
+                    or "Exception" in line
+                    or "RuntimeError" in line
+                    or "Timeout" in line
+                ]
+                if useful:
+                    print("     " + " | ".join(useful[-3:]))
+            except Exception:
+                pass
 
     concentrated, summary = apply_quality(results)
     write_final_workbook(concentrated, summary)
@@ -232,9 +384,9 @@ def main() -> int:
 
     print("\nRESUMEN FINAL")
     columns = [
-        "retailer", "category_id", "status", "products", "sku_complete",
-        "price_current_complete", "url_complete", "duplicates_sku_url",
-        "store_context_verified",
+        "retailer", "category_id", "status", "quality_status", "products",
+        "sku_complete", "price_current_complete", "url_complete",
+        "duplicates_sku_url", "store_context_verified", "quality_notes",
     ]
     print(summary[columns].to_string(index=False))
     print(f"\nFilas concentradas: {len(concentrated)}")
