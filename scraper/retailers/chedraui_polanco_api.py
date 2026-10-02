@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
+from ..availability import AVAILABLE, UNAVAILABLE, UNKNOWN
 from ..config import Category, Location
 from ..parsers import absolute_url, clean_text
 from .chedraui import ChedrauiBlocked, ChedrauiStoreContextError
@@ -143,6 +144,19 @@ class ChedrauiScraper(PolancoUIScraper):
             if current < regular and not promo_names:
                 promo_names.append("Precio promocional")
 
+            if available is None:
+                availability_status = UNKNOWN
+                is_available = None
+                availability_raw = "productSearchV3 AvailableQuantity=None"
+            elif available > 0:
+                availability_status = AVAILABLE
+                is_available = True
+                availability_raw = f"productSearchV3 AvailableQuantity={available}"
+            else:
+                availability_status = UNAVAILABLE
+                is_available = False
+                availability_raw = f"productSearchV3 AvailableQuantity={available}"
+
             rows.append(
                 {
                     "scrape_timestamp": now,
@@ -163,6 +177,9 @@ class ChedrauiScraper(PolancoUIScraper):
                     "price_current": current,
                     "price_regular": regular,
                     "promotion": clean_text(" | ".join(dict.fromkeys(promo_names))),
+                    "availability_status": availability_status,
+                    "is_available": is_available,
+                    "availability_raw": availability_raw,
                     "pickup_available": available is None or available > 0,
                     "store_context_verified": True,
                     "store_context_method": f"{self._active_store_context_method}+productSearchV3",
