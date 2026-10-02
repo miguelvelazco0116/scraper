@@ -159,17 +159,6 @@ def main() -> int:
         target = meta.get("target_products")
         products = len(df)
 
-        # Final status is based on the actual rows written to output rather
-        # than an intermediate scraper status.
-        if products == 0:
-            status = "EMPTY"
-        elif target is None:
-            status = "UNVERIFIED"
-        elif products < int(target):
-            status = "PARTIAL"
-        else:
-            status = "SUCCESS"
-
         unique_skus = int(
             df.loc[df["sku"].notna(), "sku"].astype(str).nunique()
         ) if not df.empty else 0
@@ -184,6 +173,29 @@ def main() -> int:
             ).sum()
         ) if not df.empty else 0
 
+        sku_complete = int(
+            df["sku"].fillna("").astype(str).str.strip().ne("").sum()
+        ) if not df.empty else 0
+        url_complete = int(
+            df["url"].fillna("").astype(str).str.strip().ne("").sum()
+        ) if not df.empty else 0
+
+        # SUCCESS means catalogue coverage AND field-level completeness.
+        if products == 0:
+            status = "EMPTY"
+        elif target is None:
+            status = "UNVERIFIED"
+        elif products < int(target):
+            status = "PARTIAL"
+        elif (
+            sku_complete < products
+            or url_complete < products
+            or price_complete < products
+        ):
+            status = "PARTIAL"
+        else:
+            status = "SUCCESS"
+
         summaries.append(
             {
                 "category_id": category.id,
@@ -191,6 +203,8 @@ def main() -> int:
                 "products_extracted": products,
                 "unique_skus": unique_skus,
                 "unique_urls": unique_urls,
+                "sku_complete": sku_complete,
+                "url_complete": url_complete,
                 "price_complete": price_complete,
                 "missing_identifier": missing_identifier,
                 "status": status,
@@ -203,7 +217,8 @@ def main() -> int:
         print(
             f"RESULT [{category.id}]: status={status} "
             f"target={target} products={products} "
-            f"sku={unique_skus} url={unique_urls} price={price_complete} "
+            f"sku={sku_complete}/{products} url={url_complete}/{products} "
+            f"price={price_complete}/{products} "
             f"missing_id={missing_identifier}"
         )
         print(f"Output actualizado: {OUTPUT_PATH}")
