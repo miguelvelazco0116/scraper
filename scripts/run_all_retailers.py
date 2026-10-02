@@ -192,6 +192,8 @@ def run_case(
         "url_complete": 0,
         "duplicates_sku_url": 0,
         "store_context_verified": 0,
+        "quality_status": "PENDING",
+        "quality_notes": "",
     }
 
 
@@ -230,8 +232,27 @@ def apply_quality(results: list[dict]) -> tuple[pd.DataFrame, pd.DataFrame]:
             subset.loc[valid_id].duplicated(subset=["sku", "url"]).sum()
         )
         if "store_context_verified" in subset.columns:
-            values = subset["store_context_verified"].fillna(False).astype(bool)
+            values = subset["store_context_verified"].map(
+                lambda value: False if pd.isna(value) else bool(value)
+            )
             result["store_context_verified"] = int(values.sum())
+
+        notes: list[str] = []
+        if result["products"] <= 0:
+            notes.append("sin productos")
+        if result["price_current_complete"] < result["products"]:
+            notes.append(
+                f"precio {result['price_current_complete']}/{result['products']}"
+            )
+        if result["sku_complete"] < result["products"]:
+            notes.append(f"sku {result['sku_complete']}/{result['products']}")
+        if result["url_complete"] < result["products"]:
+            notes.append(f"url {result['url_complete']}/{result['products']}")
+        if result["duplicates_sku_url"] > 0:
+            notes.append(f"duplicados {result['duplicates_sku_url']}")
+
+        result["quality_status"] = "COMPLETE" if not notes else "REVIEW"
+        result["quality_notes"] = "; ".join(notes)
 
     return concentrated, pd.DataFrame(results)
 
@@ -359,9 +380,9 @@ def main() -> int:
 
     print("\nRESUMEN FINAL")
     columns = [
-        "retailer", "category_id", "status", "products", "sku_complete",
-        "price_current_complete", "url_complete", "duplicates_sku_url",
-        "store_context_verified",
+        "retailer", "category_id", "status", "quality_status", "products",
+        "sku_complete", "price_current_complete", "url_complete",
+        "duplicates_sku_url", "store_context_verified", "quality_notes",
     ]
     print(summary[columns].to_string(index=False))
     print(f"\nFilas concentradas: {len(concentrated)}")
