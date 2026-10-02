@@ -1,5 +1,5 @@
-run=2026-10-02T09:48:00-06:00
+run=2026-10-02T09:50:00-06:00
 retailer=soriana
-category=desodorantes-para-caballero
+category=desodorantes-para-dama
 location=cdmx
 mode=validate-new-soriana-category
