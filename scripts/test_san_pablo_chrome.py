@@ -73,57 +73,126 @@ def main() -> int:
         body = driver.find_element(By.TAG_NAME, "body").text or ""
         is_blocked = blocked(body, title)
 
+        # Hydrate lazy/virtual catalogue content before inspecting the DOM.
+        for _ in range(24):
+            driver.execute_script(
+                "window.scrollBy(0, Math.max(500, Math.floor(window.innerHeight * 0.8)));"
+            )
+            driver.implicitly_wait(0)
+        driver.execute_script("window.scrollTo(0, 0);")
+
         structure = driver.execute_script(
             r"""
-            const anchors = Array.from(document.querySelectorAll('a[href]'));
-            const hrefs = [...new Set(anchors.map(a => a.href).filter(Boolean))];
+            const normalize = value => String(value || '').replace(/\s+/g, ' ').trim();
+            const moneyRe = /\$\s*[0-9][0-9,]*(?:\.\d{1,2})?/;
 
-            const dataNodes = Array.from(document.querySelectorAll(
-              '[data-product-code], [data-product-id], [data-code], [data-sku], [data-ean], [data-upc]'
-            ));
-
-            const textNodes = Array.from(document.querySelectorAll('body *'))
-              .filter(el => /Listerine|Enjuague bucal/i.test((el.innerText || '').trim()))
-              .slice(0, 8)
-              .map(el => {
-                let node = el;
-                for (let i = 0; i < 6 && node; i++, node = node.parentElement) {
-                  const text = (node.innerText || '').trim();
-                  if (/\$\s*\d/.test(text) && text.length < 2500) break;
+            function attrs(el) {
+              if (!el || !el.attributes) return {};
+              const out = {};
+              for (const a of Array.from(el.attributes)) {
+                if (
+                  /^(data-|href$|id$|class$|role$|aria-|name$|value$|title$)/i.test(a.name)
+                ) {
+                  out[a.name] = a.value;
                 }
-                node = node || el;
-                return {
-                  tag: node.tagName,
-                  id: node.id || '',
-                  className: String(node.className || ''),
-                  href: node.matches('a[href]') ? node.href : '',
-                  dataProductCode: node.getAttribute('data-product-code') || '',
-                  dataProductId: node.getAttribute('data-product-id') || '',
-                  dataCode: node.getAttribute('data-code') || '',
-                  text: (node.innerText || '').trim().slice(0, 800),
-                  html: node.outerHTML.slice(0, 1800)
-                };
-              });
+              }
+              return out;
+            }
 
+            function ancestorSamples(seed) {
+              const result = [];
+              let node = seed;
+              for (let depth = 0; depth < 9 && node; depth++, node = node.parentElement) {
+                const raw = (node.innerText || node.textContent || '').trim();
+                const text = normalize(raw);
+                const anchors = Array.from(node.querySelectorAll('a[href]'))
+                  .slice(0, 10)
+                  .map(a => ({
+                    href: a.href || a.getAttribute('href') || '',
+                    text: normalize(a.innerText || a.textContent),
+                    attrs: attrs(a)
+                  }));
+                result.push({
+                  depth,
+                  tag: node.tagName,
+                  attrs: attrs(node),
+                  text: text.slice(0, 900),
+                  hasMoney: moneyRe.test(text),
+                  anchors,
+                  html: (node.outerHTML || '').slice(0, 4500)
+                });
+              }
+              return result;
+            }
+
+            const anchors = Array.from(document.querySelectorAll('a[href]'));
+            const hrefs = [...new Set(anchors.map(a => a.href || a.getAttribute('href')).filter(Boolean))];
             const productHrefs = hrefs.filter(h => /\/p\/\d+(?:[/?#]|$)/i.test(h));
 
-            return {
-              totalAnchors: anchors.length,
-              productHrefs,
-              sampleHrefs: hrefs.slice(0, 80),
-              dataNodes: dataNodes.slice(0, 30).map(el => ({
+            const addControls = Array.from(document.querySelectorAll(
+              'button, a, [role="button"], input[type="button"], input[type="submit"]'
+            )).filter(el =>
+              /Agregar|Añadir/i.test(normalize(el.innerText || el.textContent || el.value))
+            );
+
+            const addSamples = addControls.slice(0, 12).map(el => ({
+              tag: el.tagName,
+              text: normalize(el.innerText || el.textContent || el.value),
+              attrs: attrs(el),
+              ancestors: ancestorSamples(el)
+            }));
+
+            const dataElements = Array.from(document.querySelectorAll('*'))
+              .filter(el => Array.from(el.attributes || []).some(a =>
+                /product|sku|ean|upc|item|code|article|url/i.test(a.name + '=' + a.value)
+              ))
+              .slice(0, 120)
+              .map(el => ({
                 tag: el.tagName,
-                id: el.id || '',
-                className: String(el.className || ''),
-                productCode: el.getAttribute('data-product-code') || '',
-                productId: el.getAttribute('data-product-id') || '',
-                code: el.getAttribute('data-code') || '',
-                sku: el.getAttribute('data-sku') || '',
-                ean: el.getAttribute('data-ean') || '',
-                upc: el.getAttribute('data-upc') || '',
-                text: (el.innerText || '').trim().slice(0, 500)
-              })),
-              textNodes
+                attrs: attrs(el),
+                text: normalize(el.innerText || el.textContent).slice(0, 500),
+                html: (el.outerHTML || '').slice(0, 2500)
+              }));
+
+            const moneyLeaves = Array.from(document.querySelectorAll('body *'))
+              .filter(el => {
+                const text = normalize(el.innerText || el.textContent);
+                if (!text || text.length > 220 || !moneyRe.test(text)) return false;
+                return !Array.from(el.children || []).some(child =>
+                  moneyRe.test(normalize(child.innerText || child.textContent))
+                );
+              })
+              .slice(0, 30)
+              .map(el => ({
+                tag: el.tagName,
+                attrs: attrs(el),
+                text: normalize(el.innerText || el.textContent),
+                ancestors: ancestorSamples(el).slice(0, 5)
+              }));
+
+            const scripts = Array.from(document.querySelectorAll('script'))
+              .filter(s => {
+                const text = s.textContent || '';
+                return /product|sku|ean|gtin|price/i.test(text) && text.length > 20;
+              })
+              .slice(0, 20)
+              .map(s => ({
+                type: s.type || '',
+                id: s.id || '',
+                text: (s.textContent || '').slice(0, 7000)
+              }));
+
+            return {
+              url: location.href,
+              totalAnchors: anchors.length,
+              totalUniqueHrefs: hrefs.length,
+              productHrefs,
+              hrefSamples: hrefs.slice(0, 200),
+              addControlCount: addControls.length,
+              addSamples,
+              dataElements,
+              moneyLeaves,
+              scripts
             };
             """
         ) or {}
@@ -138,9 +207,12 @@ def main() -> int:
             "product_links": int(product_links),
             "product_hrefs": product_hrefs,
             "total_anchors": int(structure.get("totalAnchors") or 0),
-            "sample_hrefs": structure.get("sampleHrefs") or [],
-            "data_nodes": structure.get("dataNodes") or [],
-            "candidate_product_nodes": structure.get("textNodes") or [],
+            "href_samples": structure.get("hrefSamples") or [],
+            "add_control_count": int(structure.get("addControlCount") or 0),
+            "add_samples": structure.get("addSamples") or [],
+            "data_elements": structure.get("dataElements") or [],
+            "money_leaves": structure.get("moneyLeaves") or [],
+            "scripts": structure.get("scripts") or [],
             "body_preview": " ".join(body.split())[:500],
         }
         out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
