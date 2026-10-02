@@ -130,7 +130,18 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
     elif incoming.empty:
         combined = existing.copy()
     else:
-        combined = pd.concat([existing, incoming], ignore_index=True)
+        # Evita el FutureWarning de pandas al concatenar columnas all-NA.
+        # Se eliminan temporalmente sólo las columnas completamente vacías
+        # de cada fragmento y después se restaura el esquema canónico.
+        concat_parts = [
+            frame.dropna(axis=1, how="all")
+            for frame in (existing, incoming)
+        ]
+        combined = pd.concat(concat_parts, ignore_index=True, sort=False)
+        for col in COLUMNS:
+            if col not in combined.columns:
+                combined[col] = None
+        combined = combined[COLUMNS]
     if not combined.empty:
         sku_text = combined["sku"].fillna("").astype(str).str.strip()
         url_text = combined["url"].fillna("").astype(str).str.strip()
