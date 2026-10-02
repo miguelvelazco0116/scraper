@@ -11,6 +11,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
+from ..availability import UNAVAILABLE, availability_fields
 from ..config import Category, Location
 from ..parsers import clean_text
 
@@ -351,6 +352,8 @@ class FarmaciasSimilaresScraper:
                 brand = candidate
                 break
 
+        availability = availability_fields(text=text)
+
         return {
             "sku": sku,
             "product": title,
@@ -360,6 +363,7 @@ class FarmaciasSimilaresScraper:
             "promotion": promotion,
             "has_de": de_match is not None,
             "has_por": por_match is not None,
+            **availability,
         }
 
     def _detail_body_after_hydration(self, page) -> str:
@@ -529,7 +533,10 @@ class FarmaciasSimilaresScraper:
                         flush=True,
                     )
 
-                    if detail.get("price_current") is None:
+                    if (
+                        detail.get("price_current") is None
+                        and detail.get("availability_status") != UNAVAILABLE
+                    ):
                         no_price.append(
                             {
                                 "url": href,
@@ -546,6 +553,8 @@ class FarmaciasSimilaresScraper:
                             "promotion": detail.get("promotion"),
                             "has_de": detail.get("has_de"),
                             "has_por": detail.get("has_por"),
+                            "availability_status": detail.get("availability_status"),
+                            "availability_raw": detail.get("availability_raw"),
                         },
                         ensure_ascii=False,
                         separators=(",", ":"),
@@ -571,6 +580,9 @@ class FarmaciasSimilaresScraper:
                             "price_current": detail.get("price_current"),
                             "price_regular": detail.get("price_regular"),
                             "promotion": detail.get("promotion"),
+                            "availability_status": detail.get("availability_status"),
+                            "is_available": detail.get("is_available"),
+                            "availability_raw": detail.get("availability_raw"),
                             "pickup_available": None,
                             "store_context_verified": False,
                             "store_context_method": (
