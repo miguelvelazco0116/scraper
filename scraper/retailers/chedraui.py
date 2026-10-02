@@ -47,6 +47,7 @@ class ChedrauiScraper:
         max_pages: int = 100,
         wait_ms: int = 900,
         require_store_context: bool = True,
+        browser_channel: str | None = None,
     ) -> None:
         self.headless = headless
         self.diagnostics_dir = Path(diagnostics_dir)
@@ -54,6 +55,7 @@ class ChedrauiScraper:
         self.max_pages = max_pages
         self.wait_ms = wait_ms
         self.require_store_context = require_store_context
+        self.browser_channel = browser_channel
         self.run_meta: dict[str, Any] = {}
         self._active_store_context_method: str | None = None
 
@@ -487,7 +489,10 @@ class ChedrauiScraper:
             raise ChedrauiStoreContextError("Chedraui requiere una tienda configurada para esta corrida.")
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=self.headless)
+            launch_kwargs = {"headless": self.headless}
+            if self.browser_channel:
+                launch_kwargs["channel"] = self.browser_channel
+            browser = p.chromium.launch(**launch_kwargs)
             context: BrowserContext = browser.new_context(
                 locale="es-MX",
                 viewport={"width": 1440, "height": 1000},
