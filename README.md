@@ -76,15 +76,17 @@ El modo `--local-browser` usa Google Chrome visible para los retailers que lo re
 Soriana ha mostrado bloqueos intermitentes `403 / GF R01` al consultar varias categorías consecutivas. El runner aplica por defecto:
 
 ```text
-60 s entre categorías consecutivas de Soriana
-120 s antes del reintento final
+60 s entre categorías consecutivas dentro de cada tanda
+tandas de 2 categorías intercaladas con otros retailers
+300 s antes del reintento final
 1 reintento al final de la corrida sólo para categorías BLOCKED
+perfil persistente .soriana_profile
 ```
 
 Los tiempos pueden ajustarse con:
 
 ```powershell
-python .\scripts\run_all_retailers.py --local-browser --soriana-delay-seconds 60 --soriana-retry-delay-seconds 120
+python .\scripts\run_all_retailers.py --local-browser --soriana-delay-seconds 60 --soriana-retry-delay-seconds 300
 ```
 
 No se automatiza ninguna verificación ni se intenta evadir la protección del sitio; si el segundo intento sigue bloqueado, el caso permanece `BLOCKED`.
@@ -145,6 +147,20 @@ Los logs del runner completo se guardan en:
 diagnostics\run_all
 ```
 
+
+El runner **no elimina el consolidado al comenzar**. Una categoría exitosa reemplaza sólo su muestra. Si la extracción actual falla pero existe una captura previa, el resumen la conserva con:
+
+```text
+data_status = STALE_RETAINED
+quality_status = STALE
+```
+
+Si la captura actual fue exitosa:
+
+```text
+data_status = FRESH
+```
+
 ## Criterio operativo de calidad
 
 El objetivo principal del proyecto es poder descargar de forma confiable:
@@ -178,7 +194,7 @@ availability_raw      señal original usada para clasificar
 
 Reglas:
 
-- `UNAVAILABLE` se asigna sólo cuando existe una señal explícita como stock 0, `outOfStock`, `Agotado`, `Sin existencia` o `No disponible`.
+- `UNAVAILABLE` se asigna sólo cuando existe una señal explícita confiable como stock 0, `outOfStock`, `Agotado`, `Sin existencia` o `Sin stock`. En Soriana/Chedraui una frase genérica `No disponible` no basta porque puede describir un canal de entrega y no el stock total.
 - `AVAILABLE` se asigna cuando el retailer expone una señal positiva como `inStock`, stock mayor que cero o una acción de compra disponible.
 - `UNKNOWN` significa que el sitio no expuso una señal suficientemente confiable; no se interpreta como disponible.
 - Los productos `UNAVAILABLE` se conservan aunque no tengan `price_current`, para poder medir quiebres de stock y cambios de surtido.
@@ -221,6 +237,15 @@ Total                          2152
 
 Las rutas de desodorantes fueron validadas el 2 de octubre de 2026.
 
+
+### Sesión persistente Soriana
+
+El runner local utiliza `.soriana_profile` para conservar cookies y storage entre categorías y entre corridas. La primera sesión puede hacer un warm-up del homepage antes de entrar a la categoría; si el perfil ya contiene cookies vigentes se evita esa carga adicional.
+
+Las seis categorías se distribuyen en tandas de dos y se intercalan con otros retailers. La paginación sigue usando la navegación del propio storefront, que dispara `Search-UpdateGrid` / `Search-ShowAjax`, evitando cargas completas innecesarias de nuevas páginas.
+
+Si una categoría recibe `403 / GF R01`, no se reintenta inmediatamente. Queda pendiente para un único intento al final de la corrida después del cooldown configurado.
+
 ## Chedraui
 
 Ubicación validada:
@@ -243,6 +268,22 @@ Total           683
 ```
 
 La última muestra tuvo cobertura completa de SKU, precio y URL.
+
+
+### Contexto persistente Chedraui
+
+Chedraui utiliza `.chedraui_profile` y la implementación activa `chedraui_polanco_api.py`.
+
+Antes de extraer catálogo:
+
+1. abre el origen de Chedraui para recuperar/crear la sesión VTEX;
+2. consulta `/api/sessions`;
+3. prepara `country=MEX` y `postalCode=11500` cuando existe `sessionToken`;
+4. consulta `/api/checkout/pub/pickup-points` y busca candidatos de Polanco;
+5. reutiliza la tienda persistida si el estado del navegador ya la verifica;
+6. utiliza el selector visual de tienda como fallback cuando todavía hace falta confirmar Polanco.
+
+El catálogo/precio autoritativo sigue siendo `productSearchV3`. La disponibilidad de Chedraui se obtiene de `AvailableQuantity`: mayor a cero = `AVAILABLE`, cero = `UNAVAILABLE`, ausente = `UNKNOWN`.
 
 ## Farmacias del Ahorro
 
@@ -496,6 +537,11 @@ Cada retailer mantiene su configuración y extractor separado. `main.py` normali
 
 ### 2 de octubre de 2026
 
+- Se agregaron perfiles persistentes para Soriana y Chedraui.
+- Soriana se distribuye en tandas de dos categorías intercaladas con otros retailers y usa cooldown final de 300 s.
+- Chedraui prepara región VTEX por CP 11500 y consulta pickup points antes del fallback visual.
+- Chedraui obtiene disponibilidad estructurada desde `productSearchV3.AvailableQuantity`.
+- El consolidado conserva la última muestra válida como `STALE_RETAINED` cuando una categoría falla.
 - Se agregó captura normalizada de disponibilidad de producto para los siete retailers activos.
 - Se añadieron `availability_status`, `is_available` y `availability_raw` al consolidado.
 - Los productos agotados/no disponibles ahora se conservan aunque no tengan precio.
