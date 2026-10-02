@@ -8,6 +8,7 @@ from typing import Any
 
 from playwright.sync_api import BrowserContext, Page, Response, TimeoutError as PlaywrightTimeoutError, sync_playwright
 
+from ..availability import availability_fields
 from ..config import Category, Location
 from ..parsers import absolute_url, clean_text, extract_sku, parse_money
 
@@ -114,12 +115,19 @@ class SorianaScraper:
           const promoNodes = Array.from(
             el.querySelectorAll('.product-badge, .badge-label-coupons, [class*="promo"]')
           ).map(n => n.textContent.trim()).filter(Boolean);
+          const availabilityText = [
+            (el.innerText || el.textContent || '').trim(),
+            ...Array.from(el.querySelectorAll('button, [role="button"]'))
+              .map(n => (n.innerText || n.textContent || '').trim())
+              .filter(Boolean)
+          ].join(' | ');
           return {
             data_pid: el.getAttribute('data-pid') || attr('[data-pid]', 'data-pid'),
             product: text('a.product-tile--link') || text('.pdp-link a') || (image ? image.getAttribute('alt') : null),
             url: link ? link.getAttribute('href') : null,
             price_texts: [...new Set(priceCandidates)],
-            promo_texts: [...new Set(promoNodes)]
+            promo_texts: [...new Set(promoNodes)],
+            availability_text: availabilityText
           };
         })
         """
@@ -147,6 +155,8 @@ class SorianaScraper:
             if current_price and regular_price and current_price > regular_price:
                 current_price, regular_price = regular_price, current_price
 
+            availability = availability_fields(text=item.get("availability_text"))
+
             out.append(
                 {
                     "scrape_timestamp": now,
@@ -165,6 +175,7 @@ class SorianaScraper:
                     "price_current": current_price,
                     "price_regular": regular_price,
                     "promotion": clean_text(" | ".join(item.get("promo_texts") or [])),
+                    **availability,
                     "url": url,
                     "price_raw": clean_text(" | ".join(money_texts)),
                 }
