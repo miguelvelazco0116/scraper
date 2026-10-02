@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from copy import copy
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,7 +43,9 @@ def _write_test_output(
             ws.freeze_panes = "A2"
             ws.auto_filter.ref = ws.dimensions
             for cell in ws[1]:
-                cell.font = cell.font.copy(bold=True)
+                font = copy(cell.font)
+                font.bold = True
+                cell.font = font
 
             for col_cells in ws.columns:
                 values = [
