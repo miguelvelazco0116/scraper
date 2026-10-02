@@ -9,6 +9,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from playwright.sync_api import BrowserContext, Page, TimeoutError as PlaywrightTimeoutError, sync_playwright
 
+from ..availability import availability_fields
 from ..config import Category, Location
 from ..parsers import absolute_url, clean_text, extract_sku, parse_money
 
@@ -327,6 +328,7 @@ class ChedrauiScraper:
         js = r"""
         anchors => {
           const money = /\$\s*[\d,.]+/;
+          const unavailable = /Agotado|No disponible|Sin existencia|Sin stock|Out of stock/i;
           const out = [];
           const seen = new Set();
           const pickText = (root, selectors) => {
@@ -344,12 +346,12 @@ class ChedrauiScraper:
             let card = a;
             for (let i = 0; i < 10 && card && card.parentElement; i++) {
               const txt = (card.textContent || '').replace(/\s+/g, ' ').trim();
-              if (money.test(txt) && txt.length > 20 && txt.length < 3000) break;
+              if ((money.test(txt) || unavailable.test(txt)) && txt.length > 20 && txt.length < 3000) break;
               card = card.parentElement;
             }
             if (!card) continue;
             const cardText = (card.textContent || '').replace(/\s+/g, ' ').trim();
-            if (!money.test(cardText)) continue;
+            if (!money.test(cardText) && !unavailable.test(cardText)) continue;
 
             const img = card.querySelector('img[alt]');
             const heading = card.querySelector('h2, h3, [class*="productName"], [class*="product-name"]');
@@ -418,6 +420,8 @@ class ChedrauiScraper:
             if current_price and regular_price and current_price > regular_price:
                 current_price, regular_price = regular_price, current_price
 
+            availability = availability_fields(text=item.get("card_text"))
+
             rows.append(
                 {
                     "scrape_timestamp": now,
@@ -438,6 +442,7 @@ class ChedrauiScraper:
                     "price_current": current_price,
                     "price_regular": regular_price,
                     "promotion": clean_text(" | ".join(item.get("promo_texts") or [])),
+                    **availability,
                     "pickup_available": True,
                     "store_context_verified": True,
                     "store_context_method": self._active_store_context_method,
