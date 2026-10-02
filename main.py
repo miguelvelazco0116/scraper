@@ -275,11 +275,12 @@ def main() -> int:
         raise SystemExit(f"Ubicación/tienda no encontrada: {location_id}")
 
     if args.retailer == "soriana":
+        profile_dir = args.profile_dir or ".soriana_profile"
         scraper = SorianaScraper(
             headless=not args.headed,
             max_load_more=args.max_load_more,
             browser_channel=args.browser_channel,
-            profile_dir=args.profile_dir,
+            profile_dir=profile_dir,
         )
         try:
             rows = scraper.scrape_category(category, location)
@@ -312,11 +313,12 @@ def main() -> int:
             print(f"STORE_CONTEXT_ERROR: {exc}")
             return 4
     elif args.retailer == "chedraui":
+        profile_dir = args.profile_dir or ".chedraui_profile"
         scraper = ChedrauiScraper(
             headless=not args.headed,
             max_pages=args.max_load_more,
             browser_channel=args.browser_channel,
-            profile_dir=args.profile_dir,
+            profile_dir=profile_dir,
         )
         try:
             rows = scraper.scrape_category(category, location)
