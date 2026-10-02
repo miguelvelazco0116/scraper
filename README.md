@@ -6,11 +6,11 @@ El proyecto está pensado para ejecutarse localmente en Windows Server con Pytho
 
 ## Estado actual
 
-Última actualización: 1 de octubre de 2026.
+Última actualización: 2 de octubre de 2026.
 
 | Retailer | Runner activo | Categorías configuradas | Última validación conocida | Observaciones |
 |---|---:|---|---:|---|
-| Soriana | Sí | Cuidado bucal; Limpiadores; Detergentes; Afeitado y depilación para dama | 1,678 productos | Catálogo validado |
+| Soriana | Sí | Cuidado bucal; Limpiadores; Detergentes; Afeitado y depilación para dama; Desodorantes para caballero; Desodorantes para dama | 2,148 registros de categoría | Nuevas rutas de desodorantes validadas: 274 caballero + 196 dama |
 | Chedraui | Sí | Higiene bucal; Lavandería | 651 productos | Tienda Chedraui Selecto México Polanco, store_id 232 |
 | Farmacias del Ahorro | Sí | Congestión nasal; Preservativos; Enjuagues bucales; Cremas dentales | 288 productos | Catálogo online nacional |
 | Farmacias San Pablo | Sí | Descongestionantes; Preservativos; Enjuagues bucales; Pastas dentales | 239 productos | Selenium/Chrome; algunas fichas no exponen SKU o URL estable |
@@ -22,6 +22,16 @@ El proyecto está pensado para ejecutarse localmente en Windows Server con Pytho
 | Farmacias Guadalajara | No | Vías respiratorias; Lavandería; Cuidado bucal; Preservativos | Pausado | Problemas de conectividad/bloqueo en validaciones previas |
 
 > Los conteos anteriores corresponden a las últimas validaciones individuales conocidas. Una corrida completa con todos los retailers activos debe volver a ejecutarse después de cambios relevantes en el código o en los sitios.
+
+## Estado de integración Git
+
+La documentación de esta rama resume el trabajo acumulado del proyecto. Actualmente hay dos líneas que deben sincronizarse antes del siguiente merge general:
+
+- `main` ya contiene las nuevas categorías de Soriana `desodorantes-para-caballero` y `desodorantes-para-dama`, validadas el 2 de octubre de 2026.
+- `feature/farmacias-similares` contiene la integración más amplia del stack local: Bodega Aurrera, Ibarra Mayoreo, La Comer, Farmacias Similares, mejoras de Farmacias San Pablo y el runner `run_active_retailers.ps1`.
+- El PR #34 sigue abierto como borrador y debe sincronizarse con `main` antes de considerarse la nueva línea estable.
+
+Esto evita confundir funcionalidades ya fusionadas en `main` con funcionalidades implementadas y validadas que todavía viven en ramas de integración.
 
 ## Retailers activos
 
@@ -394,14 +404,39 @@ lavanderia
 
 ## Soriana
 
-Categorías activas:
+Categorías configuradas en el estado acumulado del proyecto:
 
 ```text
 cuidado-bucal
 limpiadores
 detergentes
 afeitado-depilacion-dama
+desodorantes-para-caballero
+desodorantes-para-dama
 ```
+
+Jerarquías nuevas:
+
+```text
+desodorantes-para-caballero
+Cuidado personal y belleza > Talcos y desodorantes > Desodorantes para caballero
+
+desodorantes-para-dama
+Cuidado personal y belleza > Talcos y desodorantes > Desodorantes para dama
+```
+
+Validación live del 2 de octubre de 2026:
+
+```text
+Desodorantes para caballero: 274 productos únicos
+Desodorantes para dama:       196 productos únicos
+Cobertura vs total publicado: completa en ambas categorías
+Unit tests:                   SUCCESS
+Scraper:                      SUCCESS
+Workflow en main:             SUCCESS
+```
+
+Ambas rutas reutilizan el paginador exhaustivo existente de Soriana; no fue necesario crear un motor adicional. Los resultados se normalizan al mismo esquema del concentrado.
 
 ## La Comer
 
@@ -434,6 +469,13 @@ Permanece en pausa por problemas de conectividad/bloqueo observados en las valid
 & .\scripts\test_bodega_aurrera.ps1
 & .\scripts\test_farmacias_similares.ps1
 & .\scripts\test_ibarra_mayoreo.ps1
+```
+
+Soriana se valida desde el CLI principal y desde el workflow dedicado:
+
+```powershell
+python .\main.py --retailer soriana --category desodorantes-para-caballero --location cdmx
+python .\main.py --retailer soriana --category desodorantes-para-dama --location cdmx
 ```
 
 Para las pruebas generales de Python:
@@ -473,3 +515,33 @@ main.py
 ```
 
 Cada retailer mantiene su configuración y extractor por separado, mientras `main.py` normaliza la salida hacia el mismo esquema consolidado.
+
+
+## Historial reciente
+
+### 2 de octubre de 2026
+
+- Se agregaron a Soriana las rutas de desodorantes para caballero y dama.
+- Se añadieron pruebas de jerarquía y descubrimiento para ambas categorías.
+- Se actualizó la documentación de Soriana.
+- Se validaron 274 productos de caballero y 196 de dama contra los totales publicados.
+- El workflow final sobre `main` concluyó correctamente.
+
+### 1 de octubre de 2026
+
+- Se integró el scraper de Farmacias Similares con visita a PDP, SKU desde `Referencia:` y validación de precios promocionales.
+- Se validaron 21/21 productos de Aparato respiratorio y 9/9 de Condones.
+- Se incorporaron Bodega Aurrera, Ibarra Mayoreo y La Comer en la rama de integración.
+- Se reforzó Farmacias San Pablo para ejecución local con Chrome/Selenium.
+- Se creó el runner local `run_active_retailers.ps1`.
+- Se documentaron criterios comunes de cobertura, paginación, deduplicación y calidad de precios.
+
+## Próximo paso de integración
+
+Antes del siguiente release del proyecto:
+
+1. Sincronizar `feature/farmacias-similares` con `main` para incorporar las dos nuevas categorías de Soriana.
+2. Ejecutar `pytest -q`.
+3. Ejecutar el test completo de retailers activos en Windows Server.
+4. Revisar `output\concentrado_scraper.xlsx` y los diagnósticos por retailer.
+5. Fusionar el PR #34 cuando el consolidado completo quede validado.
