@@ -12,6 +12,7 @@ from ..availability import AVAILABLE, UNAVAILABLE, UNKNOWN
 from ..config import Category, Location
 from ..parsers import absolute_url, clean_text, extract_sku, parse_money
 
+BASE_URL = "https://www.soriana.com/"
 PRODUCT_SELECTOR = ".product-tile.js-product-card"
 BLOCK_MARKERS = ("GF R01", "Access Denied", "Forbidden")
 NETWORK_MARKERS = ("Search-UpdateGrid", "Search-ShowAjax")
@@ -36,6 +37,8 @@ class SorianaScraper:
         max_load_more: int = 100,
         wait_ms: int = 1200,
         browser_channel: str | None = None,
+        profile_dir: str | Path | None = None,
+        warmup_homepage: bool = True,
     ) -> None:
         self.headless = headless
         self.diagnostics_dir = Path(diagnostics_dir)
@@ -45,6 +48,10 @@ class SorianaScraper:
         self.max_load_more = max_load_more
         self.wait_ms = wait_ms
         self.browser_channel = browser_channel
+        self.profile_dir = Path(profile_dir) if profile_dir else None
+        if self.profile_dir is not None:
+            self.profile_dir.mkdir(parents=True, exist_ok=True)
+        self.warmup_homepage = warmup_homepage
         self.grid_responses: list[dict[str, Any]] = []
 
     def _capture_grid_response(self, response: Response) -> None:
@@ -309,20 +316,60 @@ class SorianaScraper:
 
         return rows
 
+    def _warmup(self, page: Page) -> None:
+        """Carga el storefront antes de entrar a una categoría cuando la sesión es nueva."""
+        if not self.warmup_homepage:
+            return
+
+        try:
+            cookies = page.context.cookies(BASE_URL)
+        except Exception:
+            cookies = []
+
+        # Un perfil persistente con cookies vigentes ya fue calentado en una
+        # ejecución anterior. Evitamos una carga extra innecesaria.
+        if self.profile_dir is not None and cookies:
+            return
+
+        response = page.goto(
+            BASE_URL,
+            wait_until="domcontentloaded",
+            timeout=120_000,
+        )
+        self._assert_not_blocked(page, response.status if response else None)
+        page.wait_for_timeout(max(self.wait_ms, 1_500))
+
     def scrape_category(self, category: Category, location: Location) -> list[dict[str, Any]]:
         with sync_playwright() as p:
             launch_kwargs = {"headless": self.headless}
             if self.browser_channel:
                 launch_kwargs["channel"] = self.browser_channel
-            browser = p.chromium.launch(**launch_kwargs)
-            context: BrowserContext = browser.new_context(
-                locale="es-MX",
-                viewport={"width": 1440, "height": 1000},
-            )
-            page = context.new_page()
+
+            browser = None
+            if self.profile_dir is not None:
+                context: BrowserContext = p.chromium.launch_persistent_context(
+                    user_data_dir=str(self.profile_dir),
+                    locale="es-MX",
+                    viewport={"width": 1440, "height": 1000},
+                    **launch_kwargs,
+                )
+                page = context.pages[0] if context.pages else context.new_page()
+            else:
+                browser = p.chromium.launch(**launch_kwargs)
+                context = browser.new_context(
+                    locale="es-MX",
+                    viewport={"width": 1440, "height": 1000},
+                )
+                page = context.new_page()
+
             page.on("response", self._capture_grid_response)
             try:
-                response = page.goto(category.url, wait_until="domcontentloaded", timeout=120_000)
+                self._warmup(page)
+                response = page.goto(
+                    category.url,
+                    wait_until="domcontentloaded",
+                    timeout=120_000,
+                )
                 status = response.status if response else None
                 self._assert_not_blocked(page, status)
                 page.wait_for_timeout(2_000)
@@ -337,4 +384,5 @@ class SorianaScraper:
                 return rows
             finally:
                 context.close()
-                browser.close()
+                if browser is not None:
+                    browser.close()
