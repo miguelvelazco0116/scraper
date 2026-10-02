@@ -214,6 +214,27 @@ class FarmaciasSanPabloScraper:
                 return line
         return None
 
+    @staticmethod
+    def _sku_from_url(url: str | None) -> str | None:
+        """Extrae el SKU de una URL de producto /p/<codigo>.
+
+        San Pablo publica algunos códigos con padding de ceros. Para el
+        concentrado se conserva la parte significativa, por ejemplo
+        /p/000000000000700142 -> 700142.
+        """
+        href = clean_text(url)
+        if not href:
+            return None
+
+        path = urlparse(href).path
+        match = re.search(r"/p/(\d+)(?:/|$)", path, flags=re.IGNORECASE)
+        if not match:
+            return None
+
+        raw = match.group(1)
+        normalized = raw.lstrip("0")
+        return normalized or "0"
+
     @classmethod
     def _code_from_card(cls, card: dict) -> str | None:
         candidates = [
@@ -232,6 +253,10 @@ class FarmaciasSanPabloScraper:
 
         href = clean_text(card.get("href"))
         if href:
+            sku_from_url = cls._sku_from_url(href)
+            if sku_from_url:
+                return sku_from_url
+
             matches = cls.CODE_RE.findall(href)
             if matches:
                 return matches[-1]
