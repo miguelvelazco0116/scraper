@@ -95,7 +95,6 @@ def availability_from_mapping(payload: Any) -> tuple[str, bool | None, str | Non
         "stockstatus",
         "stocklevelstatus",
         "inventorystatus",
-        "status",
     }
     numeric_keys = {
         "stocklevel",
