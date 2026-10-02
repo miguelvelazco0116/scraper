@@ -323,6 +323,13 @@ class FarmaciasSanPabloScraper:
 
         const seeds = [];
 
+        // Product-detail anchors are the best source for URL + SKU.
+        // Seed them explicitly because the clickable product name/image can
+        // live outside the price/add-to-cart subtree.
+        seeds.push(...Array.from(document.querySelectorAll(
+          'a[href*="/p/"]'
+        )));
+
         // Explicit product metadata.
         seeds.push(...Array.from(document.querySelectorAll(
           '[data-product-code], [data-product-id], [data-code], [data-sku], ' +
@@ -368,15 +375,41 @@ class FarmaciasSanPabloScraper:
 
           const data = readData(card);
 
-          const hrefs = Array.from(card.querySelectorAll('a[href]'))
-            .map(a => a.href)
-            .filter(Boolean);
+          const seedHref =
+            seed && seed.matches && seed.matches('a[href]')
+              ? (seed.href || seed.getAttribute('href') || '')
+              : '';
 
-          const href = hrefs.find(h =>
-            !/javascript:|#$/i.test(h) &&
-            !/\/c\//i.test(h) &&
-            !/login|registro|carrito|sucursales|facturacion/i.test(h)
-          ) || '';
+          const attributeHrefs = [];
+          for (const el of [seed, card, ...Array.from(card.querySelectorAll(
+            '[data-url], [data-href], [data-product-url], [href]'
+          )).slice(0, 400)]) {
+            if (!el || !el.getAttribute) continue;
+            for (const attr of ['href', 'data-url', 'data-href', 'data-product-url']) {
+              const value = el.getAttribute(attr);
+              if (value) {
+                try {
+                  attributeHrefs.push(new URL(value, location.href).href);
+                } catch (_) {}
+              }
+            }
+          }
+
+          const hrefs = [
+            seedHref,
+            ...attributeHrefs,
+            ...Array.from(card.querySelectorAll('a[href]'))
+              .map(a => a.href)
+              .filter(Boolean)
+          ].filter(Boolean);
+
+          const href = hrefs.find(h => /\/p\/\d+(?:[/?#]|$)/i.test(h))
+            || hrefs.find(h =>
+              !/javascript:|#$/i.test(h) &&
+              !/\/c\//i.test(h) &&
+              !/login|registro|carrito|sucursales|facturacion/i.test(h)
+            )
+            || '';
 
           const titleSelectors = [
             '[class*="product"][class*="name"]',
@@ -386,8 +419,15 @@ class FarmaciasSanPabloScraper:
             'h2', 'h3', 'h4', 'h5'
           ];
 
-          let title = '';
+          let title = normalize(
+            (seed && seed.getAttribute && (
+              seed.getAttribute('title')
+              || seed.getAttribute('aria-label')
+            )) || ''
+          );
+
           for (const selector of titleSelectors) {
+            if (title) break;
             const el = card.querySelector(selector);
             if (!el) continue;
             const candidate = normalize(el.innerText || el.textContent);
