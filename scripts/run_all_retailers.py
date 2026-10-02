@@ -192,6 +192,11 @@ def run_case(
         "url_complete": 0,
         "duplicates_sku_url": 0,
         "store_context_verified": 0,
+        "available_products": 0,
+        "unavailable_products": 0,
+        "availability_unknown": 0,
+        "price_required_products": 0,
+        "price_required_complete": 0,
         "quality_status": "PENDING",
         "quality_notes": "",
     }
@@ -225,6 +230,26 @@ def apply_quality(results: list[dict]) -> tuple[pd.DataFrame, pd.DataFrame]:
         result["price_current_complete"] = int(subset["price_current"].notna().sum())
         result["price_regular_complete"] = int(subset["price_regular"].notna().sum())
         result["url_complete"] = count_nonempty(subset["url"])
+
+        if "availability_status" not in subset.columns:
+            subset["availability_status"] = "UNKNOWN"
+        availability = (
+            subset["availability_status"]
+            .fillna("UNKNOWN")
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .replace("", "UNKNOWN")
+        )
+        result["available_products"] = int(availability.eq("AVAILABLE").sum())
+        result["unavailable_products"] = int(availability.eq("UNAVAILABLE").sum())
+        result["availability_unknown"] = int(availability.eq("UNKNOWN").sum())
+
+        price_required = ~availability.eq("UNAVAILABLE")
+        result["price_required_products"] = int(price_required.sum())
+        result["price_required_complete"] = int(
+            subset.loc[price_required, "price_current"].notna().sum()
+        )
         sku_text = subset["sku"].fillna("").astype(str).str.strip()
         url_text = subset["url"].fillna("").astype(str).str.strip()
         valid_id = sku_text.ne("") | url_text.ne("")
@@ -240,9 +265,10 @@ def apply_quality(results: list[dict]) -> tuple[pd.DataFrame, pd.DataFrame]:
         notes: list[str] = []
         if result["products"] <= 0:
             notes.append("sin productos")
-        if result["price_current_complete"] < result["products"]:
+        if result["price_required_complete"] < result["price_required_products"]:
             notes.append(
-                f"precio {result['price_current_complete']}/{result['products']}"
+                "precio disponible "
+                f"{result['price_required_complete']}/{result['price_required_products']}"
             )
 
         # En San Pablo el entregable crítico es precio/promoción.
@@ -386,6 +412,7 @@ def main() -> int:
     columns = [
         "retailer", "category_id", "status", "quality_status", "products",
         "sku_complete", "price_current_complete", "url_complete",
+        "available_products", "unavailable_products", "availability_unknown",
         "duplicates_sku_url", "store_context_verified", "quality_notes",
     ]
     print(summary[columns].to_string(index=False))
