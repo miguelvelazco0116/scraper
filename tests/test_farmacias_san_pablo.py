@@ -42,7 +42,8 @@ def test_san_pablo_online_context():
 
 def test_san_pablo_page_url():
     url = "https://www.farmaciasanpablo.com.mx/cuidado-personal-y-belleza/cuidado-bucal/enjuagues-bucales/c/030040003"
-    assert FarmaciasSanPabloScraper._page_url(url, 1) == url
+    assert FarmaciasSanPabloScraper._page_url(url, 0) == url
+    assert FarmaciasSanPabloScraper._page_url(url, 1).endswith("/c/030040003?currentPage=1")
     assert FarmaciasSanPabloScraper._page_url(url, 3).endswith("/c/030040003?currentPage=3")
     url_with_query = url + "?foo=bar"
     page2 = FarmaciasSanPabloScraper._page_url(url_with_query, 2)
@@ -51,14 +52,19 @@ def test_san_pablo_page_url():
 
 
 def test_san_pablo_block_detection():
-    assert FarmaciasSanPabloScraper._is_blocked(403, "Access Denied", "")
-    assert FarmaciasSanPabloScraper._is_blocked(200, "", "You don't have permission to access this server")
-    assert not FarmaciasSanPabloScraper._is_blocked(200, "Farmacias San Pablo", "Catálogo de productos")
+    assert FarmaciasSanPabloScraper._is_blocked("Access Denied", "")
+    assert FarmaciasSanPabloScraper._is_blocked(
+        "", "You don't have permission to access this server"
+    )
+    assert not FarmaciasSanPabloScraper._is_blocked(
+        "Farmacias San Pablo", "Catálogo de productos"
+    )
 
 
 def test_san_pablo_sku_from_product_url():
     url = "https://www.farmaciasanpablo.com.mx/medicamentos/gripe-y-tos/descongestionantes/sterimar-nasal/p/000000000000700142"
     assert FarmaciasSanPabloScraper._sku_from_url(url) == "700142"
+    assert FarmaciasSanPabloScraper._code_from_card({"href": url}) == "700142"
 
 
 def test_san_pablo_price_parser():
@@ -79,3 +85,47 @@ def test_san_pablo_brand_boundaries():
     assert FarmaciasSanPabloScraper._infer_brand("Sterimar Nasal 100 ml") == "Stérimar"
     assert FarmaciasSanPabloScraper._infer_brand("Pasta Dental Colgate Total") == "Colgate"
     assert FarmaciasSanPabloScraper._infer_brand("Portacolgate dental") is None
+
+
+def test_san_pablo_occ_page_url():
+    url = (
+        "https://api.farmaciasanpablo.com.mx/rest/v2/fsp/products/search-sponsored"
+        "?pageSize=48&query=%3Arelevance%3AallCategories%3A030040003"
+    )
+    page2 = FarmaciasSanPabloScraper._occ_page_url(url, 2)
+    assert "pageSize=48" in page2
+    assert "currentPage=2" in page2
+
+
+def test_san_pablo_occ_row_parser():
+    categories = {x.id: x for x in load_categories("config/farmacias-san-pablo/categories.yaml")}
+    locations = {x.id: x for x in load_locations()}
+    category = categories["enjuagues-bucales"]
+    location = locations["san-pablo-online"]
+
+    product = {
+        "code": "000000000000700142",
+        "name": "Sterimar Nasal 100 ml",
+        "url": "/medicamentos/gripe-y-tos/descongestionantes/sterimar-nasal/p/000000000000700142",
+        "price": {"value": 223.0, "formattedValue": "$223.00 MXN"},
+        "basePrice": {"value": 319.0, "formattedValue": "$319.00 MXN"},
+        "potentialPromotions": [{"description": "30% de descuento"}],
+        "gtmProperties": {"brand": "Stérimar"},
+    }
+
+    row = FarmaciasSanPabloScraper._row_from_occ_product(
+        product,
+        category,
+        location,
+        "2026-10-02T12:00:00-06:00",
+    )
+
+    assert row is not None
+    assert row["sku"] == "700142"
+    assert row["product"] == "Sterimar Nasal 100 ml"
+    assert row["brand"] == "Stérimar"
+    assert row["price_current"] == 223.0
+    assert row["price_regular"] == 319.0
+    assert row["url"].endswith("/p/000000000000700142")
+    assert "30% de descuento" in row["promotion"]
+    assert row["store_context_method"] == "san_pablo_occ_search_sponsored"
