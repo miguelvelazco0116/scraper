@@ -1,7 +1,11 @@
 import pandas as pd
 
 import scripts.run_all_retailers as runner
-from scripts.run_all_retailers import classify_result, load_enabled_categories
+from scripts.run_all_retailers import (
+    classify_result,
+    deferred_result,
+    load_enabled_categories,
+)
 
 
 def test_run_all_retailers_discovers_current_categories():
@@ -82,3 +86,24 @@ def test_apply_quality_marks_previous_rows_as_stale(tmp_path, monkeypatch):
     assert row["data_status"] == "STALE_RETAINED"
     assert row["quality_status"] == "STALE"
     assert row["products"] == 1
+
+
+
+def test_deferred_result_keeps_category_for_final_retry():
+    category = {
+        "id": "limpiadores",
+        "department": "Supermercado",
+        "name": "Limpieza",
+        "subcategory": "Limpiadores",
+        "sub_subcategory": None,
+    }
+    result = deferred_result(
+        "soriana",
+        category,
+        "diferido por bloqueo previo",
+    )
+    assert result["retailer"] == "Soriana"
+    assert result["category_id"] == "limpiadores"
+    assert result["status"] == "DEFERRED"
+    assert result["data_status"] == "MISSING"
+    assert "bloqueo" in result["quality_notes"]
