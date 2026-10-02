@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
 
 from selenium import webdriver
@@ -78,8 +79,10 @@ def main() -> int:
             driver.execute_script(
                 "window.scrollBy(0, Math.max(500, Math.floor(window.innerHeight * 0.8)));"
             )
-            driver.implicitly_wait(0)
+            time.sleep(0.20)
+        time.sleep(0.8)
         driver.execute_script("window.scrollTo(0, 0);")
+        time.sleep(0.3)
 
         structure = driver.execute_script(
             r"""
@@ -224,7 +227,43 @@ def main() -> int:
         except Exception:
             pass
 
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print("")
+        print("RESUMEN DOM")
+        print(f"  blocked          : {is_blocked}")
+        print(f"  anchors          : {payload['total_anchors']}")
+        print(f"  product_links    : {payload['product_links']}")
+        print(f"  add_controls     : {payload['add_control_count']}")
+        print(f"  data_elements    : {len(payload['data_elements'])}")
+        print(f"  money_leaves     : {len(payload['money_leaves'])}")
+        print(f"  scripts_product  : {len(payload['scripts'])}")
+
+        if payload["product_hrefs"]:
+            print("  sample_product_urls:")
+            for value in payload["product_hrefs"][:5]:
+                print(f"    - {value}")
+
+        if payload["add_samples"]:
+            sample = payload["add_samples"][0]
+            print("  first_add_attrs:")
+            print(json.dumps(sample.get("attrs") or {}, ensure_ascii=False))
+            ancestors = sample.get("ancestors") or []
+            for anc in ancestors[:5]:
+                attrs = anc.get("attrs") or {}
+                if attrs:
+                    print(
+                        f"    ancestor depth={anc.get('depth')} tag={anc.get('tag')} "
+                        + json.dumps(attrs, ensure_ascii=False)
+                    )
+
+        if payload["data_elements"]:
+            print("  sample_data_attributes:")
+            for item in payload["data_elements"][:8]:
+                print(
+                    f"    {item.get('tag')} "
+                    + json.dumps(item.get("attrs") or {}, ensure_ascii=False)
+                )
+
+        print(f"Diagnóstico completo: {out}")
 
         if is_blocked:
             print("RESULTADO: BLOCKED")
