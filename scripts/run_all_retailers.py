@@ -204,6 +204,7 @@ def run_case(
         "availability_unknown": 0,
         "price_required_products": 0,
         "price_required_complete": 0,
+        "data_status": "MISSING",
         "quality_status": "PENDING",
         "quality_notes": "",
     }
@@ -230,8 +231,12 @@ def apply_quality(results: list[dict]) -> tuple[pd.DataFrame, pd.DataFrame]:
         )
         subset = concentrated.loc[mask].copy()
         if subset.empty:
+            result["data_status"] = "MISSING"
             continue
 
+        result["data_status"] = (
+            "FRESH" if result["status"] == "SUCCESS" else "STALE_RETAINED"
+        )
         result["products"] = len(subset)
         result["sku_complete"] = count_nonempty(subset["sku"])
         result["price_current_complete"] = int(subset["price_current"].notna().sum())
@@ -312,7 +317,11 @@ def apply_quality(results: list[dict]) -> tuple[pd.DataFrame, pd.DataFrame]:
             if result["duplicates_sku_url"] > 0:
                 notes.append(f"duplicados {result['duplicates_sku_url']}")
 
-        result["quality_status"] = "COMPLETE" if not notes else "REVIEW"
+        if result["data_status"] == "STALE_RETAINED":
+            notes.insert(0, f"última muestra retenida; intento={result['status']}")
+            result["quality_status"] = "STALE"
+        else:
+            result["quality_status"] = "COMPLETE" if not notes else "REVIEW"
         result["quality_notes"] = "; ".join(notes)
 
     return concentrated, pd.DataFrame(results)
@@ -533,7 +542,7 @@ def main() -> int:
 
     print("\nRESUMEN FINAL")
     columns = [
-        "retailer", "category_id", "status", "quality_status", "products",
+        "retailer", "category_id", "status", "data_status", "quality_status", "products",
         "sku_complete", "price_current_complete", "url_complete",
         "available_products", "unavailable_products", "availability_unknown",
         "duplicates_sku_url", "store_context_verified", "quality_notes",
