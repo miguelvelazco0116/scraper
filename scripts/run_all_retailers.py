@@ -272,13 +272,37 @@ def apply_quality(results: list[dict]) -> tuple[pd.DataFrame, pd.DataFrame]:
                 f"{result['price_required_complete']}/{result['price_required_products']}"
             )
 
-        # En San Pablo el entregable crítico es precio/promoción.
-        # SKU y URL quedan como cobertura informativa.
+        # Los productos explícitamente UNAVAILABLE pueden no exponer PDP,
+        # SKU o URL. Esos campos se exigen sólo para productos no agotados.
+        identifier_required = ~availability.eq("UNAVAILABLE")
+        identifier_required_count = int(identifier_required.sum())
+        sku_required_complete = int(
+            subset.loc[identifier_required, "sku"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .ne("")
+            .sum()
+        )
+        url_required_complete = int(
+            subset.loc[identifier_required, "url"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .ne("")
+            .sum()
+        )
+
+        # En San Pablo SKU y URL siguen siendo métricas informativas.
         if result["retailer"] != "Farmacias San Pablo":
-            if result["sku_complete"] < result["products"]:
-                notes.append(f"sku {result['sku_complete']}/{result['products']}")
-            if result["url_complete"] < result["products"]:
-                notes.append(f"url {result['url_complete']}/{result['products']}")
+            if sku_required_complete < identifier_required_count:
+                notes.append(
+                    f"sku disponibles {sku_required_complete}/{identifier_required_count}"
+                )
+            if url_required_complete < identifier_required_count:
+                notes.append(
+                    f"url disponibles {url_required_complete}/{identifier_required_count}"
+                )
             if result["duplicates_sku_url"] > 0:
                 notes.append(f"duplicados {result['duplicates_sku_url']}")
 
