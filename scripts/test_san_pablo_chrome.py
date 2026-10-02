@@ -105,8 +105,11 @@ def main() -> int:
                 };
               });
 
+            const productHrefs = hrefs.filter(h => /\/p\/\d+(?:[/?#]|$)/i.test(h));
+
             return {
               totalAnchors: anchors.length,
+              productHrefs,
               sampleHrefs: hrefs.slice(0, 80),
               dataNodes: dataNodes.slice(0, 30).map(el => ({
                 tag: el.tagName,
@@ -124,10 +127,8 @@ def main() -> int:
             };
             """
         ) or {}
-        product_links = sum(
-            1 for href in structure.get("sampleHrefs", [])
-            if "/p/" in href
-        )
+        product_hrefs = structure.get("productHrefs") or []
+        product_links = len(product_hrefs)
 
         payload = {
             "category": args.category,
@@ -135,6 +136,7 @@ def main() -> int:
             "title": title,
             "blocked": is_blocked,
             "product_links": int(product_links),
+            "product_hrefs": product_hrefs,
             "total_anchors": int(structure.get("totalAnchors") or 0),
             "sample_hrefs": structure.get("sampleHrefs") or [],
             "data_nodes": structure.get("dataNodes") or [],
