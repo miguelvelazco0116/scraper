@@ -183,6 +183,16 @@ def main() -> int:
         url_complete = int(
             df["url"].fillna("").astype(str).str.strip().ne("").sum()
         ) if not df.empty else 0
+        availability = (
+            df["availability_status"]
+            .fillna("UNKNOWN")
+            .astype(str)
+            .str.strip()
+            .str.upper()
+        ) if not df.empty else pd.Series(dtype=str)
+        available_products = int(availability.eq("AVAILABLE").sum())
+        unavailable_products = int(availability.eq("UNAVAILABLE").sum())
+        availability_unknown = int(availability.eq("UNKNOWN").sum())
 
         # Para San Pablo, el objetivo operativo es pricing/promoción.
         # SKU y URL se reportan como métricas informativas, no bloqueantes.
@@ -205,6 +215,9 @@ def main() -> int:
                 "sku_complete": sku_complete,
                 "url_complete": url_complete,
                 "price_complete": price_complete,
+                "available_products": available_products,
+                "unavailable_products": unavailable_products,
+                "availability_unknown": availability_unknown,
                 "missing_identifier": missing_identifier,
                 "status": status,
                 "error": error,
@@ -218,7 +231,8 @@ def main() -> int:
             f"target={target} products={products} "
             f"sku={sku_complete}/{products} url={url_complete}/{products} "
             f"price={price_complete}/{products} "
-            f"missing_id={missing_identifier}"
+            f"available={available_products} unavailable={unavailable_products} "
+            f"unknown={availability_unknown} missing_id={missing_identifier}"
         )
         print(f"Output actualizado: {OUTPUT_PATH}")
         print("")
