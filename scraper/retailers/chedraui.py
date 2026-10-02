@@ -175,11 +175,132 @@ class ChedrauiScraper:
             hits += 1
         return hits >= 2 and "polanco" in normalized
 
+    @classmethod
+    def _orderform_matches_location(
+        cls,
+        payload: dict[str, Any] | None,
+        location: Location,
+    ) -> bool:
+        if not isinstance(payload, dict):
+            return False
+
+        candidates: list[str] = []
+        for key in ("storeId", "checkedInPickupPointId"):
+            value = payload.get(key)
+            if value is not None:
+                candidates.append(str(value))
+
+        shipping = payload.get("shippingData")
+        if isinstance(shipping, dict):
+            for info in shipping.get("logisticsInfo") or []:
+                if not isinstance(info, dict):
+                    continue
+                for key in (
+                    "selectedDeliveryChannel",
+                    "pickupPointId",
+                    "selectedSla",
+                ):
+                    value = info.get(key)
+                    if value is not None:
+                        candidates.append(str(value))
+
+                pickup_info = info.get("pickupStoreInfo")
+                if isinstance(pickup_info, dict):
+                    for key in ("friendlyName", "additionalInfo", "dockId"):
+                        value = pickup_info.get(key)
+                        if value is not None:
+                            candidates.append(str(value))
+                    address = pickup_info.get("address")
+                    if isinstance(address, dict):
+                        for key in (
+                            "addressName",
+                            "street",
+                            "neighborhood",
+                            "city",
+                            "postalCode",
+                        ):
+                            value = address.get(key)
+                            if value is not None:
+                                candidates.append(str(value))
+
+                for sla in info.get("slas") or []:
+                    if not isinstance(sla, dict):
+                        continue
+                    value = sla.get("pickupPointId")
+                    if value is not None:
+                        candidates.append(str(value))
+                    store_info = sla.get("pickupStoreInfo")
+                    if isinstance(store_info, dict):
+                        for key in ("friendlyName", "additionalInfo", "dockId"):
+                            value = store_info.get(key)
+                            if value is not None:
+                                candidates.append(str(value))
+                        address = store_info.get("address")
+                        if isinstance(address, dict):
+                            for key in (
+                                "addressName",
+                                "street",
+                                "neighborhood",
+                                "city",
+                                "postalCode",
+                            ):
+                                value = address.get(key)
+                                if value is not None:
+                                    candidates.append(str(value))
+
+        normalized = cls._normalize(" ".join(candidates))
+        if "polanco" not in normalized:
+            return False
+
+        postal = cls._normalize(location.postal_code)
+        store_name = cls._normalize(location.store)
+        strong = bool(
+            (postal and postal in normalized)
+            or (store_name and store_name in normalized)
+            or "selecto mexico polanco" in normalized
+        )
+        return strong
+
+    def _orderform_snapshot(self, page: Page) -> dict[str, Any] | None:
+        try:
+            response = page.context.request.get(
+                BASE_URL + "api/checkout/pub/orderForm",
+                timeout=30_000,
+            )
+            self.run_meta["orderform_status"] = response.status
+            if response.status != 200:
+                return None
+            payload = response.json()
+            if not isinstance(payload, dict):
+                return None
+
+            shipping = payload.get("shippingData")
+            logistics = (
+                shipping.get("logisticsInfo")
+                if isinstance(shipping, dict)
+                else None
+            )
+            self.run_meta["orderform_context"] = {
+                "orderFormId": payload.get("orderFormId"),
+                "storeId": payload.get("storeId"),
+                "checkedInPickupPointId": payload.get("checkedInPickupPointId"),
+                "logisticsInfo": logistics if isinstance(logistics, list) else [],
+            }
+            return payload
+        except Exception as exc:
+            self.run_meta["orderform_error"] = f"{type(exc).__name__}: {exc}"
+            return None
+
     def _verify_store_context(self, page: Page, location: Location) -> tuple[bool, str | None]:
         if self._store_context_in_text(self._body_text(page), location):
             return True, "page_text"
         if self._store_context_in_state_blob(self._browser_state_blob(page), location):
             return True, "browser_state"
+
+        orderform = self._orderform_snapshot(page)
+        if self._orderform_matches_location(orderform, location):
+            return True, "orderform"
+
         return False, None
 
     def _vtex_session_snapshot(self, page: Page) -> dict[str, Any] | None:
@@ -221,9 +342,21 @@ class ChedrauiScraper:
         )
         normalized = cls._normalize(blob)
         store_name = cls._normalize(location.store)
+        postal = cls._normalize(location.postal_code)
+
+        if "polanco" not in normalized:
+            return False
+        if postal and postal not in normalized:
+            # Algunos pickup points omiten CP en el nombre pero lo exponen en
+            # address.postalCode. Si existe un CP distinto, no es Polanco.
+            address_postal = cls._normalize(address.get("postalCode"))
+            if address_postal and address_postal != postal:
+                return False
+
         return bool(
-            "polanco" in normalized
-            or (store_name and store_name in normalized)
+            (store_name and store_name in normalized)
+            or "selecto mexico polanco" in normalized
+            or "chedraui" in normalized
         )
 
     def _list_pickup_points(self, page: Page, location: Location) -> list[dict]:
@@ -279,27 +412,33 @@ class ChedrauiScraper:
         token = snapshot.get("sessionToken") if isinstance(snapshot, dict) else None
         updated = False
 
-        if token:
-            body = {
-                "public": {
-                    "country": {"value": "MEX"},
-                    "postalCode": {"value": str(location.postal_code)},
-                }
+        body = {
+            "public": {
+                "country": {"value": "MEX"},
+                "postalCode": {"value": str(location.postal_code)},
             }
-            try:
-                response = page.context.request.post(
-                    BASE_URL + "api/sessions/" + str(token),
-                    data=body,
-                    timeout=30_000,
-                )
-                self.run_meta["vtex_session_post_status"] = response.status
-                updated = response.status in (200, 201, 204)
-            except Exception as exc:
-                self.run_meta["vtex_session_post_error"] = (
-                    f"{type(exc).__name__}: {exc}"
-                )
-        else:
+        }
+        endpoint = (
+            BASE_URL + "api/sessions/" + str(token)
+            if token
+            else BASE_URL + "api/sessions"
+        )
+        if not token:
             self.run_meta["vtex_session_token_missing"] = True
+
+        try:
+            response = page.context.request.post(
+                endpoint,
+                data=body,
+                timeout=30_000,
+            )
+            self.run_meta["vtex_session_post_endpoint"] = endpoint
+            self.run_meta["vtex_session_post_status"] = response.status
+            updated = response.status in (200, 201, 204)
+        except Exception as exc:
+            self.run_meta["vtex_session_post_error"] = (
+                f"{type(exc).__name__}: {exc}"
+            )
 
         refreshed = self._vtex_session_snapshot(page)
         self.run_meta["vtex_session_updated"] = updated
