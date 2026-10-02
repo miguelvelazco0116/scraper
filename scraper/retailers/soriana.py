@@ -8,7 +8,7 @@ from typing import Any
 
 from playwright.sync_api import BrowserContext, Page, Response, TimeoutError as PlaywrightTimeoutError, sync_playwright
 
-from ..availability import availability_fields
+from ..availability import AVAILABLE, UNAVAILABLE, UNKNOWN
 from ..config import Category, Location
 from ..parsers import absolute_url, clean_text, extract_sku, parse_money
 
@@ -155,7 +155,9 @@ class SorianaScraper:
             if current_price and regular_price and current_price > regular_price:
                 current_price, regular_price = regular_price, current_price
 
-            availability = availability_fields(text=item.get("availability_text"))
+            availability = self._availability_from_card_text(
+                item.get("availability_text")
+            )
 
             out.append(
                 {
@@ -181,6 +183,52 @@ class SorianaScraper:
                 }
             )
         return out
+
+    @staticmethod
+    def _availability_from_card_text(text: str | None) -> dict[str, Any]:
+        """Clasifica disponibilidad Soriana con señales estrictas.
+
+        El storefront puede mostrar frases como "No disponible" asociadas a
+        modalidades de entrega, por lo que no se usan como señal global de
+        quiebre. Sólo marcadores inequívocos de stock clasifican UNAVAILABLE.
+        """
+        raw = clean_text(text)
+        if not raw:
+            return {
+                "availability_status": UNKNOWN,
+                "is_available": None,
+                "availability_raw": None,
+            }
+
+        negative = re.search(
+            r"\b(agotad[oa]s?|sin\s+existencia|sin\s+stock|fuera\s+de\s+stock|out\s+of\s+stock)\b",
+            raw,
+            flags=re.IGNORECASE,
+        )
+        if negative:
+            return {
+                "availability_status": UNAVAILABLE,
+                "is_available": False,
+                "availability_raw": negative.group(0),
+            }
+
+        positive = re.search(
+            r"\b(agregar(?:\s+al\s+carrito)?|añadir(?:\s+al\s+carrito)?|comprar\s+ahora)\b",
+            raw,
+            flags=re.IGNORECASE,
+        )
+        if positive:
+            return {
+                "availability_status": AVAILABLE,
+                "is_available": True,
+                "availability_raw": positive.group(0),
+            }
+
+        return {
+            "availability_status": UNKNOWN,
+            "is_available": None,
+            "availability_raw": raw[:500],
+        }
 
     @staticmethod
     def _infer_brand(product: str | None) -> str | None:
