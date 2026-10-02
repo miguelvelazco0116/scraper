@@ -260,8 +260,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Soriana bloqueados + disponibilidad Soriana/Chedraui"
     )
-    parser.add_argument("--soriana-delay-seconds", type=int, default=60)
-    parser.add_argument("--retry-delay-seconds", type=int, default=300)
+    parser.add_argument("--soriana-delay-seconds", type=int, default=120)
+    parser.add_argument("--retry-delay-seconds", type=int, default=600)
     args = parser.parse_args()
 
     soriana_categories = {
@@ -299,27 +299,44 @@ def main() -> int:
     print("SORIANA - PRIMER INTENTO")
     print("-" * 76)
 
+    defer_next = False
     for index, category_id in enumerate(SORIANA_BLOCKED_CATEGORIES, start=1):
         print(
             f"[Soriana {index}/{len(SORIANA_BLOCKED_CATEGORIES)}] "
             f"{category_id}",
             flush=True,
         )
-        rows, summary = run_soriana(
-            soriana_categories[category_id],
-            soriana_location,
-            "initial",
-        )
+
+        if defer_next:
+            rows = []
+            summary = availability_summary(
+                "Soriana",
+                category_id,
+                "DEFERRED",
+                rows,
+                attempt="deferred",
+                error="Diferido después de BLOCKED previo para reducir presión.",
+            )
+            defer_next = False
+        else:
+            rows, summary = run_soriana(
+                soriana_categories[category_id],
+                soriana_location,
+                "initial",
+            )
+
         print_summary(summary)
 
         key = ("Soriana", category_id)
         final_frames[key] = normalize_frame(rows)
         final_summaries[key] = summary
 
-        if summary["status"] == "BLOCKED":
+        if summary["status"] in {"BLOCKED", "DEFERRED"}:
             blocked.append(category_id)
 
-        if (
+        if summary["status"] == "BLOCKED":
+            defer_next = True
+        elif (
             index < len(SORIANA_BLOCKED_CATEGORIES)
             and args.soriana_delay_seconds > 0
         ):
