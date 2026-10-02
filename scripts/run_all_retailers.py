@@ -4,6 +4,7 @@ import argparse
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -321,6 +322,18 @@ def main() -> int:
         action="store_true",
         help="Incluye Walmart y Farmacias Guadalajara, actualmente en pausa.",
     )
+    parser.add_argument(
+        "--soriana-delay-seconds",
+        type=int,
+        default=60,
+        help="Pausa entre categorías consecutivas de Soriana.",
+    )
+    parser.add_argument(
+        "--soriana-retry-delay-seconds",
+        type=int,
+        default=120,
+        help="Pausa antes del reintento final de categorías Soriana bloqueadas.",
+    )
     args = parser.parse_args()
 
     walmart_profile = (
@@ -403,6 +416,66 @@ def main() -> int:
                     print("     " + " | ".join(useful[-3:]))
             except Exception:
                 pass
+
+        # Soriana ha mostrado bloqueos intermitentes cuando se consultan
+        # varias categorías consecutivas. Una pausa fija reduce presión sobre
+        # el storefront sin intentar evadir controles de acceso.
+        if (
+            retailer == "soriana"
+            and index < len(cases)
+            and cases[index][0] == "soriana"
+            and args.soriana_delay_seconds > 0
+        ):
+            print(
+                f"     pausa Soriana: {args.soriana_delay_seconds}s antes de la siguiente categoría..."
+            )
+            time.sleep(args.soriana_delay_seconds)
+
+    # Las categorías Soriana bloqueadas se reintentan una sola vez al final
+    # de la corrida, cuando la sesión ha tenido tiempo de enfriarse mientras
+    # se procesan los demás retailers.
+    blocked_soriana = [
+        idx
+        for idx, result in enumerate(results)
+        if result["retailer"] == "Soriana" and result["status"] == "BLOCKED"
+    ]
+    if blocked_soriana:
+        delay = max(0, args.soriana_retry_delay_seconds)
+        print(
+            f"\nREINTENTO FINAL SORIANA: {len(blocked_soriana)} categoría(s) bloqueada(s)"
+        )
+        if delay:
+            print(f"Pausa previa: {delay}s")
+            time.sleep(delay)
+
+        for retry_number, result_index in enumerate(blocked_soriana, start=1):
+            retailer, category = cases[result_index]
+            print(
+                f"[Soriana retry {retry_number}/{len(blocked_soriana)}] "
+                f"{category['id']}"
+            )
+            retry_result = run_case(
+                retailer,
+                category,
+                walmart_profile_dir=walmart_profile,
+                walmart_storage_state=walmart_state,
+                local_browser=args.local_browser,
+            )
+            results[result_index] = retry_result
+            print(
+                f"  -> {retry_result['status']} "
+                f"(exit={retry_result['exit_code']}, "
+                f"reported={retry_result['reported_products']})"
+            )
+
+            if (
+                retry_number < len(blocked_soriana)
+                and args.soriana_delay_seconds > 0
+            ):
+                print(
+                    f"     pausa Soriana: {args.soriana_delay_seconds}s antes del siguiente retry..."
+                )
+                time.sleep(args.soriana_delay_seconds)
 
     concentrated, summary = apply_quality(results)
     write_final_workbook(concentrated, summary)
