@@ -42,7 +42,8 @@ def test_san_pablo_online_context():
 
 def test_san_pablo_page_url():
     url = "https://www.farmaciasanpablo.com.mx/cuidado-personal-y-belleza/cuidado-bucal/enjuagues-bucales/c/030040003"
-    assert FarmaciasSanPabloScraper._page_url(url, 1) == url
+    assert FarmaciasSanPabloScraper._page_url(url, 0) == url
+    assert FarmaciasSanPabloScraper._page_url(url, 1).endswith("/c/030040003?currentPage=1")
     assert FarmaciasSanPabloScraper._page_url(url, 3).endswith("/c/030040003?currentPage=3")
     url_with_query = url + "?foo=bar"
     page2 = FarmaciasSanPabloScraper._page_url(url_with_query, 2)
@@ -51,14 +52,19 @@ def test_san_pablo_page_url():
 
 
 def test_san_pablo_block_detection():
-    assert FarmaciasSanPabloScraper._is_blocked(403, "Access Denied", "")
-    assert FarmaciasSanPabloScraper._is_blocked(200, "", "You don't have permission to access this server")
-    assert not FarmaciasSanPabloScraper._is_blocked(200, "Farmacias San Pablo", "Catálogo de productos")
+    assert FarmaciasSanPabloScraper._is_blocked("Access Denied", "")
+    assert FarmaciasSanPabloScraper._is_blocked(
+        "", "You don't have permission to access this server"
+    )
+    assert not FarmaciasSanPabloScraper._is_blocked(
+        "Farmacias San Pablo", "Catálogo de productos"
+    )
 
 
 def test_san_pablo_sku_from_product_url():
     url = "https://www.farmaciasanpablo.com.mx/medicamentos/gripe-y-tos/descongestionantes/sterimar-nasal/p/000000000000700142"
     assert FarmaciasSanPabloScraper._sku_from_url(url) == "700142"
+    assert FarmaciasSanPabloScraper._code_from_card({"href": url}) == "700142"
 
 
 def test_san_pablo_price_parser():
