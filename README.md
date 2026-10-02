@@ -70,6 +70,25 @@ python .\scripts\run_all_retailers.py --local-browser
 
 El modo `--local-browser` usa Google Chrome visible para los retailers que lo requieren.
 
+
+### Pacing de Soriana
+
+Soriana ha mostrado bloqueos intermitentes `403 / GF R01` al consultar varias categorías consecutivas. El runner aplica por defecto:
+
+```text
+60 s entre categorías consecutivas de Soriana
+120 s antes del reintento final
+1 reintento al final de la corrida sólo para categorías BLOCKED
+```
+
+Los tiempos pueden ajustarse con:
+
+```powershell
+python .\scripts\run_all_retailers.py --local-browser --soriana-delay-seconds 60 --soriana-retry-delay-seconds 120
+```
+
+No se automatiza ninguna verificación ni se intenta evadir la protección del sitio; si el segundo intento sigue bloqueado, el caso permanece `BLOCKED`.
+
 ### Tests generales
 
 ```powershell
