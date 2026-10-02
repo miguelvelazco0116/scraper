@@ -32,6 +32,8 @@ Write-Host "Activos : Soriana, Chedraui, Farmacias del Ahorro, Farmacias San Pab
 Write-Host "Pausa   : Walmart, Farmacias Guadalajara"
 Write-Host "Aviso   : Bodega Aurrera puede solicitar verificacion manual en Chrome."
 Write-Host "          Si aparece, completala y deja la ventana abierta para continuar."
+Write-Host "Sesiones: Soriana=.soriana_profile | Chedraui=.chedraui_profile"
+Write-Host "Soriana : tandas de 2; BLOCKED difiere el resto de la tanda; retry final con cooldown."
 Write-Host "Python  : $PythonExe"
 Write-Host "Soriana : perfil persistente .soriana_profile"
 Write-Host "Chedraui: perfil persistente .chedraui_profile + VTEX session"
