@@ -149,7 +149,12 @@ def run_case(
         if not retryable:
             break
         if attempt < 2:
-            print(f"     {attempt_status}; reintentando una vez...")
+            retry_delay = 45 if attempt_status == "STORE_CONTEXT_ERROR" else 15
+            print(
+                f"     {attempt_status}; reintentando una vez en "
+                f"{retry_delay}s..."
+            )
+            time.sleep(retry_delay)
 
     assert proc is not None
     text = f"{proc.stdout}\n{proc.stderr}"
@@ -207,6 +212,49 @@ def run_case(
         "data_status": "MISSING",
         "quality_status": "PENDING",
         "quality_notes": "",
+    }
+
+
+def deferred_result(retailer: str, category: dict, reason: str) -> dict:
+    display_names = {
+        "soriana": "Soriana",
+        "chedraui": "Chedraui",
+        "walmart": "Walmart",
+        "farmacias-guadalajara": "Farmacias Guadalajara",
+        "farmacias-del-ahorro": "Farmacias del Ahorro",
+        "farmacias-san-pablo": "Farmacias San Pablo",
+        "farmacias-similares": "Farmacias Similares",
+        "la-comer": "La Comer",
+        "ibarra-mayoreo": "Ibarra Mayoreo",
+        "bodega-aurrera": "Bodega Aurrera",
+    }
+    return {
+        "retailer": display_names.get(retailer, retailer),
+        "department": category.get("department"),
+        "category": category.get("name"),
+        "subcategory": category.get("subcategory"),
+        "sub_subcategory": category.get("sub_subcategory"),
+        "category_id": category["id"],
+        "location_id": "cdmx" if retailer == "soriana" else None,
+        "store": None,
+        "status": "DEFERRED",
+        "exit_code": 0,
+        "reported_products": 0,
+        "products": 0,
+        "sku_complete": 0,
+        "price_current_complete": 0,
+        "price_regular_complete": 0,
+        "url_complete": 0,
+        "duplicates_sku_url": 0,
+        "store_context_verified": 0,
+        "available_products": 0,
+        "unavailable_products": 0,
+        "availability_unknown": 0,
+        "price_required_products": 0,
+        "price_required_complete": 0,
+        "data_status": "MISSING",
+        "quality_status": "PENDING",
+        "quality_notes": reason,
     }
 
 
@@ -374,14 +422,14 @@ def main() -> int:
     parser.add_argument(
         "--soriana-delay-seconds",
         type=int,
-        default=60,
+        default=120,
         help="Pausa entre categorías consecutivas de Soriana.",
     )
     parser.add_argument(
         "--soriana-retry-delay-seconds",
         type=int,
-        default=300,
-        help="Pausa antes del reintento final de categorías Soriana bloqueadas.",
+        default=600,
+        help="Pausa antes del reintento final de categorías Soriana bloqueadas/diferidas.",
     )
     args = parser.parse_args()
 
@@ -480,20 +528,47 @@ def main() -> int:
         add_cases("walmart")
 
     results: list[dict] = []
+    soriana_blocked_in_batch = False
+    previous_retailer: str | None = None
+
     print(f"Casos configurados: {len(cases)}")
     for index, (retailer, category) in enumerate(cases, start=1):
+        if retailer != "soriana" or previous_retailer != "soriana":
+            soriana_blocked_in_batch = False
+
         print(f"[{index}/{len(cases)}] {retailer} / {category['id']}")
-        result = run_case(
-            retailer,
-            category,
-            walmart_profile_dir=walmart_profile,
-            walmart_storage_state=walmart_state,
-            soriana_profile_dir=soriana_profile,
-            chedraui_profile_dir=chedraui_profile,
-            local_browser=args.local_browser,
-        )
+
+        if retailer == "soriana" and soriana_blocked_in_batch:
+            result = deferred_result(
+                retailer,
+                category,
+                "diferido: categoría anterior de la tanda recibió BLOCKED",
+            )
+            print(
+                "  -> DEFERRED "
+                "(se evita otro request Soriana en una tanda ya bloqueada)"
+            )
+        else:
+            result = run_case(
+                retailer,
+                category,
+                walmart_profile_dir=walmart_profile,
+                walmart_storage_state=walmart_state,
+                soriana_profile_dir=soriana_profile,
+                chedraui_profile_dir=chedraui_profile,
+                local_browser=args.local_browser,
+            )
+            print(
+                f"  -> {result['status']} "
+                f"(exit={result['exit_code']}, "
+                f"reported={result['reported_products']})"
+            )
+
         results.append(result)
-        print(f"  -> {result['status']} (exit={result['exit_code']}, reported={result['reported_products']})")
+
+        if retailer == "soriana" and result["status"] == "BLOCKED":
+            soriana_blocked_in_batch = True
+
         if result["status"] == "ERROR":
             log_path = LOG_DIR / f"{retailer}_{category['id']}.log"
             try:
@@ -511,19 +586,20 @@ def main() -> int:
             except Exception:
                 pass
 
-        # Soriana ha mostrado bloqueos intermitentes cuando se consultan
-        # varias categorías consecutivas. Una pausa fija reduce presión sobre
-        # el storefront sin intentar evadir controles de acceso.
         if (
             retailer == "soriana"
+            and result["status"] == "SUCCESS"
             and index < len(cases)
             and cases[index][0] == "soriana"
             and args.soriana_delay_seconds > 0
         ):
             print(
-                f"     pausa Soriana: {args.soriana_delay_seconds}s antes de la siguiente categoría..."
+                f"     pausa Soriana: {args.soriana_delay_seconds}s "
+                "antes de la siguiente categoría..."
             )
             time.sleep(args.soriana_delay_seconds)
+
+        previous_retailer = retailer
 
     # Las categorías Soriana bloqueadas se reintentan una sola vez al final
     # de la corrida, cuando la sesión ha tenido tiempo de enfriarse mientras
@@ -531,12 +607,13 @@ def main() -> int:
     blocked_soriana = [
         idx
         for idx, result in enumerate(results)
-        if result["retailer"] == "Soriana" and result["status"] == "BLOCKED"
+        if result["retailer"] == "Soriana"
+        and result["status"] in {"BLOCKED", "DEFERRED"}
     ]
     if blocked_soriana:
         delay = max(0, args.soriana_retry_delay_seconds)
         print(
-            f"\nREINTENTO FINAL SORIANA: {len(blocked_soriana)} categoría(s) bloqueada(s)"
+            f"\nREINTENTO FINAL SORIANA: {len(blocked_soriana)} categoría(s) bloqueada(s)/diferida(s)"
         )
         if delay:
             print(f"Pausa previa: {delay}s")
