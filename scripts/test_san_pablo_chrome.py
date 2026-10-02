@@ -128,6 +128,17 @@ def main() -> int:
               return result;
             }
 
+            const occMeta = document.querySelector('meta[name="occ-backend-base-url"]');
+            const occBackendBaseUrl = occMeta ? (occMeta.getAttribute('content') || '') : '';
+
+            const resourceUrls = Array.from(performance.getEntriesByType('resource'))
+              .map(entry => entry.name || '')
+              .filter(Boolean);
+
+            const apiCandidates = resourceUrls.filter(url =>
+              /occ|products?\/search|\/products?\?|category|catalog/i.test(url)
+            );
+
             const anchors = Array.from(document.querySelectorAll('a[href]'));
             const hrefs = [...new Set(anchors.map(a => a.href || a.getAttribute('href')).filter(Boolean))];
             const productHrefs = hrefs.filter(h => /\/p\/\d+(?:[/?#]|$)/i.test(h));
@@ -187,6 +198,8 @@ def main() -> int:
 
             return {
               url: location.href,
+              occBackendBaseUrl,
+              apiCandidates: [...new Set(apiCandidates)].slice(0, 120),
               totalAnchors: anchors.length,
               totalUniqueHrefs: hrefs.length,
               productHrefs,
@@ -207,6 +220,8 @@ def main() -> int:
             "url": url,
             "title": title,
             "blocked": is_blocked,
+            "occ_backend_base_url": structure.get("occBackendBaseUrl") or "",
+            "api_candidates": structure.get("apiCandidates") or [],
             "product_links": int(product_links),
             "product_hrefs": product_hrefs,
             "total_anchors": int(structure.get("totalAnchors") or 0),
@@ -230,12 +245,19 @@ def main() -> int:
         print("")
         print("RESUMEN DOM")
         print(f"  blocked          : {is_blocked}")
+        print(f"  occ_backend      : {payload['occ_backend_base_url'] or '-'}")
+        print(f"  api_candidates   : {len(payload['api_candidates'])}")
         print(f"  anchors          : {payload['total_anchors']}")
         print(f"  product_links    : {payload['product_links']}")
         print(f"  add_controls     : {payload['add_control_count']}")
         print(f"  data_elements    : {len(payload['data_elements'])}")
         print(f"  money_leaves     : {len(payload['money_leaves'])}")
         print(f"  scripts_product  : {len(payload['scripts'])}")
+
+        if payload["api_candidates"]:
+            print("  sample_api_urls:")
+            for value in payload["api_candidates"][:10]:
+                print(f"    - {value}")
 
         if payload["product_hrefs"]:
             print("  sample_product_urls:")
