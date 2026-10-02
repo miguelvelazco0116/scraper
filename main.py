@@ -52,7 +52,8 @@ from scraper.retailers.walmart_storage_state import WalmartStorageStateScraper
 COLUMNS = [
     "scrape_timestamp", "retailer", "city", "state", "postal_code", "store", "store_id",
     "department", "category", "subcategory", "sub_subcategory", "category_id", "sku", "brand",
-    "product", "price_current", "price_regular", "promotion", "pickup_available",
+    "product", "price_current", "price_regular", "promotion",
+    "availability_status", "is_available", "availability_raw", "pickup_available",
     "store_context_verified", "store_context_method", "url", "price_raw",
 ]
 
@@ -166,7 +167,11 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
 
     if combined.empty:
         summary = pd.DataFrame(
-            columns=["retailer", "category_id", "city", "store", "store_id", "products", "sku_complete", "price_complete", "url_complete"]
+            columns=[
+                "retailer", "category_id", "city", "store", "store_id",
+                "products", "sku_complete", "price_complete", "url_complete",
+                "available_products", "unavailable_products", "availability_unknown",
+            ]
         )
     else:
         summary = (
@@ -176,6 +181,9 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
                 sku_complete=("sku", lambda s: int(s.notna().sum())),
                 price_complete=("price_current", lambda s: int(s.notna().sum())),
                 url_complete=("url", lambda s: int(s.notna().sum())),
+                available_products=("availability_status", lambda s: int(s.fillna("UNKNOWN").astype(str).str.upper().eq("AVAILABLE").sum())),
+                unavailable_products=("availability_status", lambda s: int(s.fillna("UNKNOWN").astype(str).str.upper().eq("UNAVAILABLE").sum())),
+                availability_unknown=("availability_status", lambda s: int(s.fillna("UNKNOWN").astype(str).str.upper().eq("UNKNOWN").sum())),
             )
             .reset_index()
         )
