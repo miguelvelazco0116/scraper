@@ -74,7 +74,7 @@ def main() -> int:
         is_blocked = blocked(body, title)
 
         structure = driver.execute_script(
-            """
+            r"""
             const anchors = Array.from(document.querySelectorAll('a[href]'));
             const hrefs = [...new Set(anchors.map(a => a.href).filter(Boolean))];
 
