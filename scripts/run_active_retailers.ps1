@@ -33,6 +33,8 @@ Write-Host "Pausa   : Walmart, Farmacias Guadalajara"
 Write-Host "Aviso   : Bodega Aurrera puede solicitar verificacion manual en Chrome."
 Write-Host "          Si aparece, completala y deja la ventana abierta para continuar."
 Write-Host "Python  : $PythonExe"
+Write-Host "Soriana : perfil persistente .soriana_profile"
+Write-Host "Chedraui: perfil persistente .chedraui_profile + VTEX session"
 Write-Host ""
 
 & $PythonExe .\scripts\run_all_retailers.py --local-browser
