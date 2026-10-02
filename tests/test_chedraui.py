@@ -353,3 +353,49 @@ def test_chedraui_zero_available_quantity_is_unavailable():
     assert rows[0]["availability_status"] == "UNAVAILABLE"
     assert rows[0]["is_available"] is False
     assert rows[0]["pickup_available"] is False
+
+
+
+def test_chedraui_orderform_matches_polanco():
+    payload = {
+        "storeId": "232",
+        "checkedInPickupPointId": "pickup-polanco",
+        "shippingData": {
+            "logisticsInfo": [
+                {
+                    "selectedDeliveryChannel": "pickup-in-point",
+                    "pickupPointId": "pickup-polanco",
+                    "pickupStoreInfo": {
+                        "friendlyName": "Chedraui Selecto México Polanco",
+                        "address": {
+                            "postalCode": "11500",
+                            "neighborhood": "Polanco",
+                            "city": "Miguel Hidalgo",
+                        },
+                    },
+                }
+            ]
+        },
+    }
+    assert ChedrauiScraper._orderform_matches_location(payload, POLANCO)
+
+
+def test_chedraui_orderform_rejects_other_store():
+    payload = {
+        "storeId": "999",
+        "shippingData": {
+            "logisticsInfo": [
+                {
+                    "selectedDeliveryChannel": "pickup-in-point",
+                    "pickupStoreInfo": {
+                        "friendlyName": "Chedraui Selecto Santa Fe",
+                        "address": {
+                            "postalCode": "01219",
+                            "neighborhood": "Santa Fe",
+                        },
+                    },
+                }
+            ]
+        },
+    }
+    assert not ChedrauiScraper._orderform_matches_location(payload, POLANCO)
