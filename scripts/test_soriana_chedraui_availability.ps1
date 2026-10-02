@@ -1,6 +1,6 @@
 param(
-    [int]$SorianaDelaySeconds = 60,
-    [int]$RetryDelaySeconds = 300
+    [int]$SorianaDelaySeconds = 120,
+    [int]$RetryDelaySeconds = 600
 )
 
 $ErrorActionPreference = "Stop"
