@@ -230,7 +230,11 @@ def main() -> int:
     parser.add_argument("--category", default="cuidado-bucal")
     parser.add_argument("--location", default=None)
     parser.add_argument("--store", default=None, help="Alias de ubicación para una tienda configurada")
-    parser.add_argument("--profile-dir", default=None, help="Perfil persistente de Playwright para Walmart")
+    parser.add_argument(
+        "--profile-dir",
+        default=None,
+        help="Perfil persistente de Playwright/Chrome para retailers compatibles.",
+    )
     parser.add_argument("--storage-state", default=None, help="Sesión portable de Playwright para Walmart")
     parser.add_argument("--headed", action="store_true", help="Abrir navegador visible")
     parser.add_argument(
@@ -275,6 +279,7 @@ def main() -> int:
             headless=not args.headed,
             max_load_more=args.max_load_more,
             browser_channel=args.browser_channel,
+            profile_dir=args.profile_dir,
         )
         try:
             rows = scraper.scrape_category(category, location)
@@ -311,6 +316,7 @@ def main() -> int:
             headless=not args.headed,
             max_pages=args.max_load_more,
             browser_channel=args.browser_channel,
+            profile_dir=args.profile_dir,
         )
         try:
             rows = scraper.scrape_category(category, location)
