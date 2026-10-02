@@ -641,14 +641,17 @@ def main() -> int:
                 f"reported={retry_result['reported_products']})"
             )
 
-            if (
-                retry_number < len(blocked_soriana)
-                and args.soriana_delay_seconds > 0
-            ):
-                print(
-                    f"     pausa Soriana: {args.soriana_delay_seconds}s antes del siguiente retry..."
+            if retry_number < len(blocked_soriana):
+                retry_spacing = max(
+                    args.soriana_delay_seconds,
+                    300 if retry_result["status"] == "BLOCKED" else 0,
                 )
-                time.sleep(args.soriana_delay_seconds)
+                if retry_spacing > 0:
+                    print(
+                        f"     pausa Soriana: {retry_spacing}s "
+                        "antes del siguiente retry..."
+                    )
+                    time.sleep(retry_spacing)
 
     concentrated, summary = apply_quality(results)
     write_final_workbook(concentrated, summary)
