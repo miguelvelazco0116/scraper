@@ -399,3 +399,52 @@ def test_chedraui_orderform_rejects_other_store():
         },
     }
     assert not ChedrauiScraper._orderform_matches_location(payload, POLANCO)
+
+
+
+def test_chedraui_zero_stock_without_price_is_retained():
+    scraper = ChedrauiAPIScraper()
+    scraper._active_store_context_method = "orderform"
+    payload = {
+        "data": {
+            "productSearch": {
+                "recordsFiltered": 1,
+                "products": [
+                    {
+                        "productId": "1000",
+                        "productName": "Producto sin precio por agotado",
+                        "brand": "Marca",
+                        "link": "/producto-agotado-1000/p",
+                        "items": [
+                            {
+                                "sellers": [
+                                    {
+                                        "sellerDefault": True,
+                                        "commertialOffer": {
+                                            "Price": None,
+                                            "ListPrice": None,
+                                            "AvailableQuantity": 0,
+                                            "discountHighlights": [],
+                                            "teasers": [],
+                                        },
+                                    }
+                                ]
+                            }
+                        ],
+                    }
+                ],
+            }
+        }
+    }
+
+    rows, _ = scraper._rows_from_product_search_payload(
+        payload,
+        LAUNDRY,
+        POLANCO,
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["price_current"] is None
+    assert row["availability_status"] == "UNAVAILABLE"
+    assert row["is_available"] is False
+    assert row["pickup_available"] is False
