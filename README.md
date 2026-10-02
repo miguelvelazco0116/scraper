@@ -71,22 +71,42 @@ python .\scripts\run_all_retailers.py --local-browser
 El modo `--local-browser` usa Google Chrome visible para los retailers que lo requieren.
 
 
+### Preparación / recuperación de perfiles persistentes
+
+Si Soriana empieza una corrida ya bloqueado o Chedraui pierde el contexto de Polanco, se puede preparar el perfil local una sola vez antes de reintentar:
+
+```powershell
+& .\scripts\prepare_retailer_profiles.ps1 -Retailer soriana
+& .\scripts\prepare_retailer_profiles.ps1 -Retailer chedraui
+```
+
+También puede abrir ambos secuencialmente:
+
+```powershell
+& .\scripts\prepare_retailer_profiles.ps1 -Retailer all
+```
+
+La utilidad abre Chrome con el mismo perfil dedicado que usa el scraper. No resuelve verificaciones automáticamente: permite completar manualmente cualquier validación normal del sitio o confirmar Polanco y después conserva cookies/localStorage/sessionStorage para las siguientes corridas. No debe ejecutarse al mismo tiempo que el scraper porque Chrome bloquea el perfil mientras está abierto.
+
+
 ### Pacing de Soriana
 
 Soriana ha mostrado bloqueos intermitentes `403 / GF R01` al consultar varias categorías consecutivas. El runner aplica por defecto:
 
 ```text
-60 s entre categorías consecutivas dentro de cada tanda
+120 s entre categorías consecutivas exitosas dentro de cada tanda
 tandas de 2 categorías intercaladas con otros retailers
-300 s antes del reintento final
-1 reintento al final de la corrida sólo para categorías BLOCKED
+si una categoría queda BLOCKED, la siguiente de esa tanda se difiere
+600 s antes del reintento final
+1 reintento al final para categorías BLOCKED o DEFERRED
+300 s mínimos antes del siguiente retry si un retry vuelve a quedar BLOCKED
 perfil persistente .soriana_profile
 ```
 
 Los tiempos pueden ajustarse con:
 
 ```powershell
-python .\scripts\run_all_retailers.py --local-browser --soriana-delay-seconds 60 --soriana-retry-delay-seconds 300
+python .\scripts\run_all_retailers.py --local-browser --soriana-delay-seconds 120 --soriana-retry-delay-seconds 600
 ```
 
 No se automatiza ninguna verificación ni se intenta evadir la protección del sitio; si el segundo intento sigue bloqueado, el caso permanece `BLOCKED`.
@@ -281,7 +301,8 @@ Antes de extraer catálogo:
 3. prepara `country=MEX` y `postalCode=11500` cuando existe `sessionToken`;
 4. consulta `/api/checkout/pub/pickup-points` y busca candidatos de Polanco;
 5. reutiliza la tienda persistida si el estado del navegador ya la verifica;
-6. utiliza el selector visual de tienda como fallback cuando todavía hace falta confirmar Polanco.
+6. consulta el orderForm actual y valida store/pickup cuando el estado lo expone;
+7. utiliza el selector visual de tienda como fallback cuando todavía hace falta confirmar Polanco.
 
 El catálogo/precio autoritativo sigue siendo `productSearchV3`. La disponibilidad de Chedraui se obtiene de `AvailableQuantity`: mayor a cero = `AVAILABLE`, cero = `UNAVAILABLE`, ausente = `UNKNOWN`.
 
@@ -538,8 +559,9 @@ Cada retailer mantiene su configuración y extractor separado. `main.py` normali
 ### 2 de octubre de 2026
 
 - Se agregaron perfiles persistentes para Soriana y Chedraui.
-- Soriana se distribuye en tandas de dos categorías intercaladas con otros retailers y usa cooldown final de 300 s.
-- Chedraui prepara región VTEX por CP 11500 y consulta pickup points antes del fallback visual.
+- Soriana se distribuye en tandas de dos categorías intercaladas con otros retailers; tras un BLOCKED difiere el resto de la tanda y usa cooldown final de 600 s.
+- Chedraui prepara región VTEX por CP 11500, consulta pickup points y verifica orderForm antes del fallback visual.
+- Se agregó una utilidad manual de preparación/recuperación de perfiles persistentes.
 - Chedraui obtiene disponibilidad estructurada desde `productSearchV3.AvailableQuantity`.
 - El consolidado conserva la última muestra válida como `STALE_RETAINED` cuando una categoría falla.
 - Se agregó captura normalizada de disponibilidad de producto para los siete retailers activos.
