@@ -28,3 +28,17 @@ categories:
     sub_subcategory: null
     url: https://www.soriana.com/cuidado-personal-y-belleza/afeitado-y-depilacion/afeitado-y-depilacion-para-dama/
     enabled: true
+
+  - id: desodorantes-para-caballero
+    name: Cuidado personal y belleza
+    subcategory: Talcos y desodorantes
+    sub_subcategory: Desodorantes para caballero
+    url: https://www.soriana.com/cuidado-personal-y-belleza/talcos-y-desodorantes/desodorantes-para-caballero/
+    enabled: true
+
+  - id: desodorantes-para-dama
+    name: Cuidado personal y belleza
+    subcategory: Talcos y desodorantes
+    sub_subcategory: Desodorantes para dama
+    url: https://www.soriana.com/cuidado-personal-y-belleza/talcos-y-desodorantes/desodorantes-para-dama/
+    enabled: true

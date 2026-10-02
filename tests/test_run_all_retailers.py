@@ -10,6 +10,8 @@ def test_run_all_retailers_discovers_current_categories():
         "limpiadores",
         "detergentes",
         "afeitado-depilacion-dama",
+        "desodorantes-para-caballero",
+        "desodorantes-para-dama",
     }
     assert {item["id"] for item in walmart} == {
         "cuidado-bucal",

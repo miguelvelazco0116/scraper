@@ -6,7 +6,7 @@ Base modular para extraer catálogos públicos de retailers de México, generar 
 
 | Retailer | Estado | Categorías implementadas |
 |---|---|---|
-| Soriana | Implementado y validado | Cuidado bucal; Cuidado del hogar > Limpiadores; Cuidado del hogar > Limpiadores > Detergentes; Cuidado personal > Afeitado y depilación > Afeitado y depilación para dama |
+| Soriana | Implementado y validado | Cuidado bucal; Cuidado del hogar > Limpiadores; Cuidado del hogar > Limpiadores > Detergentes; Cuidado personal > Afeitado y depilación > Afeitado y depilación para dama; Cuidado personal y belleza > Talcos y desodorantes > Desodorantes para caballero; Cuidado personal y belleza > Talcos y desodorantes > Desodorantes para dama |
 | Walmart | Implementado; requiere sesión verificada portable para SC Toreo | Cuidado bucal; Cuidado de la ropa; Depilación y rasurado |
 | Chedraui | Implementado para Chedraui Selecto México Polanco (232) | Higiene bucal; Lavandería |
 | Farmacias Guadalajara | Código/configuración implementados; el dominio no respondió desde GitHub-hosted durante la validación | Vías respiratorias; Lavandería; Cuidado bucal; Preservativos |
