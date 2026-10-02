@@ -64,3 +64,23 @@ def test_chedraui_polanco_store():
     assert store.store == "Chedraui Selecto México Polanco"
     assert store.postal_code == "11500"
     assert store.city == "Miguel Hidalgo"
+
+
+def test_soriana_desodorantes_hierarchy():
+    categories = {x.id: x for x in load_categories("config/soriana/categories.yaml")}
+
+    caballero = categories["desodorantes-para-caballero"]
+    assert caballero.name == "Cuidado personal y belleza"
+    assert caballero.subcategory == "Talcos y desodorantes"
+    assert caballero.sub_subcategory == "Desodorantes para caballero"
+    assert caballero.url.endswith(
+        "/cuidado-personal-y-belleza/talcos-y-desodorantes/desodorantes-para-caballero/"
+    )
+
+    dama = categories["desodorantes-para-dama"]
+    assert dama.name == "Cuidado personal y belleza"
+    assert dama.subcategory == "Talcos y desodorantes"
+    assert dama.sub_subcategory == "Desodorantes para dama"
+    assert dama.url.endswith(
+        "/cuidado-personal-y-belleza/talcos-y-desodorantes/desodorantes-para-dama/"
+    )
