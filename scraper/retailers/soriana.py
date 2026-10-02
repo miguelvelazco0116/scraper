@@ -34,6 +34,7 @@ class SorianaScraper:
         diagnostics_dir: str | Path = "diagnostics",
         max_load_more: int = 100,
         wait_ms: int = 1200,
+        browser_channel: str | None = None,
     ) -> None:
         self.headless = headless
         self.diagnostics_dir = Path(diagnostics_dir)
@@ -42,6 +43,7 @@ class SorianaScraper:
         # the maximum number of catalogue pages to traverse.
         self.max_load_more = max_load_more
         self.wait_ms = wait_ms
+        self.browser_channel = browser_channel
         self.grid_responses: list[dict[str, Any]] = []
 
     def _capture_grid_response(self, response: Response) -> None:
@@ -250,7 +252,10 @@ class SorianaScraper:
 
     def scrape_category(self, category: Category, location: Location) -> list[dict[str, Any]]:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=self.headless)
+            launch_kwargs = {"headless": self.headless}
+            if self.browser_channel:
+                launch_kwargs["channel"] = self.browser_channel
+            browser = p.chromium.launch(**launch_kwargs)
             context: BrowserContext = browser.new_context(
                 locale="es-MX",
                 viewport={"width": 1440, "height": 1000},
