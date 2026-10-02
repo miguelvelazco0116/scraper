@@ -137,31 +137,48 @@ def run_soriana(category, location, attempt: str) -> tuple[list[dict], dict]:
 
 
 def run_chedraui(category, location) -> tuple[list[dict], dict]:
-    scraper = ChedrauiScraper(
-        headless=False,
-        browser_channel="chrome",
-        diagnostics_dir=ROOT / "diagnostics" / "chedraui_availability_test",
-    )
     rows: list[dict] = []
     status = "SUCCESS"
     error = None
+    attempt = "initial"
 
-    try:
-        rows = scraper.scrape_category(category, location)
-        if not rows:
-            status = "EMPTY"
-    except ChedrauiBlocked as exc:
-        status = "BLOCKED"
-        error = str(exc)
-    except ChedrauiStoreContextError as exc:
-        status = "STORE_CONTEXT_ERROR"
-        error = str(exc)
-    except Exception as exc:
-        status = "ERROR"
-        error = f"{type(exc).__name__}: {exc}"
+    for attempt_number in (1, 2):
+        scraper = ChedrauiScraper(
+            headless=False,
+            browser_channel="chrome",
+            diagnostics_dir=ROOT / "diagnostics" / "chedraui_availability_test",
+        )
+        rows = []
+        status = "SUCCESS"
+        error = None
+
+        try:
+            rows = scraper.scrape_category(category, location)
+            if not rows:
+                status = "EMPTY"
+        except ChedrauiBlocked as exc:
+            status = "BLOCKED"
+            error = str(exc)
+        except ChedrauiStoreContextError as exc:
+            status = "STORE_CONTEXT_ERROR"
+            error = str(exc)
+        except Exception as exc:
+            status = "ERROR"
+            error = f"{type(exc).__name__}: {exc}"
+
+        if status != "STORE_CONTEXT_ERROR" or attempt_number == 2:
+            attempt = "initial" if attempt_number == 1 else "store-retry"
+            break
+
+        print(
+            "     Chedraui store context no verificado; "
+            "reintentando en 30s...",
+            flush=True,
+        )
+        time.sleep(30)
 
     return rows, availability_summary(
-        "Chedraui", category.id, status, rows, attempt="initial", error=error
+        "Chedraui", category.id, status, rows, attempt=attempt, error=error
     )
 
 
