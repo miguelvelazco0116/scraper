@@ -264,6 +264,298 @@ class FarmaciasSanPabloScraper:
         return None
 
     @staticmethod
+    def _occ_search_url_from_resources(driver) -> str | None:
+        try:
+            urls = driver.execute_script(
+                """
+                return performance.getEntriesByType('resource')
+                  .map(entry => entry.name || '')
+                  .filter(url => url.includes('/rest/v2/fsp/products/search-sponsored'));
+                """
+            ) or []
+        except Exception:
+            return None
+
+        for value in reversed(urls):
+            url = clean_text(value)
+            if url:
+                return url
+        return None
+
+    @staticmethod
+    def _occ_page_url(url: str, page_index: int) -> str:
+        parsed = urlparse(url)
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        query["currentPage"] = [str(page_index)]
+        encoded = urlencode(
+            [(key, value) for key, values in query.items() for value in values]
+        )
+        return urlunparse(parsed._replace(query=encoded))
+
+    @staticmethod
+    def _fetch_occ_json(driver, url: str) -> dict:
+        result = driver.execute_async_script(
+            """
+            const target = arguments[0];
+            const done = arguments[arguments.length - 1];
+
+            fetch(target, {
+              method: 'GET',
+              credentials: 'include',
+              headers: { 'Accept': 'application/json' }
+            })
+              .then(async response => {
+                const text = await response.text();
+                done({
+                  ok: response.ok,
+                  status: response.status,
+                  text
+                });
+              })
+              .catch(error => done({
+                ok: false,
+                status: 0,
+                text: '',
+                error: String(error)
+              }));
+            """,
+            url,
+        ) or {}
+
+        status = int(result.get("status") or 0)
+        if not result.get("ok"):
+            raise FarmaciasSanPabloNetworkUnavailable(
+                f"OCC search-sponsored falló HTTP {status}: "
+                f"{result.get('error') or result.get('text') or ''}"
+            )
+
+        try:
+            payload = json.loads(result.get("text") or "{}")
+        except json.JSONDecodeError as exc:
+            raise FarmaciasSanPabloNetworkUnavailable(
+                f"OCC devolvió JSON inválido en {url}"
+            ) from exc
+
+        return payload if isinstance(payload, dict) else {}
+
+    @classmethod
+    def _discover_occ_products(
+        cls,
+        driver,
+        category: Category,
+        max_pages: int,
+    ) -> tuple[list[dict], dict] | None:
+        cls._goto(driver, category.url)
+        time.sleep(1.2)
+
+        api_url = cls._occ_search_url_from_resources(driver)
+        search_fallback_url = None
+
+        if not api_url:
+            query = (
+                clean_text(category.subcategory)
+                or clean_text(category.name)
+                or clean_text(category.id)
+                or ""
+            )
+            if query:
+                search_fallback_url = urljoin(
+                    BASE_URL,
+                    "search/" + quote(query, safe=""),
+                )
+                cls._goto(driver, search_fallback_url)
+                time.sleep(1.2)
+                api_url = cls._occ_search_url_from_resources(driver)
+
+        if not api_url:
+            return None
+
+        products: dict[str, dict] = {}
+        pages: list[dict] = []
+        target: int | None = None
+        total_pages: int | None = None
+
+        for page_index in range(max_pages):
+            page_url = cls._occ_page_url(api_url, page_index)
+            payload = cls._fetch_occ_json(driver, page_url)
+
+            pagination = payload.get("pagination")
+            if isinstance(pagination, dict):
+                try:
+                    raw_target = pagination.get("totalResults")
+                    if raw_target is not None:
+                        target = int(raw_target)
+                except (TypeError, ValueError):
+                    pass
+                try:
+                    raw_pages = pagination.get("totalPages")
+                    if raw_pages is not None:
+                        total_pages = int(raw_pages)
+                except (TypeError, ValueError):
+                    pass
+
+            page_products = payload.get("products")
+            if not isinstance(page_products, list):
+                page_products = []
+
+            before = len(products)
+            for product in page_products:
+                if not isinstance(product, dict):
+                    continue
+                code = clean_text(str(product.get("code") or ""))
+                href = clean_text(str(product.get("url") or ""))
+                name = clean_text(str(product.get("name") or ""))
+                key = code or href or name
+                if key:
+                    products[key] = product
+
+            pages.append(
+                {
+                    "page": page_index + 1,
+                    "currentPage": page_index,
+                    "products_on_page": len(page_products),
+                    "new_products": len(products) - before,
+                    "cumulative_products": len(products),
+                    "target_products": target,
+                    "total_pages": total_pages,
+                    "api_url": page_url,
+                }
+            )
+
+            if total_pages is not None and page_index + 1 >= total_pages:
+                break
+            if target is not None and len(products) >= target:
+                break
+            if not page_products:
+                break
+
+        meta = {
+            "source": "occ_search_sponsored",
+            "api_url": api_url,
+            "search_fallback_url": search_fallback_url,
+            "target_products": target,
+            "total_pages": total_pages,
+            "products_discovered": len(products),
+            "pages": pages,
+        }
+        return list(products.values()), meta
+
+    @staticmethod
+    def _price_value(value) -> float | None:
+        if isinstance(value, dict):
+            raw = value.get("value")
+            if raw is None:
+                raw = value.get("formattedValue")
+        else:
+            raw = value
+
+        if isinstance(raw, (int, float)):
+            return float(raw)
+
+        if raw is None:
+            return None
+
+        text = str(raw)
+        match = re.search(r"([0-9][0-9,]*(?:\.\d{1,2})?)", text)
+        if not match:
+            return None
+        try:
+            return float(match.group(1).replace(",", ""))
+        except ValueError:
+            return None
+
+    @classmethod
+    def _row_from_occ_product(
+        cls,
+        product: dict,
+        category: Category,
+        location: Location,
+        now: str,
+    ) -> dict | None:
+        name = clean_text(str(product.get("name") or ""))
+        raw_code = clean_text(str(product.get("code") or ""))
+        href = clean_text(str(product.get("url") or ""))
+
+        if not name or not raw_code:
+            return None
+
+        sku = raw_code.lstrip("0") or raw_code
+        url = urljoin(BASE_URL, href) if href else None
+
+        current = cls._price_value(product.get("price"))
+        regular = cls._price_value(product.get("basePrice"))
+        if regular is None:
+            regular = current
+        if current is None:
+            current = regular
+
+        promotion_parts: list[str] = []
+        promotions = product.get("potentialPromotions")
+        if isinstance(promotions, list):
+            for promotion in promotions:
+                if not isinstance(promotion, dict):
+                    continue
+                text = (
+                    clean_text(str(promotion.get("description") or ""))
+                    or clean_text(str(promotion.get("name") or ""))
+                    or clean_text(str(promotion.get("code") or ""))
+                )
+                if text and text not in promotion_parts:
+                    promotion_parts.append(text)
+
+        if (
+            current is not None
+            and regular is not None
+            and current < regular
+            and "Precio promocional" not in promotion_parts
+        ):
+            promotion_parts.append("Precio promocional")
+
+        gtm = product.get("gtmProperties")
+        brand = None
+        if isinstance(gtm, dict):
+            for key in ("brand", "item_brand", "brandName", "manufacturer"):
+                value = clean_text(str(gtm.get(key) or ""))
+                if value:
+                    brand = value
+                    break
+        brand = brand or cls._infer_brand(name)
+
+        return {
+            "scrape_timestamp": now,
+            "retailer": "Farmacias San Pablo",
+            "city": location.city,
+            "state": location.state,
+            "postal_code": location.postal_code,
+            "store": location.store,
+            "store_id": location.store_id,
+            "department": category.department,
+            "category": category.name,
+            "subcategory": category.subcategory,
+            "sub_subcategory": category.sub_subcategory,
+            "category_id": category.id,
+            "sku": sku,
+            "brand": brand,
+            "product": name,
+            "price_current": current,
+            "price_regular": regular,
+            "promotion": " | ".join(promotion_parts) if promotion_parts else None,
+            "pickup_available": None,
+            "store_context_verified": False,
+            "store_context_method": "san_pablo_occ_search_sponsored",
+            "url": url,
+            "price_raw": json.dumps(
+                {
+                    "price": product.get("price"),
+                    "basePrice": product.get("basePrice"),
+                    "potentialPromotions": product.get("potentialPromotions"),
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+        }
+
+    @staticmethod
     def _extract_cards(driver) -> list[dict]:
         script = r"""
         const normalize = value => String(value || '').replace(/\s+/g, ' ').trim();
@@ -801,6 +1093,63 @@ class FarmaciasSanPabloScraper:
         driver = self._build_driver(self.headless)
 
         try:
+            occ = self._discover_occ_products(
+                driver,
+                category,
+                max_pages=self.max_pages,
+            )
+            if occ is not None:
+                products, meta = occ
+                rows = [
+                    row
+                    for product in products
+                    if (
+                        row := self._row_from_occ_product(
+                            product,
+                            category,
+                            location,
+                            now,
+                        )
+                    ) is not None
+                ]
+
+                unique: dict[str, dict] = {}
+                for row in rows:
+                    key = (
+                        clean_text(row.get("sku"))
+                        or clean_text(row.get("url"))
+                        or clean_text(row.get("product"))
+                    )
+                    if key:
+                        unique[key] = row
+                rows = list(unique.values())
+
+                meta.update(
+                    {
+                        "rows": len(rows),
+                        "unique_skus": len(
+                            {str(row["sku"]) for row in rows if row.get("sku")}
+                        ),
+                        "unique_urls": len(
+                            {str(row["url"]) for row in rows if row.get("url")}
+                        ),
+                        "price_complete": sum(
+                            row.get("price_current") is not None for row in rows
+                        ),
+                        "browser": "Google Chrome",
+                        "engine": "Selenium + OCC",
+                        "status": "SUCCESS" if rows else "EMPTY",
+                    }
+                )
+
+                target = meta.get("target_products")
+                if target is not None and len(rows) < int(target):
+                    meta["status"] = "PARTIAL"
+
+                self.last_meta = meta
+                self._write_diagnostics(driver, category, meta)
+                return rows
+
             cards, meta = self._discover_cards(driver, category)
             rows: list[dict] = []
 
