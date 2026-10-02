@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 import pandas as pd
 from openpyxl.styles import Font
@@ -17,7 +22,6 @@ from scraper.retailers.chedraui import (
 from scraper.retailers.soriana import SorianaBlocked, SorianaScraper
 
 
-ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "output" / "soriana_chedraui_availability_test.xlsx"
 
 SORIANA_BLOCKED_CATEGORIES = [
