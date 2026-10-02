@@ -3,3 +3,4 @@ pandas==2.3.3
 openpyxl==3.1.5
 PyYAML==6.0.3
 pytest==8.4.1
+selenium>=4.20,<5
