@@ -111,6 +111,8 @@ def run_category(category, location):
         "status": status,
         "target_products": meta.get("target_products"),
         "product_links": meta.get("product_links"),
+        "observed_products": meta.get("observed_products"),
+        "unobserved_products": meta.get("unobserved_products"),
         "discovery_complete": bool(meta.get("discovery_complete")),
         "products": len(df),
         "sku_complete": int(
@@ -159,6 +161,8 @@ def run_category(category, location):
         "status",
         "target_products",
         "product_links",
+        "observed_products",
+        "unobserved_products",
         "discovery_complete",
         "products",
         "sku_complete",
