@@ -5,7 +5,9 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse, urlunparse
+from urllib.request import Request, urlopen
 
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException, WebDriverException
@@ -294,46 +296,73 @@ class FarmaciasSanPabloScraper:
 
     @staticmethod
     def _fetch_occ_json(driver, url: str) -> dict:
-        result = driver.execute_async_script(
-            """
-            const target = arguments[0];
-            const done = arguments[arguments.length - 1];
+        """Consulta OCC desde Python para evitar restricciones CORS del navegador."""
 
-            fetch(target, {
-              method: 'GET',
-              credentials: 'include',
-              headers: { 'Accept': 'application/json' }
-            })
-              .then(async response => {
-                const text = await response.text();
-                done({
-                  ok: response.ok,
-                  status: response.status,
-                  text
-                });
-              })
-              .catch(error => done({
-                ok: false,
-                status: 0,
-                text: '',
-                error: String(error)
-              }));
-            """,
-            url,
-        ) or {}
+        try:
+            user_agent = driver.execute_script("return navigator.userAgent") or ""
+        except Exception:
+            user_agent = ""
 
-        status = int(result.get("status") or 0)
-        if not result.get("ok"):
+        try:
+            current_url = driver.current_url or BASE_URL
+        except Exception:
+            current_url = BASE_URL
+
+        cookie_header = ""
+        try:
+            cookies = driver.get_cookies() or []
+            cookie_header = "; ".join(
+                f"{item.get('name')}={item.get('value')}"
+                for item in cookies
+                if item.get("name") and item.get("value") is not None
+            )
+        except Exception:
+            pass
+
+        headers = {
+            "Accept": "application/json, text/plain, */*",
+            "User-Agent": user_agent or (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/140.0.0.0 Safari/537.36"
+            ),
+            "Referer": current_url,
+            "Origin": "https://www.farmaciasanpablo.com.mx",
+        }
+        if cookie_header:
+            headers["Cookie"] = cookie_header
+
+        request = Request(url, headers=headers, method="GET")
+
+        try:
+            with urlopen(request, timeout=45) as response:
+                status = int(getattr(response, "status", 200) or 200)
+                raw = response.read()
+                charset = response.headers.get_content_charset() or "utf-8"
+                text = raw.decode(charset, errors="replace")
+        except HTTPError as exc:
+            try:
+                detail = exc.read().decode("utf-8", errors="replace")
+            except Exception:
+                detail = str(exc)
             raise FarmaciasSanPabloNetworkUnavailable(
-                f"OCC search-sponsored falló HTTP {status}: "
-                f"{result.get('error') or result.get('text') or ''}"
+                f"OCC search-sponsored falló HTTP {exc.code}: {detail[:500]}"
+            ) from exc
+        except (URLError, TimeoutError, OSError) as exc:
+            raise FarmaciasSanPabloNetworkUnavailable(
+                f"OCC search-sponsored no disponible: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        if status >= 400:
+            raise FarmaciasSanPabloNetworkUnavailable(
+                f"OCC search-sponsored falló HTTP {status}: {text[:500]}"
             )
 
         try:
-            payload = json.loads(result.get("text") or "{}")
+            payload = json.loads(text or "{}")
         except json.JSONDecodeError as exc:
             raise FarmaciasSanPabloNetworkUnavailable(
-                f"OCC devolvió JSON inválido en {url}"
+                f"OCC devolvió JSON inválido en {url}: {text[:300]}"
             ) from exc
 
         return payload if isinstance(payload, dict) else {}
