@@ -427,6 +427,9 @@ El scraper visita las fichas de producto, obtiene SKU desde `Referencia:`, preci
 
 Última validación: 30/30 productos con SKU, precio y URL.
 
+
+En la validación del 2 de octubre de 2026, la categoría `aparato-respiratorio` volvió a declarar 21 productos pero sólo expuso 13 productos observables (8 en la primera página y 5 en la segunda). El scraper no inventa 8 filas faltantes ni las clasifica automáticamente como agotadas; registra el **gap de catálogo** mediante `observed_products` y `unobserved_products`. Un probe separado inspecciona red/VTEX/DOM para intentar recuperar esos productos y su stock.
+
 Test dedicado:
 
 ```powershell
