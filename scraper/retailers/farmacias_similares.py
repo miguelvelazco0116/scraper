@@ -563,9 +563,14 @@ class FarmaciasSimilaresScraper:
             target is not None and len(found) >= target
         )
 
+        observed = len(found)
+        unobserved = max((target or 0) - observed, 0) if target is not None else None
+
         return list(found.values()), {
             "target_products": target,
-            "product_links": len(found),
+            "product_links": observed,
+            "observed_products": observed,
+            "unobserved_products": unobserved,
             "discovery_complete": discovery_complete,
             "pages": pages,
         }
