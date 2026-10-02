@@ -1,0 +1,17 @@
+retailer: bodega-aurrera
+categories:
+  - id: cuidado-bucal
+    department: Belleza y cuidado personal
+    name: Higiene y cuidado personal
+    subcategory: Cuidado bucal
+    sub_subcategory: null
+    url: https://despensa.bodegaaurrera.com.mx/browse/higiene-personal-y-belleza/cuidado-bucal/10_1004
+    enabled: true
+
+  - id: cuidado-de-la-ropa
+    department: Limpieza del hogar y cuidado de la ropa
+    name: Cuidado de la ropa
+    subcategory: null
+    sub_subcategory: null
+    url: https://www.bodegaaurrera.com.mx/content/cuidado-de-la-ropa/3680083
+    enabled: true
