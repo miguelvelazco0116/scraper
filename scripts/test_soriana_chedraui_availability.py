@@ -14,7 +14,7 @@ from openpyxl.styles import Font
 
 from main import COLUMNS
 from scraper.config import load_categories, load_locations
-from scraper.retailers.chedraui import (
+from scraper.retailers.chedraui_polanco_api import (
     ChedrauiBlocked,
     ChedrauiScraper,
     ChedrauiStoreContextError,
@@ -115,6 +115,7 @@ def run_soriana(category, location, attempt: str) -> tuple[list[dict], dict]:
         headless=False,
         browser_channel="chrome",
         diagnostics_dir=ROOT / "diagnostics" / "soriana_availability_test",
+        profile_dir=ROOT / ".soriana_profile",
     )
     rows: list[dict] = []
     status = "SUCCESS"
@@ -147,6 +148,7 @@ def run_chedraui(category, location) -> tuple[list[dict], dict]:
             headless=False,
             browser_channel="chrome",
             diagnostics_dir=ROOT / "diagnostics" / "chedraui_availability_test",
+            profile_dir=ROOT / ".chedraui_profile",
         )
         rows = []
         status = "SUCCESS"
@@ -259,7 +261,7 @@ def main() -> int:
         description="Soriana bloqueados + disponibilidad Soriana/Chedraui"
     )
     parser.add_argument("--soriana-delay-seconds", type=int, default=60)
-    parser.add_argument("--retry-delay-seconds", type=int, default=120)
+    parser.add_argument("--retry-delay-seconds", type=int, default=300)
     args = parser.parse_args()
 
     soriana_categories = {
