@@ -244,12 +244,16 @@ def apply_quality(results: list[dict]) -> tuple[pd.DataFrame, pd.DataFrame]:
             notes.append(
                 f"precio {result['price_current_complete']}/{result['products']}"
             )
-        if result["sku_complete"] < result["products"]:
-            notes.append(f"sku {result['sku_complete']}/{result['products']}")
-        if result["url_complete"] < result["products"]:
-            notes.append(f"url {result['url_complete']}/{result['products']}")
-        if result["duplicates_sku_url"] > 0:
-            notes.append(f"duplicados {result['duplicates_sku_url']}")
+
+        # En San Pablo el entregable crítico es precio/promoción.
+        # SKU y URL quedan como cobertura informativa.
+        if result["retailer"] != "Farmacias San Pablo":
+            if result["sku_complete"] < result["products"]:
+                notes.append(f"sku {result['sku_complete']}/{result['products']}")
+            if result["url_complete"] < result["products"]:
+                notes.append(f"url {result['url_complete']}/{result['products']}")
+            if result["duplicates_sku_url"] > 0:
+                notes.append(f"duplicados {result['duplicates_sku_url']}")
 
         result["quality_status"] = "COMPLETE" if not notes else "REVIEW"
         result["quality_notes"] = "; ".join(notes)
