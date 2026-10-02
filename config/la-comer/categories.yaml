@@ -1,0 +1,17 @@
+retailer: la-comer
+categories:
+  - id: detergentes-suavizantes
+    department: Limpieza del hogar
+    name: Limpieza del hogar
+    subcategory: Detergentes y suavizantes
+    sub_subcategory: null
+    url: https://www.lacomer.com.mx/lacomer/#!/home?succId=287&succFmt=100
+    enabled: true
+
+  - id: cuidado-bucal
+    department: Higiene y belleza
+    name: Higiene y belleza
+    subcategory: Cuidado bucal
+    sub_subcategory: null
+    url: https://www.lacomer.com.mx/lacomer/#!/home?succId=287&succFmt=100
+    enabled: true

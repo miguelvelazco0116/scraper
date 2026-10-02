@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from copy import copy
 from pathlib import Path
 
 import pandas as pd
@@ -23,6 +24,26 @@ from scraper.retailers.farmacias_san_pablo import (
     FarmaciasSanPabloNetworkUnavailable,
     FarmaciasSanPabloScraper,
 )
+from scraper.retailers.farmacias_similares import (
+    FarmaciasSimilaresBlocked,
+    FarmaciasSimilaresNetworkUnavailable,
+    FarmaciasSimilaresScraper,
+)
+from scraper.retailers.la_comer import (
+    LaComerBlocked,
+    LaComerNetworkUnavailable,
+    LaComerScraper,
+)
+from scraper.retailers.ibarra_mayoreo import (
+    IbarraMayoreoBlocked,
+    IbarraMayoreoNetworkUnavailable,
+    IbarraMayoreoScraper,
+)
+from scraper.retailers.bodega_aurrera import (
+    BodegaAurreraBlocked,
+    BodegaAurreraNetworkUnavailable,
+    BodegaAurreraScraper,
+)
 from scraper.retailers.soriana import SorianaBlocked, SorianaScraper
 from scraper.retailers.walmart import WalmartBlocked, WalmartScraper, WalmartStoreContextError
 from scraper.retailers.walmart_persistent import WalmartPersistentScraper
@@ -36,6 +57,37 @@ COLUMNS = [
 ]
 
 CONSOLIDATED_PATH = Path("output/concentrado_scraper.xlsx")
+
+
+def deduplicate_catalog(df: pd.DataFrame) -> pd.DataFrame:
+    """Deduplicate without collapsing rows that have no SKU and no URL.
+
+    Some retailers (notably San Pablo category cards) expose valid products
+    without a stable SKU/URL. Those rows must be deduplicated by content
+    instead of treating every (NaN, NaN) pair as the same product.
+    """
+    if df.empty:
+        return df.copy()
+
+    work = df.copy()
+    for col in ("sku", "url", "product", "price_current", "price_raw"):
+        if col not in work.columns:
+            work[col] = None
+
+    sku = work["sku"].fillna("").astype(str).str.strip()
+    url = work["url"].fillna("").astype(str).str.strip()
+    has_identifier = sku.ne("") | url.ne("")
+
+    with_id = work.loc[has_identifier].drop_duplicates(
+        subset=["sku", "url"],
+        keep="last",
+    )
+    without_id = work.loc[~has_identifier].drop_duplicates(
+        subset=["product", "price_current", "price_raw"],
+        keep="last",
+    )
+
+    return pd.concat([with_id, without_id], ignore_index=True)
 
 
 def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATED_PATH) -> Path:
@@ -73,13 +125,40 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
         same_store = existing["store_id"].fillna("").astype(str).eq("" if pd.isna(store_id) else str(store_id))
         existing = existing.loc[~(same_retailer & same_category & same_city & same_store)].copy()
 
-    combined = pd.concat([existing, incoming], ignore_index=True)
+    if existing.empty:
+        combined = incoming.copy()
+    elif incoming.empty:
+        combined = existing.copy()
+    else:
+        # Evita el FutureWarning de pandas al concatenar columnas all-NA.
+        # Se eliminan temporalmente sólo las columnas completamente vacías
+        # de cada fragmento y después se restaura el esquema canónico.
+        concat_parts = [
+            frame.dropna(axis=1, how="all")
+            for frame in (existing, incoming)
+        ]
+        combined = pd.concat(concat_parts, ignore_index=True, sort=False)
+        for col in COLUMNS:
+            if col not in combined.columns:
+                combined[col] = None
+        combined = combined[COLUMNS]
     if not combined.empty:
-        combined["sku"] = combined["sku"].astype(str)
-        combined = combined.drop_duplicates(
+        sku_text = combined["sku"].fillna("").astype(str).str.strip()
+        url_text = combined["url"].fillna("").astype(str).str.strip()
+        id_mask = sku_text.ne("") | url_text.ne("")
+
+        with_id = combined.loc[id_mask].drop_duplicates(
             subset=["retailer", "category_id", "city", "store_id", "sku", "url"],
             keep="last",
         )
+        without_id = combined.loc[~id_mask].drop_duplicates(
+            subset=[
+                "retailer", "category_id", "city", "store_id",
+                "product", "price_current", "price_raw",
+            ],
+            keep="last",
+        )
+        combined = pd.concat([with_id, without_id], ignore_index=True)
         combined = combined.sort_values(
             ["retailer", "category_id", "brand", "product"],
             na_position="last",
@@ -111,7 +190,9 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
             ws.freeze_panes = "A2"
             ws.auto_filter.ref = ws.dimensions
             for cell in ws[1]:
-                cell.font = cell.font.copy(bold=True)
+                header_font = copy(cell.font)
+                header_font.bold = True
+                cell.font = header_font
             for col_cells in ws.columns:
                 values = [str(c.value) if c.value is not None else "" for c in col_cells[:200]]
                 width = min(max(max((len(v) for v in values), default=0) + 2, 10), 42)
@@ -134,7 +215,8 @@ def main() -> int:
         default="soriana",
         choices=[
             "soriana", "walmart", "chedraui", "farmacias-guadalajara",
-            "farmacias-del-ahorro", "farmacias-san-pablo",
+            "farmacias-del-ahorro", "farmacias-san-pablo", "farmacias-similares",
+            "la-comer", "ibarra-mayoreo", "bodega-aurrera",
         ],
     )
     parser.add_argument("--category", default="cuidado-bucal")
@@ -143,6 +225,11 @@ def main() -> int:
     parser.add_argument("--profile-dir", default=None, help="Perfil persistente de Playwright para Walmart")
     parser.add_argument("--storage-state", default=None, help="Sesión portable de Playwright para Walmart")
     parser.add_argument("--headed", action="store_true", help="Abrir navegador visible")
+    parser.add_argument(
+        "--browser-channel",
+        default=None,
+        help="Canal de navegador Playwright, por ejemplo: chrome",
+    )
     parser.add_argument("--max-load-more", type=int, default=100)
     args = parser.parse_args()
 
@@ -158,6 +245,14 @@ def main() -> int:
         default_location = "fahorro-online"
     elif args.retailer == "farmacias-san-pablo":
         default_location = "san-pablo-online"
+    elif args.retailer == "farmacias-similares":
+        default_location = "similares-online"
+    elif args.retailer == "la-comer":
+        default_location = "la-comer-online-287"
+    elif args.retailer == "ibarra-mayoreo":
+        default_location = "ibarra-online"
+    elif args.retailer == "bodega-aurrera":
+        default_location = "bodega-aurrera-online"
     else:
         default_location = "cdmx"
     location_id = args.store or args.location or default_location
@@ -168,7 +263,11 @@ def main() -> int:
         raise SystemExit(f"Ubicación/tienda no encontrada: {location_id}")
 
     if args.retailer == "soriana":
-        scraper = SorianaScraper(headless=not args.headed, max_load_more=args.max_load_more)
+        scraper = SorianaScraper(
+            headless=not args.headed,
+            max_load_more=args.max_load_more,
+            browser_channel=args.browser_channel,
+        )
         try:
             rows = scraper.scrape_category(category, location)
         except SorianaBlocked as exc:
@@ -200,7 +299,11 @@ def main() -> int:
             print(f"STORE_CONTEXT_ERROR: {exc}")
             return 4
     elif args.retailer == "chedraui":
-        scraper = ChedrauiScraper(headless=not args.headed, max_pages=args.max_load_more)
+        scraper = ChedrauiScraper(
+            headless=not args.headed,
+            max_pages=args.max_load_more,
+            browser_channel=args.browser_channel,
+        )
         try:
             rows = scraper.scrape_category(category, location)
         except ChedrauiBlocked as exc:
@@ -248,6 +351,62 @@ def main() -> int:
         except FarmaciasSanPabloNetworkUnavailable as exc:
             print(f"NETWORK_UNAVAILABLE: {exc}")
             return 5
+    elif args.retailer == "farmacias-similares":
+        scraper = FarmaciasSimilaresScraper(
+            headless=not args.headed,
+            browser_channel=args.browser_channel or "chrome",
+            max_pages=args.max_load_more,
+        )
+        try:
+            rows = scraper.scrape_category(category, location)
+        except FarmaciasSimilaresBlocked as exc:
+            print(f"BLOCKED: {exc}")
+            return 2
+        except FarmaciasSimilaresNetworkUnavailable as exc:
+            print(f"NETWORK_UNAVAILABLE: {exc}")
+            return 5
+    elif args.retailer == "la-comer":
+        scraper = LaComerScraper(
+            headless=not args.headed,
+            browser_channel=args.browser_channel or "chrome",
+            max_scroll_rounds=args.max_load_more,
+        )
+        try:
+            rows = scraper.scrape_category(category, location)
+        except LaComerBlocked as exc:
+            print(f"BLOCKED: {exc}")
+            return 2
+        except LaComerNetworkUnavailable as exc:
+            print(f"NETWORK_UNAVAILABLE: {exc}")
+            return 5
+    elif args.retailer == "ibarra-mayoreo":
+        scraper = IbarraMayoreoScraper(
+            headless=not args.headed,
+            browser_channel=args.browser_channel or "chrome",
+            max_pages=args.max_load_more,
+        )
+        try:
+            rows = scraper.scrape_category(category, location)
+        except IbarraMayoreoBlocked as exc:
+            print(f"BLOCKED: {exc}")
+            return 2
+        except IbarraMayoreoNetworkUnavailable as exc:
+            print(f"NETWORK_UNAVAILABLE: {exc}")
+            return 5
+    elif args.retailer == "bodega-aurrera":
+        scraper = BodegaAurreraScraper(
+            headless=not args.headed,
+            browser_channel=args.browser_channel or "chrome",
+            max_pages=args.max_load_more,
+        )
+        try:
+            rows = scraper.scrape_category(category, location)
+        except BodegaAurreraBlocked as exc:
+            print(f"BLOCKED: {exc}")
+            return 2
+        except BodegaAurreraNetworkUnavailable as exc:
+            print(f"NETWORK_UNAVAILABLE: {exc}")
+            return 5
     else:
         raise SystemExit(f"Retailer no implementado: {args.retailer}")
 
@@ -260,10 +419,20 @@ def main() -> int:
 
     df = pd.DataFrame(rows, columns=COLUMNS)
     if not df.empty:
-        df = df.drop_duplicates(subset=["sku", "url"], keep="last")
+        df = deduplicate_catalog(df)
         df = df.sort_values(["brand", "product"], na_position="last").reset_index(drop=True)
 
     consolidated_path = update_consolidated_output(df)
+
+    if args.retailer == "chedraui":
+        displayed = getattr(scraper, "run_meta", {}).get("displayed_category_products")
+        collected = getattr(scraper, "run_meta", {}).get("collected_products")
+        coverage = getattr(scraper, "run_meta", {}).get("displayed_count_coverage")
+        if displayed is not None:
+            print(
+                f"Chedraui catálogo tienda: displayed={displayed}, "
+                f"collected={collected}, coverage={coverage}"
+            )
 
     print(f"Productos únicos: {len(df)}")
     print(f"Concentrado: {consolidated_path}")
