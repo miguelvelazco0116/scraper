@@ -49,6 +49,8 @@ class ChedrauiScraper:
         wait_ms: int = 900,
         require_store_context: bool = True,
         browser_channel: str | None = None,
+        profile_dir: str | Path | None = None,
+        prepare_vtex_region: bool = True,
     ) -> None:
         self.headless = headless
         self.diagnostics_dir = Path(diagnostics_dir)
@@ -57,6 +59,10 @@ class ChedrauiScraper:
         self.wait_ms = wait_ms
         self.require_store_context = require_store_context
         self.browser_channel = browser_channel
+        self.profile_dir = Path(profile_dir) if profile_dir else None
+        if self.profile_dir is not None:
+            self.profile_dir.mkdir(parents=True, exist_ok=True)
+        self.prepare_vtex_region = prepare_vtex_region
         self.run_meta: dict[str, Any] = {}
         self._active_store_context_method: str | None = None
 
@@ -175,6 +181,135 @@ class ChedrauiScraper:
         if self._store_context_in_state_blob(self._browser_state_blob(page), location):
             return True, "browser_state"
         return False, None
+
+    def _vtex_session_snapshot(self, page: Page) -> dict[str, Any] | None:
+        """Lee el contexto regional público de la sesión VTEX."""
+        try:
+            response = page.context.request.get(
+                BASE_URL + "api/sessions?items=public.country,public.postalCode,checkout.regionId",
+                timeout=30_000,
+            )
+            if response.status != 200:
+                self.run_meta["vtex_session_get_status"] = response.status
+                return None
+            payload = response.json()
+            self.run_meta["vtex_session_get_status"] = response.status
+            return payload if isinstance(payload, dict) else None
+        except Exception as exc:
+            self.run_meta["vtex_session_get_error"] = f"{type(exc).__name__}: {exc}"
+            return None
+
+    @classmethod
+    def _pickup_matches_location(cls, item: dict, location: Location) -> bool:
+        pickup = item.get("pickupPoint") if isinstance(item, dict) else None
+        if not isinstance(pickup, dict):
+            return False
+        address = pickup.get("address") if isinstance(pickup.get("address"), dict) else {}
+        blob = " ".join(
+            str(value or "")
+            for value in (
+                pickup.get("friendlyName"),
+                pickup.get("id"),
+                pickup.get("name"),
+                pickup.get("description"),
+                address.get("addressName"),
+                address.get("street"),
+                address.get("neighborhood"),
+                address.get("city"),
+                address.get("postalCode"),
+            )
+        )
+        normalized = cls._normalize(blob)
+        store_name = cls._normalize(location.store)
+        return bool(
+            "polanco" in normalized
+            or (store_name and store_name in normalized)
+        )
+
+    def _list_pickup_points(self, page: Page, location: Location) -> list[dict]:
+        postal = location.postal_code
+        if not postal:
+            return []
+        query = urlencode({"postalCode": postal, "countryCode": "MEX"})
+        try:
+            response = page.context.request.get(
+                BASE_URL + "api/checkout/pub/pickup-points?" + query,
+                timeout=30_000,
+            )
+            self.run_meta["pickup_points_status"] = response.status
+            if response.status != 200:
+                return []
+            payload = response.json()
+            items = payload.get("items") if isinstance(payload, dict) else None
+            if not isinstance(items, list):
+                return []
+            candidates = [
+                item for item in items
+                if isinstance(item, dict) and self._pickup_matches_location(item, location)
+            ]
+            self.run_meta["pickup_points_total"] = len(items)
+            self.run_meta["pickup_polanco_candidates"] = [
+                {
+                    "distance": item.get("distance"),
+                    "pickupPoint": item.get("pickupPoint"),
+                }
+                for item in candidates[:10]
+            ]
+            return candidates
+        except Exception as exc:
+            self.run_meta["pickup_points_error"] = f"{type(exc).__name__}: {exc}"
+            return []
+
+    def _prepare_structured_store_context(
+        self,
+        page: Page,
+        location: Location,
+    ) -> tuple[bool, str | None]:
+        """Regionaliza la sesión VTEX y confirma que Polanco existe como pickup.
+
+        Esto no fuerza un pickupPoint en el carrito. Reduce la dependencia del
+        modal visual al preparar postalCode/country y comprobar el directorio
+        estructurado; la selección exacta de tienda sigue usando estado
+        persistido o la UI normal del storefront.
+        """
+        if not self.prepare_vtex_region or not location.postal_code:
+            return False, None
+
+        snapshot = self._vtex_session_snapshot(page)
+        token = snapshot.get("sessionToken") if isinstance(snapshot, dict) else None
+        updated = False
+
+        if token:
+            body = {
+                "public": {
+                    "country": {"value": "MEX"},
+                    "postalCode": {"value": str(location.postal_code)},
+                }
+            }
+            try:
+                response = page.context.request.post(
+                    BASE_URL + "api/sessions/" + str(token),
+                    data=body,
+                    timeout=30_000,
+                )
+                self.run_meta["vtex_session_post_status"] = response.status
+                updated = response.status in (200, 201, 204)
+            except Exception as exc:
+                self.run_meta["vtex_session_post_error"] = (
+                    f"{type(exc).__name__}: {exc}"
+                )
+        else:
+            self.run_meta["vtex_session_token_missing"] = True
+
+        refreshed = self._vtex_session_snapshot(page)
+        self.run_meta["vtex_session_updated"] = updated
+        if isinstance(refreshed, dict):
+            self.run_meta["vtex_session_snapshot"] = refreshed
+
+        candidates = self._list_pickup_points(page, location)
+        if candidates:
+            return True, "vtex_session+pickup_points"
+        return updated, "vtex_session" if updated else None
 
     @staticmethod
     def _click_text(page: Page, labels: tuple[str, ...], timeout: int = 5_000) -> bool:
@@ -533,26 +668,61 @@ class ChedrauiScraper:
 
     def scrape_category(self, category: Category, location: Location) -> list[dict[str, Any]]:
         if self.require_store_context and (not location.store_id or not location.store):
-            raise ChedrauiStoreContextError("Chedraui requiere una tienda configurada para esta corrida.")
+            raise ChedrauiStoreContextError(
+                "Chedraui requiere una tienda configurada para esta corrida."
+            )
 
         with sync_playwright() as p:
             launch_kwargs = {"headless": self.headless}
             if self.browser_channel:
                 launch_kwargs["channel"] = self.browser_channel
-            browser = p.chromium.launch(**launch_kwargs)
-            context: BrowserContext = browser.new_context(
-                locale="es-MX",
-                viewport={"width": 1440, "height": 1000},
-            )
-            page = context.new_page()
+
+            browser = None
+            if self.profile_dir is not None:
+                context: BrowserContext = p.chromium.launch_persistent_context(
+                    user_data_dir=str(self.profile_dir),
+                    locale="es-MX",
+                    viewport={"width": 1440, "height": 1000},
+                    **launch_kwargs,
+                )
+                page = context.pages[0] if context.pages else context.new_page()
+            else:
+                browser = p.chromium.launch(**launch_kwargs)
+                context = browser.new_context(
+                    locale="es-MX",
+                    viewport={"width": 1440, "height": 1000},
+                )
+                page = context.new_page()
+
             try:
-                response = page.goto(category.url, wait_until="domcontentloaded", timeout=120_000)
+                # Cargar el origen primero permite que VTEX cree/recupere
+                # vtex_session y vtex_segment antes de regionalizar.
+                response = page.goto(
+                    BASE_URL,
+                    wait_until="domcontentloaded",
+                    timeout=120_000,
+                )
+                self._assert_not_blocked(page, response.status if response else None)
+                page.wait_for_timeout(max(self.wait_ms, 900))
+
+                structured_ok, structured_method = (
+                    self._prepare_structured_store_context(page, location)
+                )
+                self.run_meta["structured_store_context_ready"] = structured_ok
+                self.run_meta["structured_store_context_method"] = structured_method
+
+                response = page.goto(
+                    category.url,
+                    wait_until="domcontentloaded",
+                    timeout=120_000,
+                )
                 self._assert_not_blocked(page, response.status if response else None)
                 page.wait_for_timeout(1_500)
 
                 verified, method = self._verify_store_context(page, location)
                 if not verified:
                     verified, method = self._try_select_store_ui(page, location)
+
                 if self.require_store_context and not verified:
                     self.run_meta["store_context_verified"] = False
                     self._save_diagnostics(page, "store_context_error")
@@ -560,9 +730,13 @@ class ChedrauiScraper:
                         "No fue posible verificar Chedraui Selecto México Polanco (tienda 232)."
                     )
 
-                self._active_store_context_method = method
+                self._active_store_context_method = (
+                    method
+                    or structured_method
+                    or "persistent_profile"
+                )
                 self.run_meta["store_context_verified"] = True
-                self.run_meta["store_context_method"] = method
+                self.run_meta["store_context_method"] = self._active_store_context_method
                 self.run_meta["store_id"] = location.store_id
                 self.run_meta["store"] = location.store
 
@@ -571,4 +745,5 @@ class ChedrauiScraper:
                 return rows
             finally:
                 context.close()
-                browser.close()
+                if browser is not None:
+                    browser.close()
