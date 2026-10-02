@@ -110,6 +110,9 @@ product
 price_current
 price_regular
 promotion
+availability_status
+is_available
+availability_raw
 pickup_available
 store_context_verified
 store_context_method
@@ -131,6 +134,7 @@ El objetivo principal del proyecto es poder descargar de forma confiable:
 - precio actual;
 - precio regular cuando existe;
 - promoción cuando existe;
+- disponibilidad;
 - categoría y jerarquía;
 - timestamp de captura.
 
@@ -142,6 +146,34 @@ Siempre que el retailer lo exponga de forma estable también se conservan:
 - contexto de tienda.
 
 Para la mayoría de retailers se exige cobertura completa de SKU y URL. En **Farmacias San Pablo**, el criterio bloqueante es la cobertura de catálogo y precio/promoción; SKU y URL se consideran campos informativos. En la última validación, sin embargo, ambos quedaron completos en 232/232 productos.
+
+## Disponibilidad de producto
+
+El esquema normaliza la disponibilidad en tres columnas:
+
+```text
+availability_status   AVAILABLE | UNAVAILABLE | UNKNOWN
+is_available          True | False | vacío
+availability_raw      señal original usada para clasificar
+```
+
+Reglas:
+
+- `UNAVAILABLE` se asigna sólo cuando existe una señal explícita como stock 0, `outOfStock`, `Agotado`, `Sin existencia` o `No disponible`.
+- `AVAILABLE` se asigna cuando el retailer expone una señal positiva como `inStock`, stock mayor que cero o una acción de compra disponible.
+- `UNKNOWN` significa que el sitio no expuso una señal suficientemente confiable; no se interpreta como disponible.
+- Los productos `UNAVAILABLE` se conservan aunque no tengan `price_current`, para poder medir quiebres de stock y cambios de surtido.
+- La falta de precio de un producto `UNAVAILABLE` no degrada por sí sola el estado de calidad del runner.
+
+El resumen del consolidado y `scripts/run_all_retailers.py` reportan:
+
+```text
+available_products
+unavailable_products
+availability_unknown
+```
+
+La captura de disponibilidad está habilitada para los siete retailers activos. Las fuentes varían según el retailer: OCC/API cuando existe y señales explícitas del card/PDP cuando el catálogo es visual.
 
 ## Soriana
 
@@ -251,6 +283,7 @@ url
 price
 basePrice
 potentialPromotions
+stock
 gtmProperties
 pagination
 ```
@@ -313,9 +346,9 @@ perfumeria-abarrotes                         331
 Total                                         574
 ```
 
-Regla crítica: **sólo se guarda la presentación con precio CAJA**.
+Regla crítica: para productos disponibles **sólo se guarda la presentación con precio CAJA**. Un producto marcado explícitamente como `UNAVAILABLE` se conserva aunque no exponga precio CAJA, para poder medir quiebres de stock.
 
-Cobertura de precio: 574/574. Cobertura de SKU: 570/574.
+Cobertura de precio de la última validación previa a disponibilidad: 574/574. Cobertura de SKU: 570/574.
 
 Test dedicado:
 
@@ -441,6 +474,10 @@ Cada retailer mantiene su configuración y extractor separado. `main.py` normali
 
 ### 2 de octubre de 2026
 
+- Se agregó captura normalizada de disponibilidad de producto para los siete retailers activos.
+- Se añadieron `availability_status`, `is_available` y `availability_raw` al consolidado.
+- Los productos agotados/no disponibles ahora se conservan aunque no tengan precio.
+- El runner resume productos disponibles, no disponibles y disponibilidad desconocida.
 - Se ejecutó una muestra completa de 24 casos activos.
 - Se validaron 2,152 productos en Soriana.
 - Se validaron 683 productos en Chedraui.
