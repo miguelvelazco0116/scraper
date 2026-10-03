@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,10 @@ class SorianaBlocked(RuntimeError):
     pass
 
 
+class SorianaDeferred(RuntimeError):
+    pass
+
+
 class SorianaScraper:
     """Browser-based scraper that follows Soriana's normal storefront navigation.
 
@@ -39,6 +44,7 @@ class SorianaScraper:
         browser_channel: str | None = None,
         profile_dir: str | Path | None = None,
         warmup_homepage: bool = True,
+        circuit_cooldown_seconds: int = 600,
     ) -> None:
         self.headless = headless
         self.diagnostics_dir = Path(diagnostics_dir)
@@ -52,7 +58,68 @@ class SorianaScraper:
         if self.profile_dir is not None:
             self.profile_dir.mkdir(parents=True, exist_ok=True)
         self.warmup_homepage = warmup_homepage
+        self.circuit_cooldown_seconds = max(0, int(circuit_cooldown_seconds))
+        self.circuit_file = (
+            self.profile_dir / "soriana_circuit.json"
+            if self.profile_dir is not None
+            else self.diagnostics_dir / "soriana_circuit.json"
+        )
         self.grid_responses: list[dict[str, Any]] = []
+
+    def _read_circuit(self) -> dict[str, Any]:
+        try:
+            payload = json.loads(self.circuit_file.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else {}
+        except Exception:
+            return {}
+
+    def circuit_remaining_seconds(self) -> int:
+        payload = self._read_circuit()
+        blocked_at = payload.get("blocked_at_epoch")
+        cooldown = payload.get(
+            "cooldown_seconds",
+            self.circuit_cooldown_seconds,
+        )
+        try:
+            remaining = int(
+                float(blocked_at) + float(cooldown) - time.time()
+            )
+        except (TypeError, ValueError):
+            return 0
+        return max(0, remaining)
+
+    def _assert_circuit_ready(self) -> None:
+        remaining = self.circuit_remaining_seconds()
+        if remaining > 0:
+            raise SorianaDeferred(
+                "Soriana está en cooldown local después de un bloqueo previo; "
+                f"faltan aproximadamente {remaining}s."
+            )
+
+    def _record_block(self, page: Page, status: int | None = None) -> None:
+        payload = {
+            "blocked_at_epoch": time.time(),
+            "blocked_at": datetime.now().astimezone().isoformat(
+                timespec="seconds"
+            ),
+            "cooldown_seconds": self.circuit_cooldown_seconds,
+            "status": status,
+            "url": page.url,
+        }
+        try:
+            self.circuit_file.parent.mkdir(parents=True, exist_ok=True)
+            self.circuit_file.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    def _clear_circuit(self) -> None:
+        try:
+            self.circuit_file.unlink(missing_ok=True)
+        except Exception:
+            pass
 
     def _capture_grid_response(self, response: Response) -> None:
         if not any(marker in response.url for marker in NETWORK_MARKERS):
@@ -91,6 +158,7 @@ class SorianaScraper:
             pass
         blocked = status == 403 or any(marker.lower() in body.lower() for marker in BLOCK_MARKERS)
         if blocked:
+            self._record_block(page, status)
             self._save_diagnostics(page, "blocked")
             raise SorianaBlocked(
                 "Soriana bloqueó la sesión (403/GF R01). Se guardaron diagnósticos; "
@@ -339,50 +407,170 @@ class SorianaScraper:
         self._assert_not_blocked(page, response.status if response else None)
         page.wait_for_timeout(max(self.wait_ms, 1_500))
 
-    def scrape_category(self, category: Category, location: Location) -> list[dict[str, Any]]:
+    def _scrape_category_on_page(
+        self,
+        page: Page,
+        category: Category,
+        location: Location,
+        *,
+        warmup: bool,
+    ) -> list[dict[str, Any]]:
+        if warmup:
+            self._warmup(page)
+
+        response = page.goto(
+            category.url,
+            wait_until="domcontentloaded",
+            timeout=120_000,
+        )
+        status = response.status if response else None
+        self._assert_not_blocked(page, status)
+        page.wait_for_timeout(2_000)
+        try:
+            page.wait_for_selector(PRODUCT_SELECTOR, timeout=25_000)
+        except PlaywrightTimeoutError:
+            self._save_diagnostics(page, f"no_products_{category.id}")
+            return []
+
+        rows = self._collect_pages(page, category, location)
+        self._save_diagnostics(page, f"success_{category.id}")
+        self._clear_circuit()
+        return rows
+
+    def _open_context(self, playwright):
+        launch_kwargs = {"headless": self.headless}
+        if self.browser_channel:
+            launch_kwargs["channel"] = self.browser_channel
+
+        browser = None
+        if self.profile_dir is not None:
+            context: BrowserContext = playwright.chromium.launch_persistent_context(
+                user_data_dir=str(self.profile_dir),
+                locale="es-MX",
+                viewport={"width": 1440, "height": 1000},
+                **launch_kwargs,
+            )
+            page = context.pages[0] if context.pages else context.new_page()
+        else:
+            browser = playwright.chromium.launch(**launch_kwargs)
+            context = browser.new_context(
+                locale="es-MX",
+                viewport={"width": 1440, "height": 1000},
+            )
+            page = context.new_page()
+
+        page.on("response", self._capture_grid_response)
+        return browser, context, page
+
+    def scrape_category(
+        self,
+        category: Category,
+        location: Location,
+    ) -> list[dict[str, Any]]:
+        self._assert_circuit_ready()
+
         with sync_playwright() as p:
-            launch_kwargs = {"headless": self.headless}
-            if self.browser_channel:
-                launch_kwargs["channel"] = self.browser_channel
-
-            browser = None
-            if self.profile_dir is not None:
-                context: BrowserContext = p.chromium.launch_persistent_context(
-                    user_data_dir=str(self.profile_dir),
-                    locale="es-MX",
-                    viewport={"width": 1440, "height": 1000},
-                    **launch_kwargs,
-                )
-                page = context.pages[0] if context.pages else context.new_page()
-            else:
-                browser = p.chromium.launch(**launch_kwargs)
-                context = browser.new_context(
-                    locale="es-MX",
-                    viewport={"width": 1440, "height": 1000},
-                )
-                page = context.new_page()
-
-            page.on("response", self._capture_grid_response)
+            browser, context, page = self._open_context(p)
             try:
-                self._warmup(page)
-                response = page.goto(
-                    category.url,
-                    wait_until="domcontentloaded",
-                    timeout=120_000,
+                return self._scrape_category_on_page(
+                    page,
+                    category,
+                    location,
+                    warmup=True,
                 )
-                status = response.status if response else None
-                self._assert_not_blocked(page, status)
-                page.wait_for_timeout(2_000)
-                try:
-                    page.wait_for_selector(PRODUCT_SELECTOR, timeout=25_000)
-                except PlaywrightTimeoutError:
-                    self._save_diagnostics(page, "no_products")
-                    return []
-
-                rows = self._collect_pages(page, category, location)
-                self._save_diagnostics(page, f"success_{category.id}")
-                return rows
             finally:
                 context.close()
                 if browser is not None:
                     browser.close()
+
+    def scrape_categories(
+        self,
+        categories: list[Category],
+        location: Location,
+        *,
+        delay_seconds: int = 120,
+        stop_after_block: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Ejecuta varias categorías en una sola sesión Chrome.
+
+        Cada resultado contiene category_id, status, rows y error. Después de
+        un BLOCKED el circuito se abre y, por defecto, el resto de la tanda se
+        marca DEFERRED sin nuevos requests al dominio.
+        """
+        results: list[dict[str, Any]] = []
+
+        try:
+            self._assert_circuit_ready()
+        except SorianaDeferred as exc:
+            for category in categories:
+                results.append(
+                    {
+                        "category_id": category.id,
+                        "status": "DEFERRED",
+                        "rows": [],
+                        "error": str(exc),
+                    }
+                )
+            return results
+
+        with sync_playwright() as p:
+            browser, context, page = self._open_context(p)
+            try:
+                warmup = True
+                blocked = False
+                for index, category in enumerate(categories):
+                    if blocked and stop_after_block:
+                        results.append(
+                            {
+                                "category_id": category.id,
+                                "status": "DEFERRED",
+                                "rows": [],
+                                "error": (
+                                    "Diferido porque la sesión recibió BLOCKED "
+                                    "en una categoría previa de la tanda."
+                                ),
+                            }
+                        )
+                        continue
+
+                    try:
+                        rows = self._scrape_category_on_page(
+                            page,
+                            category,
+                            location,
+                            warmup=warmup,
+                        )
+                        status = "SUCCESS" if rows else "EMPTY"
+                        error = None
+                    except SorianaBlocked as exc:
+                        rows = []
+                        status = "BLOCKED"
+                        error = str(exc)
+                        blocked = True
+                    except Exception as exc:
+                        rows = []
+                        status = "ERROR"
+                        error = f"{type(exc).__name__}: {exc}"
+
+                    results.append(
+                        {
+                            "category_id": category.id,
+                            "status": status,
+                            "rows": rows,
+                            "error": error,
+                        }
+                    )
+                    warmup = False
+
+                    if (
+                        status == "SUCCESS"
+                        and index < len(categories) - 1
+                        and delay_seconds > 0
+                    ):
+                        page.wait_for_timeout(delay_seconds * 1000)
+            finally:
+                context.close()
+                if browser is not None:
+                    browser.close()
+
+        return results
