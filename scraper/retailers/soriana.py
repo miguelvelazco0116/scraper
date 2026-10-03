@@ -462,6 +462,42 @@ class SorianaScraper:
         page.on("response", self._capture_grid_response)
         return browser, context, page
 
+    def prepare_session(self, *, force_check: bool = False) -> dict[str, Any]:
+        """Valida el homepage usando el perfil persistente sin abrir categorías."""
+        remaining = self.circuit_remaining_seconds()
+        if remaining > 0 and not force_check:
+            return {
+                "status": "DEFERRED",
+                "remaining_seconds": remaining,
+                "profile_dir": str(self.profile_dir) if self.profile_dir else None,
+            }
+
+        with sync_playwright() as p:
+            browser, context, page = self._open_context(p)
+            try:
+                response = page.goto(
+                    BASE_URL,
+                    wait_until="domcontentloaded",
+                    timeout=120_000,
+                )
+                status = response.status if response else None
+                self._assert_not_blocked(page, status)
+                page.wait_for_timeout(max(self.wait_ms, 1_500))
+                self._clear_circuit()
+                self._save_diagnostics(page, "session_ready")
+                return {
+                    "status": "READY",
+                    "http_status": status,
+                    "url": page.url,
+                    "profile_dir": (
+                        str(self.profile_dir) if self.profile_dir else None
+                    ),
+                }
+            finally:
+                context.close()
+                if browser is not None:
+                    browser.close()
+
     def scrape_category(
         self,
         category: Category,
