@@ -266,6 +266,25 @@ Las seis categorías se distribuyen en tandas de dos y se intercalan con otros r
 
 Si una categoría recibe `403 / GF R01`, no se reintenta inmediatamente. Queda pendiente para un único intento al final de la corrida después del cooldown configurado.
 
+
+El bloqueo también se guarda localmente en `.soriana_profile/soriana_circuit.json`. Si se inicia otra corrida antes de que expire el cooldown, Soriana responde localmente como `DEFERRED` sin hacer un nuevo request al retailer.
+
+Chequeo previo opcional del perfil:
+
+```powershell
+& .\scripts\prepare_soriana_session.ps1
+```
+
+Resultados:
+
+```text
+SORIANA_SESSION_READY  -> homepage accesible; circuito limpio
+DEFERRED               -> cooldown local todavía activo
+BLOCKED                -> homepage sigue devolviendo bloqueo; se reinicia el cooldown
+```
+
+El runner completo ejecuta cada tanda Soriana en **una sola sesión persistente de Chrome**, en lugar de cerrar/abrir navegador por categoría.
+
 ## Chedraui
 
 Ubicación validada:
