@@ -11,6 +11,10 @@ import pandas as pd
 import yaml
 from openpyxl.styles import Font
 
+from main import update_consolidated_output
+from scraper.config import load_categories, load_locations
+from scraper.retailers.soriana import SorianaScraper
+
 OUTPUT = Path("output/concentrado_scraper.xlsx")
 LOG_DIR = Path("diagnostics/run_all")
 
@@ -36,6 +40,108 @@ def classify_result(code: int, text: str) -> str:
     if code == 3:
         return "EMPTY"
     return "ERROR"
+
+
+def run_soriana_batch(
+    categories: list[dict],
+    *,
+    profile_dir: Path,
+    local_browser: bool,
+    delay_seconds: int,
+) -> list[dict]:
+    """Ejecuta una tanda Soriana dentro de una única sesión persistente."""
+    configured = {
+        item.id: item
+        for item in load_categories("config/soriana/categories.yaml")
+    }
+    location = next(
+        item
+        for item in load_locations("config/locations.yaml")
+        if item.id == "cdmx"
+    )
+    category_objects = [
+        configured[item["id"]]
+        for item in categories
+    ]
+
+    scraper = SorianaScraper(
+        headless=not local_browser,
+        browser_channel="chrome" if local_browser else None,
+        diagnostics_dir=LOG_DIR / "soriana_batch",
+        profile_dir=profile_dir,
+        circuit_cooldown_seconds=600,
+    )
+    raw_results = scraper.scrape_categories(
+        category_objects,
+        location,
+        delay_seconds=delay_seconds,
+        stop_after_block=True,
+    )
+
+    output: list[dict] = []
+    status_codes = {
+        "SUCCESS": 0,
+        "EMPTY": 3,
+        "BLOCKED": 2,
+        "DEFERRED": 6,
+        "ERROR": 1,
+    }
+
+    for category, raw in zip(categories, raw_results):
+        status = str(raw.get("status") or "ERROR")
+        rows = raw.get("rows") or []
+        error = raw.get("error")
+
+        if status == "SUCCESS" and rows:
+            update_consolidated_output(pd.DataFrame(rows), OUTPUT)
+
+        log_path = LOG_DIR / f"soriana_{category['id']}.log"
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(
+            "\n".join(
+                [
+                    "MODE single_persistent_batch",
+                    f"STATUS {status}",
+                    f"PRODUCTS {len(rows)}",
+                    f"ERROR {error or ''}",
+                    f"PROFILE {profile_dir}",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        output.append(
+            {
+                "retailer": "Soriana",
+                "department": category.get("department"),
+                "category": category.get("name"),
+                "subcategory": category.get("subcategory"),
+                "sub_subcategory": category.get("sub_subcategory"),
+                "category_id": category["id"],
+                "location_id": "cdmx",
+                "store": None,
+                "status": status,
+                "exit_code": status_codes.get(status, 1),
+                "reported_products": len(rows),
+                "products": 0,
+                "sku_complete": 0,
+                "price_current_complete": 0,
+                "price_regular_complete": 0,
+                "url_complete": 0,
+                "duplicates_sku_url": 0,
+                "store_context_verified": 0,
+                "available_products": 0,
+                "unavailable_products": 0,
+                "availability_unknown": 0,
+                "price_required_products": 0,
+                "price_required_complete": 0,
+                "data_status": "MISSING",
+                "quality_status": "PENDING",
+                "quality_notes": error or "",
+            }
+        )
+
+    return output
 
 
 def run_case(
@@ -530,46 +636,59 @@ def main() -> int:
         add_cases("walmart")
 
     results: list[dict] = []
-    soriana_blocked_in_batch = False
-    previous_retailer: str | None = None
 
     print(f"Casos configurados: {len(cases)}")
-    for index, (retailer, category) in enumerate(cases, start=1):
-        if retailer != "soriana" or previous_retailer != "soriana":
-            soriana_blocked_in_batch = False
+    index = 0
+    while index < len(cases):
+        retailer, category = cases[index]
 
-        print(f"[{index}/{len(cases)}] {retailer} / {category['id']}")
+        if retailer == "soriana":
+            batch: list[dict] = []
+            batch_start = index
+            while (
+                index < len(cases)
+                and cases[index][0] == "soriana"
+                and len(batch) < 2
+            ):
+                batch.append(cases[index][1])
+                index += 1
 
-        if retailer == "soriana" and soriana_blocked_in_batch:
-            result = deferred_result(
-                retailer,
-                category,
-                "diferido: categoría anterior de la tanda recibió BLOCKED",
-            )
+            names = ", ".join(item["id"] for item in batch)
             print(
-                "  -> DEFERRED "
-                "(se evita otro request Soriana en una tanda ya bloqueada)"
+                f"[{batch_start + 1}-{index}/{len(cases)}] "
+                f"soriana batch / {names}"
             )
-        else:
-            result = run_case(
-                retailer,
-                category,
-                walmart_profile_dir=walmart_profile,
-                walmart_storage_state=walmart_state,
-                soriana_profile_dir=soriana_profile,
-                chedraui_profile_dir=chedraui_profile,
+            batch_results = run_soriana_batch(
+                batch,
+                profile_dir=soriana_profile,
                 local_browser=args.local_browser,
+                delay_seconds=args.soriana_delay_seconds,
             )
-            print(
-                f"  -> {result['status']} "
-                f"(exit={result['exit_code']}, "
-                f"reported={result['reported_products']})"
-            )
+            for result in batch_results:
+                results.append(result)
+                print(
+                    f"  -> soriana / {result['category_id']}: "
+                    f"{result['status']} "
+                    f"(reported={result['reported_products']})"
+                )
+            continue
 
+        print(f"[{index + 1}/{len(cases)}] {retailer} / {category['id']}")
+        result = run_case(
+            retailer,
+            category,
+            walmart_profile_dir=walmart_profile,
+            walmart_storage_state=walmart_state,
+            soriana_profile_dir=soriana_profile,
+            chedraui_profile_dir=chedraui_profile,
+            local_browser=args.local_browser,
+        )
         results.append(result)
-
-        if retailer == "soriana" and result["status"] == "BLOCKED":
-            soriana_blocked_in_batch = True
+        print(
+            f"  -> {result['status']} "
+            f"(exit={result['exit_code']}, "
+            f"reported={result['reported_products']})"
+        )
 
         if result["status"] == "ERROR":
             log_path = LOG_DIR / f"{retailer}_{category['id']}.log"
@@ -588,20 +707,7 @@ def main() -> int:
             except Exception:
                 pass
 
-        if (
-            retailer == "soriana"
-            and result["status"] == "SUCCESS"
-            and index < len(cases)
-            and cases[index][0] == "soriana"
-            and args.soriana_delay_seconds > 0
-        ):
-            print(
-                f"     pausa Soriana: {args.soriana_delay_seconds}s "
-                "antes de la siguiente categoría..."
-            )
-            time.sleep(args.soriana_delay_seconds)
-
-        previous_retailer = retailer
+        index += 1
 
     # Las categorías Soriana bloqueadas se reintentan una sola vez al final
     # de la corrida, cuando la sesión ha tenido tiempo de enfriarse mientras
