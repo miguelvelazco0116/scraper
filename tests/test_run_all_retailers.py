@@ -31,6 +31,7 @@ def test_run_all_retailers_classifies_controlled_failures():
     assert classify_result(0, "Productos únicos: 10") == "SUCCESS"
     assert classify_result(2, "BLOCKED: Walmart desafió la sesión") == "BLOCKED"
     assert classify_result(4, "STORE_CONTEXT_ERROR: SC Toreo") == "STORE_CONTEXT_ERROR"
+    assert classify_result(6, "DEFERRED: cooldown activo") == "DEFERRED"
     assert classify_result(3, "No se encontraron productos") == "EMPTY"
     assert classify_result(1, "unexpected") == "ERROR"
 
