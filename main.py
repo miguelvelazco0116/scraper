@@ -44,7 +44,7 @@ from scraper.retailers.bodega_aurrera import (
     BodegaAurreraNetworkUnavailable,
     BodegaAurreraScraper,
 )
-from scraper.retailers.soriana import SorianaBlocked, SorianaScraper
+from scraper.retailers.soriana import SorianaBlocked, SorianaDeferred, SorianaScraper
 from scraper.retailers.walmart import WalmartBlocked, WalmartScraper, WalmartStoreContextError
 from scraper.retailers.walmart_persistent import WalmartPersistentScraper
 from scraper.retailers.walmart_storage_state import WalmartStorageStateScraper
@@ -284,6 +284,9 @@ def main() -> int:
         )
         try:
             rows = scraper.scrape_category(category, location)
+        except SorianaDeferred as exc:
+            print(f"DEFERRED: {exc}")
+            return 6
         except SorianaBlocked as exc:
             print(f"BLOCKED: {exc}")
             return 2
