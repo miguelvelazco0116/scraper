@@ -31,6 +31,8 @@ def classify_result(code: int, text: str) -> str:
         return "STORE_CONTEXT_ERROR"
     if code == 5 or "network_unavailable:" in lower:
         return "NETWORK_UNAVAILABLE"
+    if code == 6 or "deferred:" in lower:
+        return "DEFERRED"
     if code == 3:
         return "EMPTY"
     return "ERROR"
