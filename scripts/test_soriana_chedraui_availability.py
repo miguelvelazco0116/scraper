@@ -110,31 +110,40 @@ def availability_summary(
     }
 
 
-def run_soriana(category, location, attempt: str) -> tuple[list[dict], dict]:
+def run_soriana_batch(
+    categories,
+    location,
+    attempt: str,
+    delay_seconds: int,
+) -> list[tuple[list[dict], dict]]:
     scraper = SorianaScraper(
         headless=False,
         browser_channel="chrome",
         diagnostics_dir=ROOT / "diagnostics" / "soriana_availability_test",
         profile_dir=ROOT / ".soriana_profile",
+        circuit_cooldown_seconds=600,
     )
-    rows: list[dict] = []
-    status = "SUCCESS"
-    error = None
 
-    try:
-        rows = scraper.scrape_category(category, location)
-        if not rows:
-            status = "EMPTY"
-    except SorianaBlocked as exc:
-        status = "BLOCKED"
-        error = str(exc)
-    except Exception as exc:
-        status = "ERROR"
-        error = f"{type(exc).__name__}: {exc}"
-
-    return rows, availability_summary(
-        "Soriana", category.id, status, rows, attempt=attempt, error=error
+    raw_results = scraper.scrape_categories(
+        categories,
+        location,
+        delay_seconds=delay_seconds,
+        stop_after_block=True,
     )
+
+    out: list[tuple[list[dict], dict]] = []
+    for category, raw in zip(categories, raw_results):
+        rows = raw.get("rows") or []
+        summary = availability_summary(
+            "Soriana",
+            category.id,
+            str(raw.get("status") or "ERROR"),
+            rows,
+            attempt=attempt,
+            error=raw.get("error"),
+        )
+        out.append((rows, summary))
+    return out
 
 
 def run_chedraui(category, location) -> tuple[list[dict], dict]:
@@ -299,52 +308,34 @@ def main() -> int:
     print("SORIANA - PRIMER INTENTO")
     print("-" * 76)
 
-    defer_next = False
-    for index, category_id in enumerate(SORIANA_BLOCKED_CATEGORIES, start=1):
+    initial_categories = [
+        soriana_categories[category_id]
+        for category_id in SORIANA_BLOCKED_CATEGORIES
+    ]
+    initial_results = run_soriana_batch(
+        initial_categories,
+        soriana_location,
+        "initial",
+        args.soriana_delay_seconds,
+    )
+
+    for index, (category, result_pair) in enumerate(
+        zip(initial_categories, initial_results),
+        start=1,
+    ):
+        rows, summary = result_pair
         print(
-            f"[Soriana {index}/{len(SORIANA_BLOCKED_CATEGORIES)}] "
-            f"{category_id}",
+            f"[Soriana {index}/{len(initial_categories)}] {category.id}",
             flush=True,
         )
-
-        if defer_next:
-            rows = []
-            summary = availability_summary(
-                "Soriana",
-                category_id,
-                "DEFERRED",
-                rows,
-                attempt="deferred",
-                error="Diferido después de BLOCKED previo para reducir presión.",
-            )
-            defer_next = False
-        else:
-            rows, summary = run_soriana(
-                soriana_categories[category_id],
-                soriana_location,
-                "initial",
-            )
-
         print_summary(summary)
 
-        key = ("Soriana", category_id)
+        key = ("Soriana", category.id)
         final_frames[key] = normalize_frame(rows)
         final_summaries[key] = summary
 
         if summary["status"] in {"BLOCKED", "DEFERRED"}:
-            blocked.append(category_id)
-
-        if summary["status"] == "BLOCKED":
-            defer_next = True
-        elif (
-            index < len(SORIANA_BLOCKED_CATEGORIES)
-            and args.soriana_delay_seconds > 0
-        ):
-            print(
-                f"     pausa {args.soriana_delay_seconds}s...",
-                flush=True,
-            )
-            time.sleep(args.soriana_delay_seconds)
+            blocked.append(category.id)
 
     print("")
     print("CHEDRAUI - DISPONIBILIDAD")
@@ -377,32 +368,32 @@ def main() -> int:
             )
             time.sleep(args.retry_delay_seconds)
 
-        for index, category_id in enumerate(blocked, start=1):
+        retry_categories = [
+            soriana_categories[category_id]
+            for category_id in blocked
+        ]
+        retry_results = run_soriana_batch(
+            retry_categories,
+            soriana_location,
+            "retry",
+            args.soriana_delay_seconds,
+        )
+
+        for index, (category, result_pair) in enumerate(
+            zip(retry_categories, retry_results),
+            start=1,
+        ):
+            rows, summary = result_pair
             print(
-                f"[Retry {index}/{len(blocked)}] {category_id}",
+                f"[Retry {index}/{len(retry_categories)}] {category.id}",
                 flush=True,
-            )
-            rows, summary = run_soriana(
-                soriana_categories[category_id],
-                soriana_location,
-                "retry",
             )
             print_summary(summary)
 
-            key = ("Soriana", category_id)
+            key = ("Soriana", category.id)
             final_summaries[key] = summary
             if summary["status"] == "SUCCESS":
                 final_frames[key] = normalize_frame(rows)
-
-            if (
-                index < len(blocked)
-                and args.soriana_delay_seconds > 0
-            ):
-                print(
-                    f"     pausa {args.soriana_delay_seconds}s...",
-                    flush=True,
-                )
-                time.sleep(args.soriana_delay_seconds)
 
     frames = [
         frame for frame in final_frames.values()
