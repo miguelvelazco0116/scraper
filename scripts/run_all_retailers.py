@@ -646,7 +646,7 @@ def main() -> int:
             if retry_number < len(blocked_soriana):
                 retry_spacing = max(
                     args.soriana_delay_seconds,
-                    300 if retry_result["status"] == "BLOCKED" else 0,
+                    600 if retry_result["status"] == "BLOCKED" else 0,
                 )
                 if retry_spacing > 0:
                     print(
