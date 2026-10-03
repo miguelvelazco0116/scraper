@@ -71,10 +71,24 @@ def run_category(category, location):
 
     promotional_products = 0
     promotion_price_errors = 0
+    available_products = 0
+    unavailable_products = 0
+    availability_unknown = 0
     if not df.empty:
         current = pd.to_numeric(df["price_current"], errors="coerce")
         regular = pd.to_numeric(df["price_regular"], errors="coerce")
         promotional_products = int((current < regular).sum())
+
+        availability = (
+            df["availability_status"]
+            .fillna("UNKNOWN")
+            .astype(str)
+            .str.strip()
+            .str.upper()
+        )
+        available_products = int(availability.eq("AVAILABLE").sum())
+        unavailable_products = int(availability.eq("UNAVAILABLE").sum())
+        availability_unknown = int(availability.eq("UNKNOWN").sum())
 
         promo_text = df["promotion"].fillna("").astype(str).str.strip()
         promotion_price_errors = int(
@@ -97,6 +111,8 @@ def run_category(category, location):
         "status": status,
         "target_products": meta.get("target_products"),
         "product_links": meta.get("product_links"),
+        "observed_products": meta.get("observed_products"),
+        "unobserved_products": meta.get("unobserved_products"),
         "discovery_complete": bool(meta.get("discovery_complete")),
         "products": len(df),
         "sku_complete": int(
@@ -113,6 +129,9 @@ def run_category(category, location):
         "detail_errors": len(detail_errors),
         "promotional_products": promotional_products,
         "promotion_price_errors": promotion_price_errors,
+        "available_products": available_products,
+        "unavailable_products": unavailable_products,
+        "availability_unknown": availability_unknown,
         "blocked_detected": bool(meta.get("blocked_detected")),
         "manual_verification_required": bool(
             meta.get("manual_verification_required")
@@ -142,6 +161,8 @@ def run_category(category, location):
         "status",
         "target_products",
         "product_links",
+        "observed_products",
+        "unobserved_products",
         "discovery_complete",
         "products",
         "sku_complete",
@@ -152,6 +173,9 @@ def run_category(category, location):
         "detail_errors",
         "promotional_products",
         "promotion_price_errors",
+        "available_products",
+        "unavailable_products",
+        "availability_unknown",
         "blocked_detected",
         "manual_verification_required",
         "manual_verification_resolved",
@@ -270,15 +294,46 @@ def main() -> int:
     print("Diagnósticos: diagnostics\\farmacias_similares_*")
 
     acceptable = True
-    for summary in summaries:
+    for summary, frame in zip(summaries, frames):
+        if frame.empty:
+            available_or_unknown = frame
+        else:
+            status = (
+                frame["availability_status"]
+                .fillna("UNKNOWN")
+                .astype(str)
+                .str.upper()
+            )
+            available_or_unknown = frame.loc[~status.eq("UNAVAILABLE")]
+
+        priced_required = int(
+            available_or_unknown["price_current"].notna().sum()
+        ) if not available_or_unknown.empty else 0
+        sku_required = int(
+            available_or_unknown["sku"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .ne("")
+            .sum()
+        ) if not available_or_unknown.empty else 0
+        url_required = int(
+            available_or_unknown["url"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .ne("")
+            .sum()
+        ) if not available_or_unknown.empty else 0
+        required_count = len(available_or_unknown)
+
         acceptable = acceptable and (
             summary["status"] == "SUCCESS"
             and summary["products"] > 0
             and bool(summary["discovery_complete"])
-            and summary["sku_complete"] == summary["products"]
-            and summary["price_complete"] == summary["products"]
-            and summary["regular_price_complete"] == summary["products"]
-            and summary["url_complete"] == summary["products"]
+            and sku_required == required_count
+            and priced_required == required_count
+            and url_required == required_count
             and summary["products_without_price"] == 0
             and summary["detail_errors"] == 0
             and summary["promotion_price_errors"] == 0

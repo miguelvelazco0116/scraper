@@ -12,6 +12,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
+from ..availability import UNAVAILABLE, availability_fields
 from ..config import Category, Location
 from ..parsers import clean_text, extract_sku
 
@@ -228,6 +229,7 @@ class BodegaAurreraScraper:
 
               const out = [];
               const seen = new Set();
+              const unavailable = /Agotado|No disponible|Sin existencia|Sin stock|Out of stock/i;
 
               for (const a of Array.from(
                 document.querySelectorAll('a[href*="/ip/"]')
@@ -242,7 +244,7 @@ class BodegaAurreraScraper:
                   const text = normalize(card.innerText || card.textContent);
                   if (
                     text &&
-                    /\$\s*[0-9][0-9,]*(?:\.\d{1,2})?/.test(text) &&
+                    (/\$\s*[0-9][0-9,]*(?:\.\d{1,2})?/.test(text) || unavailable.test(text)) &&
                     text.length >= 10 &&
                     text.length <= 3500
                   ) {
@@ -406,7 +408,8 @@ class BodegaAurreraScraper:
                 continue
 
             current, regular = self._prices(text)
-            if current is None:
+            availability = availability_fields(text=text)
+            if current is None and availability["availability_status"] != UNAVAILABLE:
                 rejected_missing_price += 1
                 continue
 
@@ -433,6 +436,7 @@ class BodegaAurreraScraper:
                     "price_current": current,
                     "price_regular": regular,
                     "promotion": self._promotion(text),
+                    **availability,
                     "pickup_available": None,
                     "store_context_verified": False,
                     "store_context_method": (

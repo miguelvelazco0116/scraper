@@ -70,6 +70,47 @@ python .\scripts\run_all_retailers.py --local-browser
 
 El modo `--local-browser` usa Google Chrome visible para los retailers que lo requieren.
 
+
+### Preparación / recuperación de perfiles persistentes
+
+Si Soriana empieza una corrida ya bloqueado o Chedraui pierde el contexto de Polanco, se puede preparar el perfil local una sola vez antes de reintentar:
+
+```powershell
+& .\scripts\prepare_retailer_profiles.ps1 -Retailer soriana
+& .\scripts\prepare_retailer_profiles.ps1 -Retailer chedraui
+```
+
+También puede abrir ambos secuencialmente:
+
+```powershell
+& .\scripts\prepare_retailer_profiles.ps1 -Retailer all
+```
+
+La utilidad abre Chrome con el mismo perfil dedicado que usa el scraper. No resuelve verificaciones automáticamente: permite completar manualmente cualquier validación normal del sitio o confirmar Polanco y después conserva cookies/localStorage/sessionStorage para las siguientes corridas. No debe ejecutarse al mismo tiempo que el scraper porque Chrome bloquea el perfil mientras está abierto.
+
+
+### Pacing de Soriana
+
+Soriana ha mostrado bloqueos intermitentes `403 / GF R01` al consultar varias categorías consecutivas. El runner aplica por defecto:
+
+```text
+120 s entre categorías consecutivas exitosas dentro de cada tanda
+tandas de 2 categorías intercaladas con otros retailers
+si una categoría queda BLOCKED, la siguiente de esa tanda se difiere
+600 s antes del reintento final
+1 reintento al final para categorías BLOCKED o DEFERRED
+300 s mínimos antes del siguiente retry si un retry vuelve a quedar BLOCKED
+perfil persistente .soriana_profile
+```
+
+Los tiempos pueden ajustarse con:
+
+```powershell
+python .\scripts\run_all_retailers.py --local-browser --soriana-delay-seconds 120 --soriana-retry-delay-seconds 600
+```
+
+No se automatiza ninguna verificación ni se intenta evadir la protección del sitio; si el segundo intento sigue bloqueado, el caso permanece `BLOCKED`.
+
 ### Tests generales
 
 ```powershell
@@ -110,6 +151,9 @@ product
 price_current
 price_regular
 promotion
+availability_status
+is_available
+availability_raw
 pickup_available
 store_context_verified
 store_context_method
@@ -123,6 +167,20 @@ Los logs del runner completo se guardan en:
 diagnostics\run_all
 ```
 
+
+El runner **no elimina el consolidado al comenzar**. Una categoría exitosa reemplaza sólo su muestra. Si la extracción actual falla pero existe una captura previa, el resumen la conserva con:
+
+```text
+data_status = STALE_RETAINED
+quality_status = STALE
+```
+
+Si la captura actual fue exitosa:
+
+```text
+data_status = FRESH
+```
+
 ## Criterio operativo de calidad
 
 El objetivo principal del proyecto es poder descargar de forma confiable:
@@ -131,6 +189,7 @@ El objetivo principal del proyecto es poder descargar de forma confiable:
 - precio actual;
 - precio regular cuando existe;
 - promoción cuando existe;
+- disponibilidad;
 - categoría y jerarquía;
 - timestamp de captura.
 
@@ -142,6 +201,34 @@ Siempre que el retailer lo exponga de forma estable también se conservan:
 - contexto de tienda.
 
 Para la mayoría de retailers se exige cobertura completa de SKU y URL. En **Farmacias San Pablo**, el criterio bloqueante es la cobertura de catálogo y precio/promoción; SKU y URL se consideran campos informativos. En la última validación, sin embargo, ambos quedaron completos en 232/232 productos.
+
+## Disponibilidad de producto
+
+El esquema normaliza la disponibilidad en tres columnas:
+
+```text
+availability_status   AVAILABLE | UNAVAILABLE | UNKNOWN
+is_available          True | False | vacío
+availability_raw      señal original usada para clasificar
+```
+
+Reglas:
+
+- `UNAVAILABLE` se asigna sólo cuando existe una señal explícita confiable como stock 0, `outOfStock`, `Agotado`, `Sin existencia` o `Sin stock`. En Soriana/Chedraui una frase genérica `No disponible` no basta porque puede describir un canal de entrega y no el stock total.
+- `AVAILABLE` se asigna cuando el retailer expone una señal positiva como `inStock`, stock mayor que cero o una acción de compra disponible.
+- `UNKNOWN` significa que el sitio no expuso una señal suficientemente confiable; no se interpreta como disponible.
+- Los productos `UNAVAILABLE` se conservan aunque no tengan `price_current`, para poder medir quiebres de stock y cambios de surtido.
+- La falta de precio de un producto `UNAVAILABLE` no degrada por sí sola el estado de calidad del runner.
+
+El resumen del consolidado y `scripts/run_all_retailers.py` reportan:
+
+```text
+available_products
+unavailable_products
+availability_unknown
+```
+
+La captura de disponibilidad está habilitada para los siete retailers activos. Las fuentes varían según el retailer: OCC/API cuando existe y señales explícitas del card/PDP cuando el catálogo es visual.
 
 ## Soriana
 
@@ -170,6 +257,34 @@ Total                          2152
 
 Las rutas de desodorantes fueron validadas el 2 de octubre de 2026.
 
+
+### Sesión persistente Soriana
+
+El runner local utiliza `.soriana_profile` para conservar cookies y storage entre categorías y entre corridas. La primera sesión puede hacer un warm-up del homepage antes de entrar a la categoría; si el perfil ya contiene cookies vigentes se evita esa carga adicional.
+
+Las seis categorías se distribuyen en tandas de dos y se intercalan con otros retailers. La paginación sigue usando la navegación del propio storefront, que dispara `Search-UpdateGrid` / `Search-ShowAjax`, evitando cargas completas innecesarias de nuevas páginas.
+
+Si una categoría recibe `403 / GF R01`, no se reintenta inmediatamente. Queda pendiente para un único intento al final de la corrida después del cooldown configurado.
+
+
+El bloqueo también se guarda localmente en `.soriana_profile/soriana_circuit.json`. Si se inicia otra corrida antes de que expire el cooldown, Soriana responde localmente como `DEFERRED` sin hacer un nuevo request al retailer.
+
+Chequeo previo opcional del perfil:
+
+```powershell
+& .\scripts\prepare_soriana_session.ps1
+```
+
+Resultados:
+
+```text
+SORIANA_SESSION_READY  -> homepage accesible; circuito limpio
+DEFERRED               -> cooldown local todavía activo
+BLOCKED                -> homepage sigue devolviendo bloqueo; se reinicia el cooldown
+```
+
+El runner completo ejecuta cada tanda Soriana en **una sola sesión persistente de Chrome**, en lugar de cerrar/abrir navegador por categoría.
+
 ## Chedraui
 
 Ubicación validada:
@@ -192,6 +307,23 @@ Total           683
 ```
 
 La última muestra tuvo cobertura completa de SKU, precio y URL.
+
+
+### Contexto persistente Chedraui
+
+Chedraui utiliza `.chedraui_profile` y la implementación activa `chedraui_polanco_api.py`.
+
+Antes de extraer catálogo:
+
+1. abre el origen de Chedraui para recuperar/crear la sesión VTEX;
+2. consulta `/api/sessions`;
+3. prepara `country=MEX` y `postalCode=11500` cuando existe `sessionToken`;
+4. consulta `/api/checkout/pub/pickup-points` y busca candidatos de Polanco;
+5. reutiliza la tienda persistida si el estado del navegador ya la verifica;
+6. consulta el orderForm actual y valida store/pickup cuando el estado lo expone;
+7. utiliza el selector visual de tienda como fallback cuando todavía hace falta confirmar Polanco.
+
+El catálogo/precio autoritativo sigue siendo `productSearchV3`. La disponibilidad de Chedraui se obtiene de `AvailableQuantity`: mayor a cero = `AVAILABLE`, cero = `UNAVAILABLE`, ausente = `UNKNOWN`.
 
 ## Farmacias del Ahorro
 
@@ -251,6 +383,7 @@ url
 price
 basePrice
 potentialPromotions
+stock
 gtmProperties
 pagination
 ```
@@ -313,9 +446,9 @@ perfumeria-abarrotes                         331
 Total                                         574
 ```
 
-Regla crítica: **sólo se guarda la presentación con precio CAJA**.
+Regla crítica: para productos disponibles **sólo se guarda la presentación con precio CAJA**. Un producto marcado explícitamente como `UNAVAILABLE` se conserva aunque no exponga precio CAJA, para poder medir quiebres de stock.
 
-Cobertura de precio: 574/574. Cobertura de SKU: 570/574.
+Cobertura de precio de la última validación previa a disponibilidad: 574/574. Cobertura de SKU: 570/574.
 
 Test dedicado:
 
@@ -374,6 +507,9 @@ Total                  30
 El scraper visita las fichas de producto, obtiene SKU desde `Referencia:`, precio actual, precio regular y promociones.
 
 Última validación: 30/30 productos con SKU, precio y URL.
+
+
+En la validación del 2 de octubre de 2026, la categoría `aparato-respiratorio` volvió a declarar 21 productos pero sólo expuso 13 productos observables (8 en la primera página y 5 en la segunda). El scraper no inventa 8 filas faltantes ni las clasifica automáticamente como agotadas; registra el **gap de catálogo** mediante `observed_products` y `unobserved_products`. Un probe separado inspecciona red/VTEX/DOM para intentar recuperar esos productos y su stock.
 
 Test dedicado:
 
@@ -441,6 +577,16 @@ Cada retailer mantiene su configuración y extractor separado. `main.py` normali
 
 ### 2 de octubre de 2026
 
+- Se agregaron perfiles persistentes para Soriana y Chedraui.
+- Soriana se distribuye en tandas de dos categorías intercaladas con otros retailers; tras un BLOCKED difiere el resto de la tanda y usa cooldown final de 600 s.
+- Chedraui prepara región VTEX por CP 11500, consulta pickup points y verifica orderForm antes del fallback visual.
+- Se agregó una utilidad manual de preparación/recuperación de perfiles persistentes.
+- Chedraui obtiene disponibilidad estructurada desde `productSearchV3.AvailableQuantity`.
+- El consolidado conserva la última muestra válida como `STALE_RETAINED` cuando una categoría falla.
+- Se agregó captura normalizada de disponibilidad de producto para los siete retailers activos.
+- Se añadieron `availability_status`, `is_available` y `availability_raw` al consolidado.
+- Los productos agotados/no disponibles ahora se conservan aunque no tengan precio.
+- El runner resume productos disponibles, no disponibles y disponibilidad desconocida.
 - Se ejecutó una muestra completa de 24 casos activos.
 - Se validaron 2,152 productos en Soriana.
 - Se validaron 683 productos en Chedraui.

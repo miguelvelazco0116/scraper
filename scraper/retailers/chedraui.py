@@ -9,6 +9,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from playwright.sync_api import BrowserContext, Page, TimeoutError as PlaywrightTimeoutError, sync_playwright
 
+from ..availability import AVAILABLE, UNAVAILABLE, UNKNOWN
 from ..config import Category, Location
 from ..parsers import absolute_url, clean_text, extract_sku, parse_money
 
@@ -48,6 +49,8 @@ class ChedrauiScraper:
         wait_ms: int = 900,
         require_store_context: bool = True,
         browser_channel: str | None = None,
+        profile_dir: str | Path | None = None,
+        prepare_vtex_region: bool = True,
     ) -> None:
         self.headless = headless
         self.diagnostics_dir = Path(diagnostics_dir)
@@ -56,6 +59,10 @@ class ChedrauiScraper:
         self.wait_ms = wait_ms
         self.require_store_context = require_store_context
         self.browser_channel = browser_channel
+        self.profile_dir = Path(profile_dir) if profile_dir else None
+        if self.profile_dir is not None:
+            self.profile_dir.mkdir(parents=True, exist_ok=True)
+        self.prepare_vtex_region = prepare_vtex_region
         self.run_meta: dict[str, Any] = {}
         self._active_store_context_method: str | None = None
 
@@ -168,12 +175,280 @@ class ChedrauiScraper:
             hits += 1
         return hits >= 2 and "polanco" in normalized
 
+    @classmethod
+    def _orderform_matches_location(
+        cls,
+        payload: dict[str, Any] | None,
+        location: Location,
+    ) -> bool:
+        if not isinstance(payload, dict):
+            return False
+
+        candidates: list[str] = []
+        for key in ("storeId", "checkedInPickupPointId"):
+            value = payload.get(key)
+            if value is not None:
+                candidates.append(str(value))
+
+        shipping = payload.get("shippingData")
+        if isinstance(shipping, dict):
+            for info in shipping.get("logisticsInfo") or []:
+                if not isinstance(info, dict):
+                    continue
+                for key in (
+                    "selectedDeliveryChannel",
+                    "pickupPointId",
+                    "selectedSla",
+                ):
+                    value = info.get(key)
+                    if value is not None:
+                        candidates.append(str(value))
+
+                pickup_info = info.get("pickupStoreInfo")
+                if isinstance(pickup_info, dict):
+                    for key in ("friendlyName", "additionalInfo", "dockId"):
+                        value = pickup_info.get(key)
+                        if value is not None:
+                            candidates.append(str(value))
+                    address = pickup_info.get("address")
+                    if isinstance(address, dict):
+                        for key in (
+                            "addressName",
+                            "street",
+                            "neighborhood",
+                            "city",
+                            "postalCode",
+                        ):
+                            value = address.get(key)
+                            if value is not None:
+                                candidates.append(str(value))
+
+                for sla in info.get("slas") or []:
+                    if not isinstance(sla, dict):
+                        continue
+                    value = sla.get("pickupPointId")
+                    if value is not None:
+                        candidates.append(str(value))
+                    store_info = sla.get("pickupStoreInfo")
+                    if isinstance(store_info, dict):
+                        for key in ("friendlyName", "additionalInfo", "dockId"):
+                            value = store_info.get(key)
+                            if value is not None:
+                                candidates.append(str(value))
+                        address = store_info.get("address")
+                        if isinstance(address, dict):
+                            for key in (
+                                "addressName",
+                                "street",
+                                "neighborhood",
+                                "city",
+                                "postalCode",
+                            ):
+                                value = address.get(key)
+                                if value is not None:
+                                    candidates.append(str(value))
+
+        normalized = cls._normalize(" ".join(candidates))
+        if "polanco" not in normalized:
+            return False
+
+        postal = cls._normalize(location.postal_code)
+        store_name = cls._normalize(location.store)
+        strong = bool(
+            (postal and postal in normalized)
+            or (store_name and store_name in normalized)
+            or "selecto mexico polanco" in normalized
+        )
+        return strong
+
+    def _orderform_snapshot(self, page: Page) -> dict[str, Any] | None:
+        try:
+            response = page.context.request.get(
+                BASE_URL + "api/checkout/pub/orderForm",
+                timeout=30_000,
+            )
+            self.run_meta["orderform_status"] = response.status
+            if response.status != 200:
+                return None
+            payload = response.json()
+            if not isinstance(payload, dict):
+                return None
+
+            shipping = payload.get("shippingData")
+            logistics = (
+                shipping.get("logisticsInfo")
+                if isinstance(shipping, dict)
+                else None
+            )
+            self.run_meta["orderform_context"] = {
+                "orderFormId": payload.get("orderFormId"),
+                "storeId": payload.get("storeId"),
+                "checkedInPickupPointId": payload.get("checkedInPickupPointId"),
+                "logisticsInfo": logistics if isinstance(logistics, list) else [],
+            }
+            return payload
+        except Exception as exc:
+            self.run_meta["orderform_error"] = f"{type(exc).__name__}: {exc}"
+            return None
+
     def _verify_store_context(self, page: Page, location: Location) -> tuple[bool, str | None]:
         if self._store_context_in_text(self._body_text(page), location):
             return True, "page_text"
         if self._store_context_in_state_blob(self._browser_state_blob(page), location):
             return True, "browser_state"
+
+        orderform = self._orderform_snapshot(page)
+        if self._orderform_matches_location(orderform, location):
+            return True, "orderform"
+
         return False, None
+
+    def _vtex_session_snapshot(self, page: Page) -> dict[str, Any] | None:
+        """Lee el contexto regional público de la sesión VTEX."""
+        try:
+            response = page.context.request.get(
+                BASE_URL + "api/sessions?items=public.country,public.postalCode,checkout.regionId",
+                timeout=30_000,
+            )
+            if response.status != 200:
+                self.run_meta["vtex_session_get_status"] = response.status
+                return None
+            payload = response.json()
+            self.run_meta["vtex_session_get_status"] = response.status
+            return payload if isinstance(payload, dict) else None
+        except Exception as exc:
+            self.run_meta["vtex_session_get_error"] = f"{type(exc).__name__}: {exc}"
+            return None
+
+    @classmethod
+    def _pickup_matches_location(cls, item: dict, location: Location) -> bool:
+        pickup = item.get("pickupPoint") if isinstance(item, dict) else None
+        if not isinstance(pickup, dict):
+            return False
+        address = pickup.get("address") if isinstance(pickup.get("address"), dict) else {}
+        blob = " ".join(
+            str(value or "")
+            for value in (
+                pickup.get("friendlyName"),
+                pickup.get("id"),
+                pickup.get("name"),
+                pickup.get("description"),
+                address.get("addressName"),
+                address.get("street"),
+                address.get("neighborhood"),
+                address.get("city"),
+                address.get("postalCode"),
+            )
+        )
+        normalized = cls._normalize(blob)
+        store_name = cls._normalize(location.store)
+        postal = cls._normalize(location.postal_code)
+
+        if "polanco" not in normalized:
+            return False
+        if postal and postal not in normalized:
+            # Algunos pickup points omiten CP en el nombre pero lo exponen en
+            # address.postalCode. Si existe un CP distinto, no es Polanco.
+            address_postal = cls._normalize(address.get("postalCode"))
+            if address_postal and address_postal != postal:
+                return False
+
+        return bool(
+            (store_name and store_name in normalized)
+            or "selecto mexico polanco" in normalized
+            or "chedraui" in normalized
+        )
+
+    def _list_pickup_points(self, page: Page, location: Location) -> list[dict]:
+        postal = location.postal_code
+        if not postal:
+            return []
+        query = urlencode({"postalCode": postal, "countryCode": "MEX"})
+        try:
+            response = page.context.request.get(
+                BASE_URL + "api/checkout/pub/pickup-points?" + query,
+                timeout=30_000,
+            )
+            self.run_meta["pickup_points_status"] = response.status
+            if response.status != 200:
+                return []
+            payload = response.json()
+            items = payload.get("items") if isinstance(payload, dict) else None
+            if not isinstance(items, list):
+                return []
+            candidates = [
+                item for item in items
+                if isinstance(item, dict) and self._pickup_matches_location(item, location)
+            ]
+            self.run_meta["pickup_points_total"] = len(items)
+            self.run_meta["pickup_polanco_candidates"] = [
+                {
+                    "distance": item.get("distance"),
+                    "pickupPoint": item.get("pickupPoint"),
+                }
+                for item in candidates[:10]
+            ]
+            return candidates
+        except Exception as exc:
+            self.run_meta["pickup_points_error"] = f"{type(exc).__name__}: {exc}"
+            return []
+
+    def _prepare_structured_store_context(
+        self,
+        page: Page,
+        location: Location,
+    ) -> tuple[bool, str | None]:
+        """Regionaliza la sesión VTEX y confirma que Polanco existe como pickup.
+
+        Esto no fuerza un pickupPoint en el carrito. Reduce la dependencia del
+        modal visual al preparar postalCode/country y comprobar el directorio
+        estructurado; la selección exacta de tienda sigue usando estado
+        persistido o la UI normal del storefront.
+        """
+        if not self.prepare_vtex_region or not location.postal_code:
+            return False, None
+
+        snapshot = self._vtex_session_snapshot(page)
+        token = snapshot.get("sessionToken") if isinstance(snapshot, dict) else None
+        updated = False
+
+        body = {
+            "public": {
+                "country": {"value": "MEX"},
+                "postalCode": {"value": str(location.postal_code)},
+            }
+        }
+        endpoint = (
+            BASE_URL + "api/sessions/" + str(token)
+            if token
+            else BASE_URL + "api/sessions"
+        )
+        if not token:
+            self.run_meta["vtex_session_token_missing"] = True
+
+        try:
+            response = page.context.request.post(
+                endpoint,
+                data=body,
+                timeout=30_000,
+            )
+            self.run_meta["vtex_session_post_endpoint"] = endpoint
+            self.run_meta["vtex_session_post_status"] = response.status
+            updated = response.status in (200, 201, 204)
+        except Exception as exc:
+            self.run_meta["vtex_session_post_error"] = (
+                f"{type(exc).__name__}: {exc}"
+            )
+
+        refreshed = self._vtex_session_snapshot(page)
+        self.run_meta["vtex_session_updated"] = updated
+        if isinstance(refreshed, dict):
+            self.run_meta["vtex_session_snapshot"] = refreshed
+
+        candidates = self._list_pickup_points(page, location)
+        if candidates:
+            return True, "vtex_session+pickup_points"
+        return updated, "vtex_session" if updated else None
 
     @staticmethod
     def _click_text(page: Page, labels: tuple[str, ...], timeout: int = 5_000) -> bool:
@@ -322,11 +597,52 @@ class ChedrauiScraper:
                 return brand
         return None
 
+    @staticmethod
+    def _availability_from_card_text(text: str | None) -> dict[str, Any]:
+        raw = clean_text(text)
+        if not raw:
+            return {
+                "availability_status": UNKNOWN,
+                "is_available": None,
+                "availability_raw": None,
+            }
+
+        negative = re.search(
+            r"\b(agotad[oa]s?|sin\s+existencia|sin\s+stock|fuera\s+de\s+stock|out\s+of\s+stock)\b",
+            raw,
+            flags=re.IGNORECASE,
+        )
+        if negative:
+            return {
+                "availability_status": UNAVAILABLE,
+                "is_available": False,
+                "availability_raw": negative.group(0),
+            }
+
+        positive = re.search(
+            r"\b(agregar(?:\s+al\s+carrito)?|añadir(?:\s+al\s+carrito)?|comprar\s+ahora)\b",
+            raw,
+            flags=re.IGNORECASE,
+        )
+        if positive:
+            return {
+                "availability_status": AVAILABLE,
+                "is_available": True,
+                "availability_raw": positive.group(0),
+            }
+
+        return {
+            "availability_status": UNKNOWN,
+            "is_available": None,
+            "availability_raw": raw[:500],
+        }
+
     def _extract_cards(self, page: Page, category: Category, location: Location) -> list[dict[str, Any]]:
         now = datetime.now().astimezone().isoformat(timespec="seconds")
         js = r"""
         anchors => {
           const money = /\$\s*[\d,.]+/;
+          const unavailable = /Agotado|Sin existencia|Sin stock|Fuera de stock|Out of stock/i;
           const out = [];
           const seen = new Set();
           const pickText = (root, selectors) => {
@@ -344,12 +660,12 @@ class ChedrauiScraper:
             let card = a;
             for (let i = 0; i < 10 && card && card.parentElement; i++) {
               const txt = (card.textContent || '').replace(/\s+/g, ' ').trim();
-              if (money.test(txt) && txt.length > 20 && txt.length < 3000) break;
+              if ((money.test(txt) || unavailable.test(txt)) && txt.length > 20 && txt.length < 3000) break;
               card = card.parentElement;
             }
             if (!card) continue;
             const cardText = (card.textContent || '').replace(/\s+/g, ' ').trim();
-            if (!money.test(cardText)) continue;
+            if (!money.test(cardText) && !unavailable.test(cardText)) continue;
 
             const img = card.querySelector('img[alt]');
             const heading = card.querySelector('h2, h3, [class*="productName"], [class*="product-name"]');
@@ -418,6 +734,10 @@ class ChedrauiScraper:
             if current_price and regular_price and current_price > regular_price:
                 current_price, regular_price = regular_price, current_price
 
+            availability = self._availability_from_card_text(
+                item.get("card_text")
+            )
+
             rows.append(
                 {
                     "scrape_timestamp": now,
@@ -438,6 +758,7 @@ class ChedrauiScraper:
                     "price_current": current_price,
                     "price_regular": regular_price,
                     "promotion": clean_text(" | ".join(item.get("promo_texts") or [])),
+                    **availability,
                     "pickup_available": True,
                     "store_context_verified": True,
                     "store_context_method": self._active_store_context_method,
@@ -486,26 +807,61 @@ class ChedrauiScraper:
 
     def scrape_category(self, category: Category, location: Location) -> list[dict[str, Any]]:
         if self.require_store_context and (not location.store_id or not location.store):
-            raise ChedrauiStoreContextError("Chedraui requiere una tienda configurada para esta corrida.")
+            raise ChedrauiStoreContextError(
+                "Chedraui requiere una tienda configurada para esta corrida."
+            )
 
         with sync_playwright() as p:
             launch_kwargs = {"headless": self.headless}
             if self.browser_channel:
                 launch_kwargs["channel"] = self.browser_channel
-            browser = p.chromium.launch(**launch_kwargs)
-            context: BrowserContext = browser.new_context(
-                locale="es-MX",
-                viewport={"width": 1440, "height": 1000},
-            )
-            page = context.new_page()
+
+            browser = None
+            if self.profile_dir is not None:
+                context: BrowserContext = p.chromium.launch_persistent_context(
+                    user_data_dir=str(self.profile_dir),
+                    locale="es-MX",
+                    viewport={"width": 1440, "height": 1000},
+                    **launch_kwargs,
+                )
+                page = context.pages[0] if context.pages else context.new_page()
+            else:
+                browser = p.chromium.launch(**launch_kwargs)
+                context = browser.new_context(
+                    locale="es-MX",
+                    viewport={"width": 1440, "height": 1000},
+                )
+                page = context.new_page()
+
             try:
-                response = page.goto(category.url, wait_until="domcontentloaded", timeout=120_000)
+                # Cargar el origen primero permite que VTEX cree/recupere
+                # vtex_session y vtex_segment antes de regionalizar.
+                response = page.goto(
+                    BASE_URL,
+                    wait_until="domcontentloaded",
+                    timeout=120_000,
+                )
+                self._assert_not_blocked(page, response.status if response else None)
+                page.wait_for_timeout(max(self.wait_ms, 900))
+
+                structured_ok, structured_method = (
+                    self._prepare_structured_store_context(page, location)
+                )
+                self.run_meta["structured_store_context_ready"] = structured_ok
+                self.run_meta["structured_store_context_method"] = structured_method
+
+                response = page.goto(
+                    category.url,
+                    wait_until="domcontentloaded",
+                    timeout=120_000,
+                )
                 self._assert_not_blocked(page, response.status if response else None)
                 page.wait_for_timeout(1_500)
 
                 verified, method = self._verify_store_context(page, location)
                 if not verified:
                     verified, method = self._try_select_store_ui(page, location)
+
                 if self.require_store_context and not verified:
                     self.run_meta["store_context_verified"] = False
                     self._save_diagnostics(page, "store_context_error")
@@ -513,9 +869,13 @@ class ChedrauiScraper:
                         "No fue posible verificar Chedraui Selecto México Polanco (tienda 232)."
                     )
 
-                self._active_store_context_method = method
+                self._active_store_context_method = (
+                    method
+                    or structured_method
+                    or "persistent_profile"
+                )
                 self.run_meta["store_context_verified"] = True
-                self.run_meta["store_context_method"] = method
+                self.run_meta["store_context_method"] = self._active_store_context_method
                 self.run_meta["store_id"] = location.store_id
                 self.run_meta["store"] = location.store
 
@@ -524,4 +884,5 @@ class ChedrauiScraper:
                 return rows
             finally:
                 context.close()
-                browser.close()
+                if browser is not None:
+                    browser.close()

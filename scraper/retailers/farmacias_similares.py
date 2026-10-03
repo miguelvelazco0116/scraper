@@ -11,6 +11,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
+from ..availability import UNAVAILABLE, availability_fields
 from ..config import Category, Location
 from ..parsers import clean_text
 
@@ -224,54 +225,158 @@ class FarmaciasSimilaresScraper:
 
     @staticmethod
     def _product_links(page) -> list[dict]:
+        """Descubre productos comprables y tarjetas agotadas sin PDP.
+
+        Similares puede retirar el enlace /p de productos no disponibles.
+        Por eso primero se capturan los PDP normales y después tarjetas con
+        señal explícita de agotado/no disponible, aunque carezcan de href.
+        """
         return page.locator("body").evaluate(
             r"""
             () => {
               const norm = value =>
                 String(value || '').replace(/\s+/g, ' ').trim();
+              const unavailableRe =
+                /Agotado|No disponible|Sin existencia|Sin stock|Temporalmente no disponible/i;
+              const productSignalRe =
+                /Comprar ahora|Agotado|No disponible|Sin existencia|Sin stock|\$\s*[0-9]/i;
+
               const out = [];
               const seen = new Set();
 
+              const titleFrom = root => {
+                if (!root) return '';
+                const heading = root.querySelector(
+                  'h1,h2,h3,h4,h5,[class*="title"],[class*="name"]'
+                );
+                const image = root.querySelector('img[alt]');
+                const anchor = root.querySelector('a[aria-label], a[title], a[href]');
+                return (
+                  norm(heading ? heading.innerText || heading.textContent : '') ||
+                  norm(anchor ? anchor.getAttribute('aria-label') : '') ||
+                  norm(anchor ? anchor.getAttribute('title') : '') ||
+                  norm(image ? image.alt : '') ||
+                  norm(anchor ? anchor.innerText || anchor.textContent : '')
+                );
+              };
+
+              const findCard = seed => {
+                let node = seed;
+                let best = null;
+                for (let i = 0; i < 10 && node; i++, node = node.parentElement) {
+                  const text = norm(node.innerText || node.textContent);
+                  if (
+                    text.length >= 10 &&
+                    text.length <= 2800 &&
+                    productSignalRe.test(text)
+                  ) {
+                    best = node;
+                    if (
+                      unavailableRe.test(text) ||
+                      (/Comprar ahora/i.test(text) && /\$\s*[0-9]/.test(text))
+                    ) {
+                      break;
+                    }
+                  }
+                }
+                return best;
+              };
+
+              // Productos que conservan enlace PDP.
               for (const a of Array.from(document.querySelectorAll('a[href]'))) {
                 let url;
                 try { url = new URL(a.href, location.href); } catch (_) { continue; }
                 if (url.origin !== location.origin) continue;
                 if (!/\/p\/?$/i.test(url.pathname)) continue;
 
-                const key = url.origin + url.pathname.replace(/\/$/, '');
-                if (seen.has(key)) continue;
+                const href = url.origin + url.pathname.replace(/\/$/, '');
+                if (seen.has('href:' + href)) continue;
 
-                let card = a;
-                let cardText = '';
-                for (let i = 0; i < 10 && card; i++, card = card.parentElement) {
-                  const text = norm(card.innerText || card.textContent);
-                  if (
-                    text.length >= 10 &&
-                    text.length <= 2800 &&
-                    /Comprar ahora/i.test(text) &&
-                    /\$\s*[0-9]/.test(text)
-                  ) {
-                    cardText = text;
-                    break;
-                  }
-                }
-
-                const image = a.querySelector('img[alt]');
+                const card = findCard(a);
+                const cardText = norm(card ? card.innerText || card.textContent : '');
                 const title =
                   norm(a.getAttribute('aria-label')) ||
                   norm(a.getAttribute('title')) ||
                   norm(a.innerText) ||
-                  norm(image ? image.alt : '');
+                  titleFrom(card) ||
+                  norm((a.querySelector('img[alt]') || {}).alt);
 
                 if (!cardText && !title) continue;
 
-                seen.add(key);
+                seen.add('href:' + href);
+                if (title) seen.add('title:' + title.toLowerCase());
                 out.push({
-                  href: key,
+                  href,
                   title,
                   card_text: cardText,
+                  unavailable: unavailableRe.test(cardText),
+                  source: 'pdp_link',
                 });
               }
+
+              // Productos agotados que el catálogo deja sin enlace PDP.
+              const candidates = Array.from(
+                document.querySelectorAll(
+                  'article, li, [class*="product"], [class*="card"], [class*="item"]'
+                )
+              );
+
+              for (const node of candidates) {
+                const text = norm(node.innerText || node.textContent);
+                if (
+                  !text ||
+                  text.length < 10 ||
+                  text.length > 2800 ||
+                  !unavailableRe.test(text)
+                ) {
+                  continue;
+                }
+
+                // Elegir el contenedor más pequeño que representa un solo item.
+                const nestedUnavailable = Array.from(
+                  node.querySelectorAll(
+                    'article, li, [class*="product"], [class*="card"], [class*="item"]'
+                  )
+                ).filter(child => {
+                  if (child === node) return false;
+                  const childText = norm(child.innerText || child.textContent);
+                  return childText && unavailableRe.test(childText);
+                });
+                if (nestedUnavailable.length) continue;
+
+                const title = titleFrom(node);
+                if (!title) continue;
+
+                const titleKey = 'title:' + title.toLowerCase();
+                if (seen.has(titleKey)) continue;
+
+                let href = null;
+                const productAnchor = Array.from(node.querySelectorAll('a[href]'))
+                  .find(a => {
+                    try {
+                      const url = new URL(a.href, location.href);
+                      return url.origin === location.origin && /\/p\/?$/i.test(url.pathname);
+                    } catch (_) {
+                      return false;
+                    }
+                  });
+                if (productAnchor) {
+                  const url = new URL(productAnchor.href, location.href);
+                  href = url.origin + url.pathname.replace(/\/$/, '');
+                  if (seen.has('href:' + href)) continue;
+                }
+
+                seen.add(titleKey);
+                if (href) seen.add('href:' + href);
+                out.push({
+                  href,
+                  title,
+                  card_text: text,
+                  unavailable: true,
+                  source: href ? 'unavailable_with_link' : 'unavailable_card',
+                });
+              }
+
               return out;
             }
             """
@@ -351,6 +456,8 @@ class FarmaciasSimilaresScraper:
                 brand = candidate
                 break
 
+        availability = availability_fields(text=text)
+
         return {
             "sku": sku,
             "product": title,
@@ -360,6 +467,7 @@ class FarmaciasSimilaresScraper:
             "promotion": promotion,
             "has_de": de_match is not None,
             "has_por": por_match is not None,
+            **availability,
         }
 
     def _detail_body_after_hydration(self, page) -> str:
@@ -420,8 +528,10 @@ class FarmaciasSimilaresScraper:
             before = len(found)
             for item in links:
                 href = clean_text(item.get("href"))
-                if href:
-                    found[href] = item
+                title = clean_text(item.get("title"))
+                key = href or (f"unavailable::{title.casefold()}" if title else None)
+                if key:
+                    found[key] = item
             after = len(found)
 
             pages.append(
@@ -453,9 +563,14 @@ class FarmaciasSimilaresScraper:
             target is not None and len(found) >= target
         )
 
+        observed = len(found)
+        unobserved = max((target or 0) - observed, 0) if target is not None else None
+
         return list(found.values()), {
             "target_products": target,
-            "product_links": len(found),
+            "product_links": observed,
+            "observed_products": observed,
+            "unobserved_products": unobserved,
             "discovery_complete": discovery_complete,
             "pages": pages,
         }
@@ -498,6 +613,51 @@ class FarmaciasSimilaresScraper:
                 for index, item in enumerate(links, start=1):
                     href = clean_text(item.get("href"))
                     fallback_title = clean_text(item.get("title"))
+                    card_text = clean_text(item.get("card_text"))
+                    catalog_availability = availability_fields(text=card_text)
+
+                    if (
+                        not href
+                        and catalog_availability["availability_status"] == UNAVAILABLE
+                    ):
+                        print(
+                            f"Farmacias Similares detail {index}/{len(links)}: "
+                            f"- | {fallback_title or '-'} | "
+                            "current=None | regular=None | UNAVAILABLE",
+                            flush=True,
+                        )
+                        rows.append(
+                            {
+                                "scrape_timestamp": now,
+                                "retailer": "Farmacias Similares",
+                                "city": location.city,
+                                "state": location.state,
+                                "postal_code": location.postal_code,
+                                "store": location.store,
+                                "store_id": location.store_id,
+                                "department": category.department,
+                                "category": category.name,
+                                "subcategory": category.subcategory,
+                                "sub_subcategory": category.sub_subcategory,
+                                "category_id": category.id,
+                                "sku": None,
+                                "brand": self._infer_brand(fallback_title),
+                                "product": fallback_title,
+                                "price_current": None,
+                                "price_regular": None,
+                                "promotion": None,
+                                **catalog_availability,
+                                "pickup_available": None,
+                                "store_context_verified": False,
+                                "store_context_method": (
+                                    "similares_category_unavailable_card"
+                                ),
+                                "url": None,
+                                "price_raw": card_text,
+                            }
+                        )
+                        continue
+
                     if not href:
                         continue
 
@@ -505,6 +665,11 @@ class FarmaciasSimilaresScraper:
                         self._goto(page, href)
                         body = self._detail_body_after_hydration(page)
                         detail = self._parse_detail(body, fallback_title)
+                        if (
+                            detail.get("availability_status") == "UNKNOWN"
+                            and catalog_availability["availability_status"] != "UNKNOWN"
+                        ):
+                            detail.update(catalog_availability)
                     except (
                         FarmaciasSimilaresBlocked,
                         FarmaciasSimilaresNetworkUnavailable,
@@ -529,7 +694,10 @@ class FarmaciasSimilaresScraper:
                         flush=True,
                     )
 
-                    if detail.get("price_current") is None:
+                    if (
+                        detail.get("price_current") is None
+                        and detail.get("availability_status") != UNAVAILABLE
+                    ):
                         no_price.append(
                             {
                                 "url": href,
@@ -546,6 +714,8 @@ class FarmaciasSimilaresScraper:
                             "promotion": detail.get("promotion"),
                             "has_de": detail.get("has_de"),
                             "has_por": detail.get("has_por"),
+                            "availability_status": detail.get("availability_status"),
+                            "availability_raw": detail.get("availability_raw"),
                         },
                         ensure_ascii=False,
                         separators=(",", ":"),
@@ -571,6 +741,9 @@ class FarmaciasSimilaresScraper:
                             "price_current": detail.get("price_current"),
                             "price_regular": detail.get("price_regular"),
                             "promotion": detail.get("promotion"),
+                            "availability_status": detail.get("availability_status"),
+                            "is_available": detail.get("is_available"),
+                            "availability_raw": detail.get("availability_raw"),
                             "pickup_available": None,
                             "store_context_verified": False,
                             "store_context_method": (

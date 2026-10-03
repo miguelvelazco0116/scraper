@@ -8,6 +8,7 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from playwright.sync_api import sync_playwright
 
+from ..availability import UNAVAILABLE, availability_fields
 from ..config import Category, Location
 from ..parsers import clean_text
 
@@ -185,7 +186,10 @@ class FarmaciasDelAhorroScraper:
         product = clean_text(item.get("ecommTitle"))
         url_key = clean_text(item.get("ecommUrlKey"))
         current = cls._to_price(item.get("currentPrice"))
-        if not sku or not product or not url_key or current is None:
+        availability = availability_fields(payload=item)
+        if not sku or not product or not url_key:
+            return None
+        if current is None and availability["availability_status"] != UNAVAILABLE:
             return None
         regular = cls._to_price(item.get("previousPrice"))
         if regular is None or regular < current:
@@ -211,6 +215,7 @@ class FarmaciasDelAhorroScraper:
             "price_current": current,
             "price_regular": regular,
             "promotion": cls._promotion(current, regular),
+            **availability,
             "pickup_available": None,
             "store_context_verified": False,
             "store_context_method": "online_catalog_empathy_nacional",

@@ -15,6 +15,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
+from ..availability import availability_fields
 from ..config import Category, Location
 from ..parsers import clean_text
 
@@ -549,6 +550,7 @@ class FarmaciasSanPabloScraper:
                     brand = value
                     break
         brand = brand or cls._infer_brand(name)
+        availability = availability_fields(payload=product.get("stock"))
 
         return {
             "scrape_timestamp": now,
@@ -569,6 +571,7 @@ class FarmaciasSanPabloScraper:
             "price_current": current,
             "price_regular": regular,
             "promotion": " | ".join(promotion_parts) if promotion_parts else None,
+            **availability,
             "pickup_available": None,
             "store_context_verified": False,
             "store_context_method": "san_pablo_occ_search_sponsored",
@@ -578,6 +581,7 @@ class FarmaciasSanPabloScraper:
                     "price": product.get("price"),
                     "basePrice": product.get("basePrice"),
                     "potentialPromotions": product.get("potentialPromotions"),
+                    "stock": product.get("stock"),
                 },
                 ensure_ascii=False,
                 separators=(",", ":"),

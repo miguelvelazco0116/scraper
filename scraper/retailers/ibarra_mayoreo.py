@@ -9,6 +9,7 @@ from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlsplit, urlun
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
+from ..availability import UNAVAILABLE, availability_fields
 from ..config import Category, Location
 from ..parsers import clean_text
 
@@ -446,6 +447,7 @@ class IbarraMayoreoScraper:
             flags=re.IGNORECASE,
         )
         promotion = clean_text(promo_match.group(1)) if promo_match else None
+        availability = availability_fields(text=text)
 
         return {
             "product": title,
@@ -454,6 +456,7 @@ class IbarraMayoreoScraper:
             "box_units": pack_count,
             "box_price": box_price,
             "promotion": promotion,
+            **availability,
         }
 
     def scrape_category(
@@ -521,7 +524,10 @@ class IbarraMayoreoScraper:
                         f"caja={detail.get('box_price')}"
                     )
 
-                    if detail.get("box_price") is None:
+                    if (
+                        detail.get("box_price") is None
+                        and detail.get("availability_status") != UNAVAILABLE
+                    ):
                         no_box.append(
                             {
                                 "url": href,
@@ -533,7 +539,9 @@ class IbarraMayoreoScraper:
 
                     pack_count = detail.get("box_units")
                     box_price = detail.get("box_price")
-                    if pack_count is not None:
+                    if box_price is None:
+                        price_raw = detail.get("availability_raw") or "UNAVAILABLE"
+                    elif pack_count is not None:
                         price_raw = (
                             f"CAJA | {pack_count} artículos por caja | "
                             + "$"
@@ -562,6 +570,9 @@ class IbarraMayoreoScraper:
                             "price_current": box_price,
                             "price_regular": box_price,
                             "promotion": detail.get("promotion"),
+                            "availability_status": detail.get("availability_status"),
+                            "is_available": detail.get("is_available"),
+                            "availability_raw": detail.get("availability_raw"),
                             "pickup_available": None,
                             "store_context_verified": False,
                             "store_context_method": (

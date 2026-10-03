@@ -44,7 +44,7 @@ from scraper.retailers.bodega_aurrera import (
     BodegaAurreraNetworkUnavailable,
     BodegaAurreraScraper,
 )
-from scraper.retailers.soriana import SorianaBlocked, SorianaScraper
+from scraper.retailers.soriana import SorianaBlocked, SorianaDeferred, SorianaScraper
 from scraper.retailers.walmart import WalmartBlocked, WalmartScraper, WalmartStoreContextError
 from scraper.retailers.walmart_persistent import WalmartPersistentScraper
 from scraper.retailers.walmart_storage_state import WalmartStorageStateScraper
@@ -52,7 +52,8 @@ from scraper.retailers.walmart_storage_state import WalmartStorageStateScraper
 COLUMNS = [
     "scrape_timestamp", "retailer", "city", "state", "postal_code", "store", "store_id",
     "department", "category", "subcategory", "sub_subcategory", "category_id", "sku", "brand",
-    "product", "price_current", "price_regular", "promotion", "pickup_available",
+    "product", "price_current", "price_regular", "promotion",
+    "availability_status", "is_available", "availability_raw", "pickup_available",
     "store_context_verified", "store_context_method", "url", "price_raw",
 ]
 
@@ -166,7 +167,11 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
 
     if combined.empty:
         summary = pd.DataFrame(
-            columns=["retailer", "category_id", "city", "store", "store_id", "products", "sku_complete", "price_complete", "url_complete"]
+            columns=[
+                "retailer", "category_id", "city", "store", "store_id",
+                "products", "sku_complete", "price_complete", "url_complete",
+                "available_products", "unavailable_products", "availability_unknown",
+            ]
         )
     else:
         summary = (
@@ -176,6 +181,9 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
                 sku_complete=("sku", lambda s: int(s.notna().sum())),
                 price_complete=("price_current", lambda s: int(s.notna().sum())),
                 url_complete=("url", lambda s: int(s.notna().sum())),
+                available_products=("availability_status", lambda s: int(s.fillna("UNKNOWN").astype(str).str.upper().eq("AVAILABLE").sum())),
+                unavailable_products=("availability_status", lambda s: int(s.fillna("UNKNOWN").astype(str).str.upper().eq("UNAVAILABLE").sum())),
+                availability_unknown=("availability_status", lambda s: int(s.fillna("UNKNOWN").astype(str).str.upper().eq("UNKNOWN").sum())),
             )
             .reset_index()
         )
@@ -222,7 +230,11 @@ def main() -> int:
     parser.add_argument("--category", default="cuidado-bucal")
     parser.add_argument("--location", default=None)
     parser.add_argument("--store", default=None, help="Alias de ubicación para una tienda configurada")
-    parser.add_argument("--profile-dir", default=None, help="Perfil persistente de Playwright para Walmart")
+    parser.add_argument(
+        "--profile-dir",
+        default=None,
+        help="Perfil persistente de Playwright/Chrome para retailers compatibles.",
+    )
     parser.add_argument("--storage-state", default=None, help="Sesión portable de Playwright para Walmart")
     parser.add_argument("--headed", action="store_true", help="Abrir navegador visible")
     parser.add_argument(
@@ -263,13 +275,18 @@ def main() -> int:
         raise SystemExit(f"Ubicación/tienda no encontrada: {location_id}")
 
     if args.retailer == "soriana":
+        profile_dir = args.profile_dir or ".soriana_profile"
         scraper = SorianaScraper(
             headless=not args.headed,
             max_load_more=args.max_load_more,
             browser_channel=args.browser_channel,
+            profile_dir=profile_dir,
         )
         try:
             rows = scraper.scrape_category(category, location)
+        except SorianaDeferred as exc:
+            print(f"DEFERRED: {exc}")
+            return 6
         except SorianaBlocked as exc:
             print(f"BLOCKED: {exc}")
             return 2
@@ -299,10 +316,12 @@ def main() -> int:
             print(f"STORE_CONTEXT_ERROR: {exc}")
             return 4
     elif args.retailer == "chedraui":
+        profile_dir = args.profile_dir or ".chedraui_profile"
         scraper = ChedrauiScraper(
             headless=not args.headed,
             max_pages=args.max_load_more,
             browser_channel=args.browser_channel,
+            profile_dir=profile_dir,
         )
         try:
             rows = scraper.scrape_category(category, location)
