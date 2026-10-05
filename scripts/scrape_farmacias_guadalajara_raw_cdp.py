@@ -575,7 +575,9 @@ def expand_catalog(
                     "before": previous,
                     "after": previous,
                     "clicked": False,
-                    "reason": "load_more_not_found",
+                    "reason": click.get("reason") or "load_more_not_found",
+                    "candidates": click.get("candidates"),
+                    "attempts": click.get("attempts"),
                 }
             )
             break
@@ -897,6 +899,19 @@ def main() -> int:
                 f"clicked={item.get('clicked')} | "
                 f"{item.get('mode') or item.get('reason') or ''}"
             )
+            if not item.get("clicked") and item.get("attempts"):
+                for attempt in item.get("attempts")[:5]:
+                    candidate = attempt.get("candidate") or {}
+                    hit = attempt.get("hit") or {}
+                    print(
+                        "    intento "
+                        f"{attempt.get('candidate_index')}: "
+                        f"candidate={candidate.get('tag')} "
+                        f"{candidate.get('text')!r} "
+                        f"{candidate.get('width')}x{candidate.get('height')} | "
+                        f"hit={hit.get('tag')} {hit.get('text')!r} | "
+                        f"after={attempt.get('after')}"
+                    )
         print(f"Output             : {OUTPUT}")
         return 0
     finally:
