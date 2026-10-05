@@ -397,33 +397,8 @@ def click_load_more(
     attempts: list[dict] = []
 
     for index, candidate in enumerate(candidates, start=1):
-        try:
-            # Recenter the intended candidate immediately before input.
-            cdp.evaluate(
-                session_id,
-                f"""
-                (() => {{
-                  const x = {float(candidate['x'])};
-                  const y = {float(candidate['y'])};
-                  const el = document.elementFromPoint(x, y);
-                  if (el) {{
-                    el.scrollIntoView({{
-                      block: 'center',
-                      inline: 'center',
-                      behavior: 'instant'
-                    }});
-                  }}
-                  return true;
-                }})()
-                """,
-            )
-        except Exception:
-            pass
-
-        time.sleep(0.2)
-
-        # Coordinates may shift slightly after centering; resolve the best
-        # exact/smallest candidate again and use its current viewport center.
+        # Find the exact visible control itself, scroll THAT element into the
+        # viewport, and only then calculate its current viewport coordinates.
         refreshed = cdp.evaluate(
             session_id,
             r"""
@@ -439,6 +414,7 @@ def click_load_more(
                 const rect = el.getBoundingClientRect();
                 return style.display !== 'none'
                   && style.visibility !== 'hidden'
+                  && Number(style.opacity || 1) !== 0
                   && rect.width > 3
                   && rect.height > 3;
               };
@@ -464,27 +440,52 @@ def click_load_more(
                   ) || el;
                   const rect = clickable.getBoundingClientRect();
                   return {
-                    tag: clickable.tagName,
-                    text: norm(
-                      clickable.innerText
-                      || clickable.textContent
-                      || clickable.getAttribute('aria-label')
-                      || clickable.getAttribute('title')
-                      || clickable.value
-                    ).slice(0, 180),
-                    x: rect.left + rect.width / 2,
-                    y: rect.top + rect.height / 2,
-                    width: rect.width,
-                    height: rect.height,
+                    element: clickable,
                     area: rect.width * rect.height
                   };
                 })
                 .sort((a, b) => a.area - b.area);
 
-              return nodes[0] || null;
+              if (!nodes.length) return null;
+
+              const el = nodes[0].element;
+              el.scrollIntoView({
+                block: 'center',
+                inline: 'center',
+                behavior: 'instant'
+              });
+
+              const rect = el.getBoundingClientRect();
+              const x = rect.left + rect.width / 2;
+              const y = rect.top + rect.height / 2;
+              const hit = document.elementFromPoint(x, y);
+
+              return {
+                tag: el.tagName,
+                text: norm(
+                  el.innerText
+                  || el.textContent
+                  || el.getAttribute('aria-label')
+                  || el.getAttribute('title')
+                  || el.value
+                ).slice(0, 180),
+                x,
+                y,
+                width: rect.width,
+                height: rect.height,
+                area: rect.width * rect.height,
+                viewportWidth: window.innerWidth,
+                viewportHeight: window.innerHeight,
+                hitTag: hit ? hit.tagName : null,
+                hitText: hit
+                  ? norm(hit.innerText || hit.textContent).slice(0, 180)
+                  : null
+              };
             })()
             """,
         )
+
+        time.sleep(0.25)
 
         point = refreshed or candidate
         x = float(point["x"])
