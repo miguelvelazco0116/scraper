@@ -202,25 +202,25 @@ class FarmaciasGuadalajaraScraper:
             locators = [
                 page.locator("button").filter(
                     has_text=re.compile(
-                        r"Ver\\s+m[aá]s\\s+productos",
+                        r"Ver\s+m[aá]s\s+productos",
                         re.IGNORECASE,
                     )
                 ),
                 page.locator('[role="button"]').filter(
                     has_text=re.compile(
-                        r"Ver\\s+m[aá]s\\s+productos",
+                        r"Ver\s+m[aá]s\s+productos",
                         re.IGNORECASE,
                     )
                 ),
                 page.get_by_text(
                     re.compile(
-                        r"Ver\\s+m[aá]s\\s+productos",
+                        r"Ver\s+m[aá]s\s+productos",
                         re.IGNORECASE,
                     )
                 ),
                 page.get_by_text(
                     re.compile(
-                        r"Mostrar\\s+los\\s+siguientes.*productos",
+                        r"Mostrar\s+los\s+siguientes.*productos",
                         re.IGNORECASE,
                     )
                 ),
@@ -266,36 +266,114 @@ class FarmaciasGuadalajaraScraper:
                     if button is not None:
                         break
 
-            if button is None:
-                trace.append(
-                    {
-                        "round": round_number,
-                        "before": previous,
-                        "after": previous,
-                        "candidate_count": candidate_count,
-                        "clicked": False,
-                        "reason": "no_visible_load_more_button",
-                    }
-                )
-                break
+            dom_fallback_clicked = False
+            dom_fallback_detail = None
 
-            click_method = "playwright"
-            click_error = None
-            try:
-                button.scroll_into_view_if_needed(timeout=5_000)
-                page.wait_for_timeout(400)
-                button.click(timeout=10_000)
-            except Exception as exc:
-                click_method = "dom"
-                click_error = f"{type(exc).__name__}: {exc}"
+            if button is None:
+                # Fallback robusto para storefronts donde el texto visible
+                # vive dentro de spans/divs y el elemento clickeable real es
+                # un ancestro. Busca únicamente elementos visibles.
                 try:
-                    button.evaluate("el => el.click()")
-                    click_error = None
-                except Exception as fallback_exc:
-                    click_error = (
-                        f"{click_error}; fallback="
-                        f"{type(fallback_exc).__name__}: {fallback_exc}"
+                    result = page.evaluate(
+                        """
+                        () => {
+                          const norm = value => (value || '')
+                            .replace(/\\s+/g, ' ')
+                            .trim()
+                            .toLowerCase();
+
+                          const matches = value => {
+                            const text = norm(value);
+                            return text.includes('ver más productos')
+                              || text.includes('ver mas productos')
+                              || text.includes('mostrar los siguientes');
+                          };
+
+                          const visible = el => {
+                            if (!el) return false;
+                            const style = getComputedStyle(el);
+                            const rect = el.getBoundingClientRect();
+                            return style.display !== 'none'
+                              && style.visibility !== 'hidden'
+                              && rect.width > 0
+                              && rect.height > 0;
+                          };
+
+                          const all = Array.from(document.querySelectorAll('body *'));
+                          for (const node of all) {
+                            if (!visible(node) || !matches(node.innerText)) continue;
+
+                            let clickable = node.closest(
+                              'button, a, [role="button"], input[type="button"], input[type="submit"]'
+                            );
+
+                            if (!clickable) {
+                              let parent = node;
+                              for (let i = 0; i < 6 && parent; i++, parent = parent.parentElement) {
+                                if (
+                                  typeof parent.onclick === 'function'
+                                  || parent.hasAttribute('onclick')
+                                  || getComputedStyle(parent).cursor === 'pointer'
+                                ) {
+                                  clickable = parent;
+                                  break;
+                                }
+                              }
+                            }
+
+                            if (!clickable || !visible(clickable)) continue;
+                            clickable.scrollIntoView({block: 'center'});
+                            clickable.click();
+                            return {
+                              clicked: true,
+                              tag: clickable.tagName,
+                              text: norm(clickable.innerText || node.innerText).slice(0, 160)
+                            };
+                          }
+                          return {clicked: false};
+                        }
+                        """
                     )
+                    dom_fallback_clicked = bool(result and result.get("clicked"))
+                    dom_fallback_detail = result
+                except Exception as exc:
+                    dom_fallback_detail = {
+                        "clicked": False,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+
+                if not dom_fallback_clicked:
+                    trace.append(
+                        {
+                            "round": round_number,
+                            "before": previous,
+                            "after": previous,
+                            "candidate_count": candidate_count,
+                            "clicked": False,
+                            "reason": "no_visible_load_more_button",
+                            "dom_fallback": dom_fallback_detail,
+                        }
+                    )
+                    break
+
+            click_method = "dom_text_fallback" if dom_fallback_clicked else "playwright"
+            click_error = None
+            if not dom_fallback_clicked:
+                try:
+                    button.scroll_into_view_if_needed(timeout=5_000)
+                    page.wait_for_timeout(400)
+                    button.click(timeout=10_000)
+                except Exception as exc:
+                    click_method = "dom"
+                    click_error = f"{type(exc).__name__}: {exc}"
+                    try:
+                        button.evaluate("el => el.click()")
+                        click_error = None
+                    except Exception as fallback_exc:
+                        click_error = (
+                            f"{click_error}; fallback="
+                            f"{type(fallback_exc).__name__}: {fallback_exc}"
+                        )
 
             if click_error is not None:
                 trace.append(
