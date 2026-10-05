@@ -285,6 +285,40 @@ BLOCKED                -> homepage sigue devolviendo bloqueo; se reinicia el coo
 
 El runner completo ejecuta cada tanda Soriana en **una sola sesión persistente de Chrome**, en lugar de cerrar/abrir navegador por categoría.
 
+## Modo manual-asistido de Soriana
+
+Cuando el acceso directo automatizado a una categoría recibe `403 / GF R01`, puede usarse un flujo donde la navegación inicial queda completamente bajo control del usuario y el scraper sólo extrae la pestaña ya abierta.
+
+1. Abrir un Chrome dedicado con debugging local:
+
+```powershell
+& .\scripts\open_soriana_manual_chrome.ps1
+```
+
+2. En ese Chrome, navegar manualmente hasta la categoría deseada y esperar a que aparezca el grid de productos.
+
+3. Sin cerrar Chrome, ejecutar en otra consola:
+
+```powershell
+& .\scripts\scrape_soriana_manual_session.ps1 -Category limpiadores
+```
+
+El script:
+- se conecta por CDP a `127.0.0.1:9222`;
+- no hace `page.goto()` a la categoría;
+- valida que la pestaña abierta coincida con la categoría configurada;
+- extrae el grid y automatiza la paginación existente;
+- escribe `output\soriana_manual_session.xlsx`;
+- no modifica el consolidado salvo que se use `-UpdateConsolidated`.
+
+Para actualizar el consolidado después de validar la captura:
+
+```powershell
+& .\scripts\scrape_soriana_manual_session.ps1 -Category limpiadores -UpdateConsolidated
+```
+
+El perfil manual se guarda en `.soriana_manual_profile` y está excluido de Git.
+
 ## Chedraui
 
 Ubicación validada:
