@@ -41,12 +41,20 @@ if (-not $ActivePortFiles -or $ActivePortFiles.Count -eq 0) {
     exit 11
 }
 
-$ActivePortFile = $ActivePortFiles[0]
-$Lines = @(Get-Content $ActivePortFile -ErrorAction Stop)
+$ActivePortFile = $ActivePortFiles | Select-Object -First 1
+$ActivePortPath = $ActivePortFile.FullName
+
+if (-not $ActivePortPath -or -not (Test-Path -LiteralPath $ActivePortPath)) {
+    Write-Host "ERROR: se detecto DevToolsActivePort pero no fue posible resolver su ruta absoluta."
+    Write-Host "Valor detectado: $ActivePortFile"
+    exit 12
+}
+
+$Lines = @(Get-Content -LiteralPath $ActivePortPath -ErrorAction Stop)
 
 if ($Lines.Count -lt 2) {
     Write-Host "ERROR: DevToolsActivePort existe pero no contiene un endpoint valido."
-    Write-Host "Archivo: $($ActivePortFile.FullName)"
+    Write-Host "Archivo: $ActivePortPath"
     exit 12
 }
 
@@ -61,7 +69,7 @@ if (-not $Port -or -not $WebSocketPath) {
 $CdpUrl = "ws://127.0.0.1:$Port$WebSocketPath"
 
 Write-Host "Chrome existente detectado."
-Write-Host "DevToolsActivePort : $($ActivePortFile.FullName)"
+Write-Host "DevToolsActivePort : $ActivePortPath"
 Write-Host "Puerto             : $Port"
 Write-Host "El scraper se conectara a ESTA sesion; NO abrira otro navegador."
 Write-Host ""
