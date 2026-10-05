@@ -261,6 +261,89 @@ class FarmaciasGuadalajaraScraper:
             """
         )
 
+    def extract_loaded_page(
+        self,
+        page,
+        category: Category,
+        location: Location,
+        *,
+        expand: bool = True,
+    ) -> tuple[list[dict], dict]:
+        """Extrae una categoría ya cargada en el navegador.
+
+        Este método no navega a ninguna URL. Está pensado tanto para el flujo
+        normal después de page.goto() como para sesiones abiertas manualmente
+        y conectadas por CDP.
+        """
+        self._assert_not_blocked(page)
+        target = self._target_count(page)
+        if expand:
+            self._expand_all_products(page, target)
+        cards = self._extract_cards(page)
+
+        now = datetime.now().astimezone().isoformat(timespec="seconds")
+        rows: list[dict] = []
+        for card in cards:
+            url = urljoin(BASE_URL, card.get("href") or "")
+            sku = clean_text(card.get("dataPid")) or self.extract_sku(url)
+            product = clean_text(card.get("name"))
+            if not sku or not product:
+                continue
+
+            current, regular, promotion = self._prices_from_text(
+                card.get("text")
+            )
+            if current is None:
+                continue
+            brand = clean_text(card.get("brand")) or self._infer_brand(
+                product,
+                card.get("text"),
+            )
+
+            rows.append(
+                {
+                    "scrape_timestamp": now,
+                    "retailer": "Farmacias Guadalajara",
+                    "city": location.city,
+                    "state": location.state,
+                    "postal_code": location.postal_code,
+                    "store": location.store,
+                    "store_id": location.store_id,
+                    "department": category.department,
+                    "category": category.name,
+                    "subcategory": category.subcategory,
+                    "sub_subcategory": category.sub_subcategory,
+                    "category_id": category.id,
+                    "sku": sku,
+                    "brand": brand,
+                    "product": product,
+                    "price_current": current,
+                    "price_regular": regular,
+                    "promotion": promotion,
+                    "pickup_available": None,
+                    "store_context_verified": False,
+                    "store_context_method": (
+                        "manual_browser_online_catalog"
+                        if page.context.browser is not None
+                        else "online_catalog_no_store_requested"
+                    ),
+                    "url": url,
+                    "price_raw": clean_text(card.get("text")),
+                }
+            )
+
+        unique = {(row["sku"], row["url"]): row for row in rows}
+        rows = list(unique.values())
+        meta = {
+            "category_id": category.id,
+            "url": page.url,
+            "target_products": target,
+            "product_links": self._product_link_count(page),
+            "rows": len(rows),
+            "store_context": "online_catalog_no_store_requested",
+        }
+        return rows, meta
+
     def _write_network_diagnostic(self, category: Category, exc: Exception) -> None:
         meta = {
             "retailer": "Farmacias Guadalajara",
@@ -305,66 +388,12 @@ class FarmaciasGuadalajaraScraper:
                     raise RuntimeError(f"HTTP {response.status} en {category.url}")
 
                 page.wait_for_timeout(3_000)
-                self._assert_not_blocked(page)
-                target = self._target_count(page)
-                self._expand_all_products(page, target)
-                cards = self._extract_cards(page)
-
-                now = datetime.now().astimezone().isoformat(timespec="seconds")
-                rows: list[dict] = []
-                for card in cards:
-                    url = urljoin(BASE_URL, card.get("href") or "")
-                    sku = clean_text(card.get("dataPid")) or self.extract_sku(url)
-                    product = clean_text(card.get("name"))
-                    if not sku or not product:
-                        continue
-
-                    current, regular, promotion = self._prices_from_text(card.get("text"))
-                    if current is None:
-                        continue
-                    brand = clean_text(card.get("brand")) or self._infer_brand(
-                        product,
-                        card.get("text"),
-                    )
-
-                    rows.append(
-                        {
-                            "scrape_timestamp": now,
-                            "retailer": "Farmacias Guadalajara",
-                            "city": location.city,
-                            "state": location.state,
-                            "postal_code": location.postal_code,
-                            "store": location.store,
-                            "store_id": location.store_id,
-                            "department": category.department,
-                            "category": category.name,
-                            "subcategory": category.subcategory,
-                            "sub_subcategory": category.sub_subcategory,
-                            "category_id": category.id,
-                            "sku": sku,
-                            "brand": brand,
-                            "product": product,
-                            "price_current": current,
-                            "price_regular": regular,
-                            "promotion": promotion,
-                            "pickup_available": None,
-                            "store_context_verified": False,
-                            "store_context_method": "online_catalog_no_store_requested",
-                            "url": url,
-                            "price_raw": clean_text(card.get("text")),
-                        }
-                    )
-
-                unique = {(row["sku"], row["url"]): row for row in rows}
-                rows = list(unique.values())
-                meta = {
-                    "category_id": category.id,
-                    "url": category.url,
-                    "target_products": target,
-                    "product_links": self._product_link_count(page),
-                    "rows": len(rows),
-                    "store_context": "online_catalog_no_store_requested",
-                }
+                rows, meta = self.extract_loaded_page(
+                    page,
+                    category,
+                    location,
+                    expand=True,
+                )
                 (DIAGNOSTICS / f"farmacias_guadalajara_{slug}.json").write_text(
                     json.dumps(meta, ensure_ascii=False, indent=2),
                     encoding="utf-8",
