@@ -246,7 +246,7 @@ def catalog_cards(
     cdp: RawCDP,
     session_id: str,
     family: str,
-) -> list[dict]:
+) -> dict:
     spec = TARGETS[family]
     expected_heading = spec["subcategory"].casefold()
 
@@ -411,7 +411,7 @@ def catalog_cards(
           }};
         }})()
         """,
-    ) or {{}}
+    ) or {}
 
     return payload
 
@@ -423,7 +423,7 @@ def wait_for_catalog(
     timeout_seconds: float = 20.0,
 ) -> dict:
     deadline = time.monotonic() + timeout_seconds
-    last = {{}}
+    last = {}
     while time.monotonic() < deadline:
         last = catalog_cards(cdp, session_id, family)
         if (last.get("cards") or []):
