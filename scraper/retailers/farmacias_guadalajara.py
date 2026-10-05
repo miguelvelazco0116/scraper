@@ -188,93 +188,118 @@ class FarmaciasGuadalajaraScraper:
         page,
         target: int | None,
     ) -> list[dict]:
-        """Expande el catálogo visible hasta el total publicado o estabilizarse."""
+        """Expande el catálogo hasta el total publicado o hasta estabilizarse."""
         stable_rounds = 0
         previous = self._product_link_count(page)
         trace: list[dict] = []
+
+        load_more_re = re.compile(
+            r"(Ver\s+m[aá]s\s+productos|Mostrar\s+los\s+siguientes.*productos)",
+            re.IGNORECASE,
+        )
 
         for round_number in range(1, self.max_load_more + 1):
             if target and previous >= target:
                 break
 
-            # El storefront puede dejar nodos duplicados/ocultos con el mismo
-            # texto. Se toma el primer candidato realmente visible.
-            locators = [
-                page.locator("button").filter(
-                    has_text=re.compile(
-                        r"Ver\s+m[aá]s\s+productos",
-                        re.IGNORECASE,
-                    )
-                ),
-                page.locator('[role="button"]').filter(
-                    has_text=re.compile(
-                        r"Ver\s+m[aá]s\s+productos",
-                        re.IGNORECASE,
-                    )
-                ),
-                page.get_by_text(
-                    re.compile(
-                        r"Ver\s+m[aá]s\s+productos",
-                        re.IGNORECASE,
-                    )
-                ),
-                page.get_by_text(
-                    re.compile(
-                        r"Mostrar\s+los\s+siguientes.*productos",
-                        re.IGNORECASE,
-                    )
-                ),
-            ]
+            try:
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.wait_for_timeout(900)
+            except Exception:
+                pass
 
-            button = None
+            clicked = False
+            click_method = None
+            clicked_frame_url = None
             candidate_count = 0
-            for locator in locators:
+            frame_diagnostics: list[dict] = []
+
+            # Recorre la página principal y cualquier iframe que pueda alojar
+            # el control de "Ver más productos".
+            for frame in page.frames:
+                frame_url = frame.url or "about:blank"
+                frame_info = {
+                    "url": frame_url,
+                    "text_match": False,
+                    "candidate_count": 0,
+                }
+
                 try:
-                    count = locator.count()
-                    candidate_count = max(candidate_count, count)
+                    body_text = frame.locator("body").inner_text(timeout=2_000)
+                    frame_info["text_match"] = bool(
+                        re.search(
+                            r"ver\s+m[aá]s\s+productos|mostrar\s+los\s+siguientes",
+                            body_text or "",
+                            flags=re.IGNORECASE,
+                        )
+                    )
                 except Exception:
-                    continue
+                    body_text = ""
 
-                for index in range(count):
-                    item = locator.nth(index)
-                    try:
-                        if item.is_visible(timeout=1_000):
-                            button = item
-                            break
-                    except Exception:
-                        continue
-                if button is not None:
-                    break
+                locators = [
+                    frame.get_by_role("button", name=load_more_re),
+                    frame.locator("button").filter(has_text=load_more_re),
+                    frame.locator("a").filter(has_text=load_more_re),
+                    frame.locator('[role="button"]').filter(has_text=load_more_re),
+                    frame.get_by_text(load_more_re),
+                    frame.locator(
+                        '[aria-label*="producto" i], [title*="producto" i], '
+                        'input[value*="producto" i]'
+                    ).filter(has_text=load_more_re),
+                ]
 
-            if button is None:
-                # A veces el botón sólo aparece al acercarse al final del grid.
-                try:
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    page.wait_for_timeout(1_000)
-                except Exception:
-                    pass
-
+                button = None
                 for locator in locators:
                     try:
-                        for index in range(locator.count()):
-                            item = locator.nth(index)
-                            if item.is_visible(timeout=1_000):
-                                button = item
-                                break
+                        count = locator.count()
                     except Exception:
                         continue
+
+                    frame_info["candidate_count"] = max(
+                        frame_info["candidate_count"],
+                        count,
+                    )
+                    candidate_count = max(candidate_count, count)
+
+                    for index in range(count):
+                        item = locator.nth(index)
+                        try:
+                            if item.is_visible(timeout=800):
+                                button = item
+                                break
+                        except Exception:
+                            continue
                     if button is not None:
                         break
 
-            dom_fallback_clicked = False
-            dom_fallback_detail = None
+                frame_diagnostics.append(frame_info)
 
-            if button is None:
-                # Fallback robusto para storefronts donde el texto visible
-                # vive dentro de spans/divs y el elemento clickeable real es
-                # un ancestro. Busca únicamente elementos visibles.
+                if button is not None:
+                    try:
+                        button.scroll_into_view_if_needed(timeout=5_000)
+                    except Exception:
+                        pass
+                    try:
+                        button.click(timeout=10_000)
+                        clicked = True
+                        click_method = "playwright_frame"
+                        clicked_frame_url = frame_url
+                        break
+                    except Exception:
+                        try:
+                            button.evaluate("el => el.click()")
+                            clicked = True
+                            click_method = "dom_frame"
+                            clicked_frame_url = frame_url
+                            break
+                        except Exception:
+                            pass
+
+                # Fallback DOM: localiza cualquier nodo visible cuyo texto,
+                # aria-label, title o value corresponda al control y hace
+                # click sobre él o su ancestro interactivo más cercano.
                 try:
-                    result = page.evaluate(
+                    result = frame.evaluate(
                         """
                         () => {
                           const norm = value => (value || '')
@@ -282,26 +307,38 @@ class FarmaciasGuadalajaraScraper:
                             .trim()
                             .toLowerCase();
 
-                          const matches = value => {
-                            const text = norm(value);
-                            return text.includes('ver más productos')
-                              || text.includes('ver mas productos')
-                              || text.includes('mostrar los siguientes');
+                          const matches = el => {
+                            const blob = [
+                              el.innerText,
+                              el.textContent,
+                              el.getAttribute && el.getAttribute('aria-label'),
+                              el.getAttribute && el.getAttribute('title'),
+                              el.value
+                            ].filter(Boolean).map(norm).join(' | ');
+                            return blob.includes('ver más productos')
+                              || blob.includes('ver mas productos')
+                              || blob.includes('mostrar los siguientes');
                           };
 
                           const visible = el => {
-                            if (!el) return false;
+                            if (!el || !el.getBoundingClientRect) return false;
                             const style = getComputedStyle(el);
                             const rect = el.getBoundingClientRect();
                             return style.display !== 'none'
                               && style.visibility !== 'hidden'
+                              && Number(style.opacity || 1) !== 0
                               && rect.width > 0
                               && rect.height > 0;
                           };
 
-                          const all = Array.from(document.querySelectorAll('body *'));
-                          for (const node of all) {
-                            if (!visible(node) || !matches(node.innerText)) continue;
+                          const nodes = Array.from(
+                            document.querySelectorAll(
+                              'button, a, [role="button"], input, div, span'
+                            )
+                          );
+
+                          for (const node of nodes) {
+                            if (!visible(node) || !matches(node)) continue;
 
                             let clickable = node.closest(
                               'button, a, [role="button"], input[type="button"], input[type="submit"]'
@@ -309,7 +346,11 @@ class FarmaciasGuadalajaraScraper:
 
                             if (!clickable) {
                               let parent = node;
-                              for (let i = 0; i < 6 && parent; i++, parent = parent.parentElement) {
+                              for (
+                                let i = 0;
+                                i < 8 && parent;
+                                i++, parent = parent.parentElement
+                              ) {
                                 if (
                                   typeof parent.onclick === 'function'
                                   || parent.hasAttribute('onclick')
@@ -321,61 +362,46 @@ class FarmaciasGuadalajaraScraper:
                               }
                             }
 
-                            if (!clickable || !visible(clickable)) continue;
-                            clickable.scrollIntoView({block: 'center'});
+                            clickable = clickable || node;
+                            if (!visible(clickable)) continue;
+
+                            clickable.scrollIntoView({
+                              block: 'center',
+                              inline: 'center'
+                            });
                             clickable.click();
+
                             return {
                               clicked: true,
                               tag: clickable.tagName,
-                              text: norm(clickable.innerText || node.innerText).slice(0, 160)
+                              text: norm(
+                                clickable.innerText
+                                || clickable.textContent
+                                || clickable.getAttribute('aria-label')
+                                || clickable.getAttribute('title')
+                                || clickable.value
+                              ).slice(0, 200)
                             };
                           }
+
                           return {clicked: false};
                         }
                         """
                     )
-                    dom_fallback_clicked = bool(result and result.get("clicked"))
-                    dom_fallback_detail = result
                 except Exception as exc:
-                    dom_fallback_detail = {
+                    result = {
                         "clicked": False,
                         "error": f"{type(exc).__name__}: {exc}",
                     }
 
-                if not dom_fallback_clicked:
-                    trace.append(
-                        {
-                            "round": round_number,
-                            "before": previous,
-                            "after": previous,
-                            "candidate_count": candidate_count,
-                            "clicked": False,
-                            "reason": "no_visible_load_more_button",
-                            "dom_fallback": dom_fallback_detail,
-                        }
-                    )
+                if result and result.get("clicked"):
+                    clicked = True
+                    click_method = "dom_text_frame"
+                    clicked_frame_url = frame_url
+                    frame_info["dom_result"] = result
                     break
 
-            click_method = "dom_text_fallback" if dom_fallback_clicked else "playwright"
-            click_error = None
-            if not dom_fallback_clicked:
-                try:
-                    button.scroll_into_view_if_needed(timeout=5_000)
-                    page.wait_for_timeout(400)
-                    button.click(timeout=10_000)
-                except Exception as exc:
-                    click_method = "dom"
-                    click_error = f"{type(exc).__name__}: {exc}"
-                    try:
-                        button.evaluate("el => el.click()")
-                        click_error = None
-                    except Exception as fallback_exc:
-                        click_error = (
-                            f"{click_error}; fallback="
-                            f"{type(fallback_exc).__name__}: {fallback_exc}"
-                        )
-
-            if click_error is not None:
+            if not clicked:
                 trace.append(
                     {
                         "round": round_number,
@@ -383,13 +409,13 @@ class FarmaciasGuadalajaraScraper:
                         "after": previous,
                         "candidate_count": candidate_count,
                         "clicked": False,
-                        "reason": click_error,
+                        "reason": "load_more_not_found_in_any_frame",
+                        "frames": frame_diagnostics,
                     }
                 )
                 break
 
-            # Espera a que el grid incorpore nuevos productos en lugar de usar
-            # un sleep fijo. Si el sitio tarda, todavía deja un margen final.
+            # Espera hasta que el catálogo principal incorpore nuevos enlaces.
             try:
                 page.wait_for_function(
                     """
@@ -397,7 +423,9 @@ class FarmaciasGuadalajaraScraper:
                       const re = /-\\d{5,14}\\.html(?:$|[?#])/i;
                       const hrefs = Array.from(
                         document.querySelectorAll('a[href*=".html"]')
-                      ).map(a => a.href || '').filter(h => re.test(h));
+                      )
+                        .map(a => a.href || '')
+                        .filter(h => re.test(h));
                       return new Set(hrefs).size > previous;
                     }
                     """,
@@ -405,7 +433,7 @@ class FarmaciasGuadalajaraScraper:
                     timeout=15_000,
                 )
             except Exception:
-                page.wait_for_timeout(2_000)
+                page.wait_for_timeout(2_500)
 
             current = self._product_link_count(page)
             trace.append(
@@ -416,6 +444,8 @@ class FarmaciasGuadalajaraScraper:
                     "candidate_count": candidate_count,
                     "clicked": True,
                     "click_method": click_method,
+                    "frame_url": clicked_frame_url,
+                    "frames": frame_diagnostics,
                 }
             )
 
