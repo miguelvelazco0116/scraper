@@ -32,10 +32,10 @@ Write-Host "Abriendo Chrome manual para Farmacias Guadalajara..."
 Write-Host "Perfil : $Profile"
 Write-Host "CDP    : http://127.0.0.1:$RemoteDebuggingPort"
 Write-Host ""
-Write-Host "1. Navega manualmente hasta la categoria que quieras capturar."
-Write-Host "2. Espera a que los productos aparezcan."
+Write-Host "1. Solo deja abierta la pagina inicial de Farmacias Guadalajara."
+Write-Host "2. No necesitas navegar a la categoria."
 Write-Host "3. Deja Chrome abierto."
-Write-Host "4. En otra consola ejecuta el extractor."
+Write-Host "4. En otra consola ejecuta el extractor; el script seleccionara la categoria."
 
 Start-Process -FilePath $Chrome -ArgumentList @(
     "--remote-debugging-port=$RemoteDebuggingPort",
