@@ -6,6 +6,7 @@ import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -226,6 +227,211 @@ def build_category(family: str):
     )
 
 
+def paged_url(url: str, page_number: int) -> str:
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["page"] = str(page_number)
+    return urlunsplit(
+        (
+            parts.scheme,
+            parts.netloc,
+            parts.path,
+            urlencode(query),
+            parts.fragment,
+        )
+    )
+
+
+def catalog_cards(
+    cdp: RawCDP,
+    session_id: str,
+    family: str,
+) -> list[dict]:
+    spec = TARGETS[family]
+    expected_heading = spec["subcategory"].casefold()
+
+    payload = cdp.evaluate(
+        session_id,
+        rf"""
+        (() => {{
+          const expected = {json.dumps(expected_heading, ensure_ascii=False)};
+          const normalize = value =>
+            String(value || '').replace(/\s+/g, ' ').trim();
+
+          const lower = value => normalize(value).toLowerCase();
+
+          const headings = Array.from(
+            document.querySelectorAll('h1, h2')
+          );
+          const heading = headings.find(h =>
+            lower(h.innerText || h.textContent).includes(expected)
+          ) || document.querySelector('h1');
+
+          const isAfterHeading = el => {{
+            if (!heading) return true;
+            const pos = heading.compareDocumentPosition(el);
+            return Boolean(pos & Node.DOCUMENT_POSITION_FOLLOWING);
+          }};
+
+          const canonical = href => {{
+            try {{
+              const u = new URL(href, location.href);
+              return u.origin + u.pathname;
+            }} catch {{
+              return href || '';
+            }}
+          }};
+
+          const money = /\$\s*[0-9][0-9,]*(?:\.\d{{1,2}})?/;
+          const unavailable =
+            /Agotado|No disponible|Sin existencia|Sin stock|Out of stock/i;
+
+          const allLinks = Array.from(
+            document.querySelectorAll('a[href*="/ip/"]')
+          ).filter(a => {{
+            if (a.closest('header, nav, footer')) return false;
+            if (!isAfterHeading(a)) return false;
+            return true;
+          }});
+
+          const out = [];
+          const seen = new Set();
+
+          for (const a of allLinks) {{
+            const href = canonical(a.href || '');
+            if (!href || seen.has(href)) continue;
+
+            let card =
+              a.closest(
+                '[data-item-id], [data-testid*="item" i], ' +
+                '[data-automation-id*="product" i], article, li'
+              );
+
+            if (!card) {{
+              let node = a;
+              for (
+                let i = 0;
+                i < 14 && node;
+                i++, node = node.parentElement
+              ) {{
+                const text = normalize(
+                  node.innerText || node.textContent
+                );
+                if (!text) continue;
+
+                const productHrefs = new Set(
+                  Array.from(
+                    node.querySelectorAll('a[href*="/ip/"]')
+                  )
+                    .map(link => canonical(link.href || ''))
+                    .filter(Boolean)
+                );
+
+                if (
+                  productHrefs.size <= 2
+                  && (money.test(text) || unavailable.test(text))
+                  && text.length >= 8
+                  && text.length <= 6000
+                ) {{
+                  card = node;
+                  break;
+                }}
+              }}
+            }}
+
+            if (!card) continue;
+
+            const cardText = normalize(
+              card.innerText || card.textContent || ''
+            );
+            if (
+              !money.test(cardText)
+              && !unavailable.test(cardText)
+            ) {{
+              continue;
+            }}
+
+            const titleNode =
+              card.querySelector(
+                '[data-automation-id="product-title"], ' +
+                '[data-automation-id*="product-title" i], ' +
+                '[data-testid*="product-title" i], h2, h3, h4'
+              );
+
+            const image = card.querySelector('img[alt]');
+            const brandNode = card.querySelector(
+              '[data-automation-id*="brand" i], [class*="brand" i]'
+            );
+
+            let title =
+              normalize(
+                a.getAttribute('aria-label')
+                || a.getAttribute('title')
+                || a.innerText
+              )
+              || normalize(titleNode ? titleNode.innerText : '')
+              || normalize(image ? image.alt : '');
+
+            if (!title) {{
+              const lines = String(card.innerText || '')
+                .split(/\n+/)
+                .map(normalize)
+                .filter(Boolean);
+              title = lines.find(line =>
+                line.length > 6
+                && !money.test(line)
+                && !/Agregar|Añadir|Entrega|Envío|Rebaja|Antes|mensualidades/i.test(line)
+              ) || '';
+            }}
+
+            if (!title) continue;
+
+            seen.add(href);
+            out.push({{
+              href,
+              title,
+              brand: normalize(
+                brandNode
+                  ? brandNode.innerText || brandNode.textContent
+                  : ''
+              ),
+              text: cardText
+            }});
+          }}
+
+          return {{
+            heading: heading
+              ? normalize(heading.innerText || heading.textContent)
+              : null,
+            totalIpLinks: document.querySelectorAll(
+              'a[href*="/ip/"]'
+            ).length,
+            scopedIpLinks: allLinks.length,
+            cards: out
+          }};
+        }})()
+        """,
+    ) or {{}}
+
+    return payload
+
+
+def wait_for_catalog(
+    cdp: RawCDP,
+    session_id: str,
+    family: str,
+    timeout_seconds: float = 20.0,
+) -> dict:
+    deadline = time.monotonic() + timeout_seconds
+    last = {{}}
+    while time.monotonic() < deadline:
+        last = catalog_cards(cdp, session_id, family)
+        if (last.get("cards") or []):
+            time.sleep(0.8)
+            return last
+        time.sleep(0.5)
+    return last
+
 def scrape_route(
     cdp: RawCDP,
     session_id: str,
@@ -233,51 +439,78 @@ def scrape_route(
     route_url: str,
     scraper: BodegaAurreraScraper,
     location,
+    max_pages: int = 60,
 ) -> tuple[pd.DataFrame, dict]:
     category = build_category(family)
 
-    navigate(cdp, session_id, route_url)
-    initial_links = product_link_count(cdp, session_id)
-    expansion = expand_current_page(cdp, session_id)
-    pages = explicit_page_urls(cdp, session_id)
+    unique_rows: dict[str, dict] = {}
+    page_meta: list[dict] = []
+    empty_or_duplicate_pages = 0
 
-    cards = raw_cards(cdp, session_id)
-    rows, extraction = cards_to_rows(
-        cards,
-        scraper,
-        category,
-        location,
-    )
+    for page_number in range(1, max_pages + 1):
+        url = paged_url(route_url, page_number)
+        navigate(cdp, session_id, url)
 
-    page_meta = []
-    for page_url in pages:
-        navigate(cdp, session_id, page_url)
-        page_expansion = expand_current_page(cdp, session_id)
-        page_cards = raw_cards(cdp, session_id)
-        page_rows, page_stats = cards_to_rows(
-            page_cards,
+        payload = wait_for_catalog(
+            cdp,
+            session_id,
+            family,
+        )
+
+        cards = payload.get("cards") or []
+        rows, extraction = cards_to_rows(
+            cards,
             scraper,
             category,
             location,
         )
-        rows.extend(page_rows)
-        page_meta.append(
-            {
-                "url": page_url,
-                "product_links": page_expansion["product_links"],
-                "stabilized": page_expansion["stabilized"],
-                "raw_cards": page_stats["raw_cards"],
-                "rows": page_stats["rows"],
-            }
+
+        new_count = 0
+        for row in rows:
+            sku = str(row.get("sku") or "").strip()
+            if not sku:
+                continue
+            if sku not in unique_rows:
+                unique_rows[sku] = row
+                new_count += 1
+
+        page_info = {
+            "page": page_number,
+            "requested_url": url,
+            "actual_url": current_url(cdp, session_id),
+            "heading": payload.get("heading"),
+            "total_ip_links": payload.get("totalIpLinks"),
+            "scoped_ip_links": payload.get("scopedIpLinks"),
+            "raw_cards": extraction["raw_cards"],
+            "rows": extraction["rows"],
+            "new_rows": new_count,
+            "missing_sku": extraction["rejected_missing_sku"],
+            "missing_price": extraction["rejected_missing_price"],
+            "cumulative": len(unique_rows),
+        }
+        page_meta.append(page_info)
+
+        print(
+            f"  page={page_number} | "
+            f"all_ip={page_info['total_ip_links']} | "
+            f"scoped_ip={page_info['scoped_ip_links']} | "
+            f"cards={page_info['raw_cards']} | "
+            f"rows={page_info['rows']} | "
+            f"new={new_count} | "
+            f"cumulative={len(unique_rows)}"
         )
 
-    unique = {}
-    for row in rows:
-        sku = str(row.get("sku") or "").strip()
-        if sku:
-            unique[sku] = row
+        if extraction["rows"] == 0 or new_count == 0:
+            empty_or_duplicate_pages += 1
+        else:
+            empty_or_duplicate_pages = 0
 
-    frame = pd.DataFrame(list(unique.values()))
+        # Two consecutive empty/duplicate pages means the catalog has ended
+        # or the requested page has been clamped back to the last page.
+        if empty_or_duplicate_pages >= 2:
+            break
+
+    frame = pd.DataFrame(list(unique_rows.values()))
     for column in COLUMNS:
         if column not in frame.columns:
             frame[column] = None
@@ -286,9 +519,6 @@ def scrape_route(
     meta = {
         "family": family,
         "route_url": route_url,
-        "actual_url": current_url(cdp, session_id),
-        "initial_product_links": initial_links,
-        "product_links": expansion["product_links"],
         "products": len(frame),
         "sku_complete": int(
             frame["sku"].fillna("").astype(str).str.strip().ne("").sum()
@@ -299,13 +529,8 @@ def scrape_route(
         "url_complete": int(
             frame["url"].fillna("").astype(str).str.strip().ne("").sum()
         ) if not frame.empty else 0,
-        "raw_cards": extraction["raw_cards"],
-        "missing_sku": extraction["rejected_missing_sku"],
-        "missing_price": extraction["rejected_missing_price"],
-        "scroll_rounds": len(expansion["rounds"]),
-        "stabilized": expansion["stabilized"],
-        "explicit_pages": len(pages),
-        "explicit_page_meta": page_meta,
+        "pages_scanned": len(page_meta),
+        "page_meta": page_meta,
         "status": (
             "SUCCESS"
             if len(frame) > 0
@@ -390,7 +615,7 @@ def main() -> int:
             category_file = TEMP_DIR / f"{family}.xlsx"
             with pd.ExcelWriter(category_file, engine="openpyxl") as writer:
                 frame.to_excel(writer, index=False, sheet_name="Concentrado")
-                pd.DataFrame([meta | {"explicit_page_meta": None}]).to_excel(
+                pd.DataFrame([meta | {"page_meta": None}]).to_excel(
                     writer,
                     index=False,
                     sheet_name="Resumen",
@@ -403,19 +628,17 @@ def main() -> int:
 
             print(
                 f"Resultado: {meta['status']} | "
-                f"links={meta['initial_product_links']}->{meta['product_links']} | "
                 f"products={meta['products']} | "
                 f"sku={meta['sku_complete']} | "
                 f"price={meta['price_complete']} | "
                 f"url={meta['url_complete']} | "
-                f"raw_cards={meta['raw_cards']} | "
-                f"pages={meta['explicit_pages']}"
+                f"pages_scanned={meta['pages_scanned']}"
             )
 
         concentrated = pd.concat(frames, ignore_index=True)
         summary_df = pd.DataFrame(
             [
-                item | {"explicit_page_meta": None}
+                item | {"page_meta": None}
                 for item in summaries
             ]
         )
@@ -447,13 +670,11 @@ def main() -> int:
                 [
                     "family",
                     "status",
-                    "initial_product_links",
-                    "product_links",
                     "products",
                     "sku_complete",
                     "price_complete",
                     "url_complete",
-                    "explicit_pages",
+                    "pages_scanned",
                 ]
             ].to_string(index=False)
         )
