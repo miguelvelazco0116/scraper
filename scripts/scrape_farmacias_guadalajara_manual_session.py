@@ -30,6 +30,64 @@ def normalize_url(value: str) -> str:
     return f"{parts.scheme}://{parts.netloc}{path}".casefold()
 
 
+def normalized_path(value: str) -> str:
+    return urlsplit(value).path.rstrip("/").casefold()
+
+
+def navigate_to_category(page, category, scraper) -> str:
+    """Selecciona automáticamente la categoría desde la sesión ya abierta."""
+    scraper._assert_not_blocked(page)
+
+    target_path = normalized_path(category.url)
+    if normalized_path(page.url) == target_path:
+        return "already_on_category"
+
+    # Primero intenta usar un enlace real ya presente en el storefront.
+    anchors = page.locator("a[href]")
+    total = anchors.count()
+    for index in range(total):
+        anchor = anchors.nth(index)
+        try:
+            href = anchor.get_attribute("href")
+        except Exception:
+            continue
+        if not href:
+            continue
+        if normalized_path(href) != target_path:
+            continue
+        try:
+            anchor.scroll_into_view_if_needed(timeout=3_000)
+        except Exception:
+            pass
+        try:
+            anchor.click(timeout=10_000)
+            page.wait_for_load_state("domcontentloaded", timeout=30_000)
+        except Exception:
+            # Algunos menús tienen links ocultos; se reutiliza el href del
+            # propio storefront dentro de la misma sesión existente.
+            page.evaluate("(url) => window.location.assign(url)", category.url)
+            page.wait_for_load_state("domcontentloaded", timeout=30_000)
+
+        page.wait_for_timeout(2_000)
+        scraper._assert_not_blocked(page)
+        if normalized_path(page.url) == target_path:
+            return "storefront_link"
+
+    # Fallback: la categoría no estaba materializada en el DOM del homepage.
+    # Se navega en la misma pestaña/sesión que abrió el usuario.
+    page.evaluate("(url) => window.location.assign(url)", category.url)
+    page.wait_for_load_state("domcontentloaded", timeout=30_000)
+    page.wait_for_timeout(2_000)
+    scraper._assert_not_blocked(page)
+
+    if normalized_path(page.url) != target_path:
+        raise RuntimeError(
+            f"No fue posible llegar a la categoría {category.id}; "
+            f"URL actual={page.url}"
+        )
+    return "session_navigation"
+
+
 def find_fg_page(browser):
     candidates = []
     for context in browser.contexts:
@@ -102,11 +160,21 @@ def main() -> int:
         current = page.url
         print(f"Pestaña detectada  : {current}")
 
-        if normalize_url(current) != normalize_url(category.url):
-            print("")
-            print("CATEGORY_MISMATCH")
-            print("Navega manualmente hasta la categoría indicada y vuelve a ejecutar.")
+        try:
+            navigation_method = navigate_to_category(
+                page,
+                category,
+                scraper,
+            )
+        except FarmaciasGuadalajaraBlocked as exc:
+            print(f"BLOCKED_DURING_NAVIGATION: {exc}")
+            return 2
+        except Exception as exc:
+            print(f"NAVIGATION_ERROR: {type(exc).__name__}: {exc}")
             return 7
+
+        print(f"Navegación         : {navigation_method}")
+        print(f"Categoría abierta  : {page.url}")
 
         try:
             rows, meta = scraper.extract_loaded_page(
