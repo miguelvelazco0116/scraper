@@ -1,1 +1,46 @@
-param()\n\n$ErrorActionPreference = "Stop"\n$Root = Split-Path -Parent $PSScriptRoot\nSet-Location $Root\n\n$Python = "C:\Proyectos\venvs\scraper\Scripts\python.exe"\nif (-not (Test-Path $Python)) { $Python = "python" }\n\n$ChromeProcesses = Get-Process chrome -ErrorAction SilentlyContinue\nif (-not $ChromeProcesses) {\n    Write-Host "ERROR: no hay ninguna sesion de Chrome abierta."\n    exit 10\n}\n\n$ChromeUserData = Join-Path $env:LOCALAPPDATA "Google\Chrome\User Data"\n$ActivePortFiles = @(Get-ChildItem -Path $ChromeUserData -Filter "DevToolsActivePort" -File -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)\nif (-not $ActivePortFiles -or $ActivePortFiles.Count -eq 0) {\n    Write-Host "ERROR: Chrome esta abierto pero remote debugging no esta habilitado."\n    exit 11\n}\n\n$ActivePortPath = ($ActivePortFiles | Select-Object -First 1).FullName\n$Lines = @(Get-Content -LiteralPath $ActivePortPath -ErrorAction Stop)\nif ($Lines.Count -lt 2) {\n    Write-Host "ERROR: DevToolsActivePort invalido."\n    exit 12\n}\n\n$Port = $Lines[0].Trim()\n$WebSocketPath = $Lines[1].Trim()\n$WsUrl = "ws://127.0.0.1:$Port$WebSocketPath"\n\nWrite-Host "Chrome existente detectado."\nWrite-Host "Puerto : $Port"\nWrite-Host "Muestra : Enjuagues Bucales + Pasta Dental"\nWrite-Host "Modo   : CDP directo."\nWrite-Host ""\n\n$argsList = @(\n    ".\scripts\scrape_bodega_aurrera_oral_departments_raw_cdp.py",\n    "--ws-url", $WsUrl\n)\n\n& $Python @argsList\nexit $LASTEXITCODE\n
+param()
+
+$ErrorActionPreference = "Stop"
+$Root = Split-Path -Parent $PSScriptRoot
+Set-Location $Root
+
+$Python = "C:\Proyectos\venvs\scraper\Scripts\python.exe"
+if (-not (Test-Path $Python)) { $Python = "python" }
+
+$ChromeProcesses = Get-Process chrome -ErrorAction SilentlyContinue
+if (-not $ChromeProcesses) {
+    Write-Host "ERROR: no hay ninguna sesion de Chrome abierta."
+    exit 10
+}
+
+$ChromeUserData = Join-Path $env:LOCALAPPDATA "Google\Chrome\User Data"
+$ActivePortFiles = @(Get-ChildItem -Path $ChromeUserData -Filter "DevToolsActivePort" -File -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+if (-not $ActivePortFiles -or $ActivePortFiles.Count -eq 0) {
+    Write-Host "ERROR: Chrome esta abierto pero remote debugging no esta habilitado."
+    exit 11
+}
+
+$ActivePortPath = ($ActivePortFiles | Select-Object -First 1).FullName
+$Lines = @(Get-Content -LiteralPath $ActivePortPath -ErrorAction Stop)
+if ($Lines.Count -lt 2) {
+    Write-Host "ERROR: DevToolsActivePort invalido."
+    exit 12
+}
+
+$Port = $Lines[0].Trim()
+$WebSocketPath = $Lines[1].Trim()
+$WsUrl = "ws://127.0.0.1:$Port$WebSocketPath"
+
+Write-Host "Chrome existente detectado."
+Write-Host "Puerto : $Port"
+Write-Host "Muestra : Enjuagues Bucales + Pasta Dental"
+Write-Host "Modo   : CDP directo."
+Write-Host ""
+
+$argsList = @(
+    ".\scripts\scrape_bodega_aurrera_oral_departments_raw_cdp.py",
+    "--ws-url", $WsUrl
+)
+
+& $Python @argsList
+exit $LASTEXITCODE
