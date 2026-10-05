@@ -183,36 +183,174 @@ class FarmaciasGuadalajaraScraper:
             f"Detalle: {detail}"
         )
 
-    def _expand_all_products(self, page, target: int | None) -> None:
+    def _expand_all_products(
+        self,
+        page,
+        target: int | None,
+    ) -> list[dict]:
+        """Expande el catálogo visible hasta el total publicado o estabilizarse."""
         stable_rounds = 0
         previous = self._product_link_count(page)
-        for _ in range(self.max_load_more):
+        trace: list[dict] = []
+
+        for round_number in range(1, self.max_load_more + 1):
             if target and previous >= target:
                 break
 
-            button = page.get_by_text(
-                re.compile(
-                    r"^(Ver más productos|Mostrar los siguientes .*productos)$",
-                    re.IGNORECASE,
-                )
-            ).last
-            try:
-                if button.count() == 0 or not button.is_visible(timeout=1_500):
+            # El storefront puede dejar nodos duplicados/ocultos con el mismo
+            # texto. Se toma el primer candidato realmente visible.
+            locators = [
+                page.locator("button").filter(
+                    has_text=re.compile(
+                        r"Ver\\s+m[aá]s\\s+productos",
+                        re.IGNORECASE,
+                    )
+                ),
+                page.locator('[role="button"]').filter(
+                    has_text=re.compile(
+                        r"Ver\\s+m[aá]s\\s+productos",
+                        re.IGNORECASE,
+                    )
+                ),
+                page.get_by_text(
+                    re.compile(
+                        r"Ver\\s+m[aá]s\\s+productos",
+                        re.IGNORECASE,
+                    )
+                ),
+                page.get_by_text(
+                    re.compile(
+                        r"Mostrar\\s+los\\s+siguientes.*productos",
+                        re.IGNORECASE,
+                    )
+                ),
+            ]
+
+            button = None
+            candidate_count = 0
+            for locator in locators:
+                try:
+                    count = locator.count()
+                    candidate_count = max(candidate_count, count)
+                except Exception:
+                    continue
+
+                for index in range(count):
+                    item = locator.nth(index)
+                    try:
+                        if item.is_visible(timeout=1_000):
+                            button = item
+                            break
+                    except Exception:
+                        continue
+                if button is not None:
                     break
-                button.scroll_into_view_if_needed()
-                button.click(timeout=10_000)
-                page.wait_for_timeout(1_500)
-            except Exception:
+
+            if button is None:
+                # A veces el botón sólo aparece al acercarse al final del grid.
+                try:
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    page.wait_for_timeout(1_000)
+                except Exception:
+                    pass
+
+                for locator in locators:
+                    try:
+                        for index in range(locator.count()):
+                            item = locator.nth(index)
+                            if item.is_visible(timeout=1_000):
+                                button = item
+                                break
+                    except Exception:
+                        continue
+                    if button is not None:
+                        break
+
+            if button is None:
+                trace.append(
+                    {
+                        "round": round_number,
+                        "before": previous,
+                        "after": previous,
+                        "candidate_count": candidate_count,
+                        "clicked": False,
+                        "reason": "no_visible_load_more_button",
+                    }
+                )
                 break
 
+            click_method = "playwright"
+            click_error = None
+            try:
+                button.scroll_into_view_if_needed(timeout=5_000)
+                page.wait_for_timeout(400)
+                button.click(timeout=10_000)
+            except Exception as exc:
+                click_method = "dom"
+                click_error = f"{type(exc).__name__}: {exc}"
+                try:
+                    button.evaluate("el => el.click()")
+                    click_error = None
+                except Exception as fallback_exc:
+                    click_error = (
+                        f"{click_error}; fallback="
+                        f"{type(fallback_exc).__name__}: {fallback_exc}"
+                    )
+
+            if click_error is not None:
+                trace.append(
+                    {
+                        "round": round_number,
+                        "before": previous,
+                        "after": previous,
+                        "candidate_count": candidate_count,
+                        "clicked": False,
+                        "reason": click_error,
+                    }
+                )
+                break
+
+            # Espera a que el grid incorpore nuevos productos en lugar de usar
+            # un sleep fijo. Si el sitio tarda, todavía deja un margen final.
+            try:
+                page.wait_for_function(
+                    """
+                    previous => {
+                      const re = /-\\d{5,14}\\.html(?:$|[?#])/i;
+                      const hrefs = Array.from(
+                        document.querySelectorAll('a[href*=".html"]')
+                      ).map(a => a.href || '').filter(h => re.test(h));
+                      return new Set(hrefs).size > previous;
+                    }
+                    """,
+                    arg=previous,
+                    timeout=15_000,
+                )
+            except Exception:
+                page.wait_for_timeout(2_000)
+
             current = self._product_link_count(page)
+            trace.append(
+                {
+                    "round": round_number,
+                    "before": previous,
+                    "after": current,
+                    "candidate_count": candidate_count,
+                    "clicked": True,
+                    "click_method": click_method,
+                }
+            )
+
             if current <= previous:
                 stable_rounds += 1
             else:
                 stable_rounds = 0
+
             previous = current
             if stable_rounds >= 2:
                 break
+
+        return trace
 
     @staticmethod
     def _extract_cards(page) -> list[dict]:
@@ -278,8 +416,9 @@ class FarmaciasGuadalajaraScraper:
         """
         self._assert_not_blocked(page)
         target = self._target_count(page)
+        expansion_trace: list[dict] = []
         if expand:
-            self._expand_all_products(page, target)
+            expansion_trace = self._expand_all_products(page, target)
         cards = self._extract_cards(page)
 
         now = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -338,6 +477,7 @@ class FarmaciasGuadalajaraScraper:
             "product_links": self._product_link_count(page),
             "rows": len(rows),
             "store_context": context_method,
+            "expansion_trace": expansion_trace,
         }
         return rows, meta
 
