@@ -134,7 +134,7 @@ def current_url(cdp: RawCDP, session_id: str) -> str:
     return str(cdp.evaluate(session_id, "location.href") or "")
 
 
-def assert_not_blocked(cdp: RawCDP, session_id: str) -> None:
+def is_blocked(cdp: RawCDP, session_id: str) -> bool:
     text = body_text(cdp, session_id).casefold()
     url = current_url(cdp, session_id).casefold()
     markers = (
@@ -148,11 +148,61 @@ def assert_not_blocked(cdp: RawCDP, session_id: str) -> None:
         "manten presionado",
         "confirma que no eres un robot",
     )
-    if "/blocked" in url or any(marker in text for marker in markers):
-        raise RuntimeError(
-            "Bodega Aurrera mostró un bloqueo o verificación. "
-            "No se intenta evadir la protección."
+    return bool(
+        "/blocked" in url
+        or any(marker in text for marker in markers)
+    )
+
+
+def assert_not_blocked(
+    cdp: RawCDP,
+    session_id: str,
+    manual_timeout_seconds: float = 300.0,
+) -> None:
+    if not is_blocked(cdp, session_id):
+        return
+
+    print("")
+    print("=" * 78)
+    print("VERIFICACION MANUAL REQUERIDA")
+    print("=" * 78)
+    print(
+        "Bodega Aurrera mostró una verificación. "
+        "Completa el botón/desafío manualmente en la pestaña de Chrome."
+    )
+    print(
+        "El scraper permanecerá conectado y continuará automáticamente "
+        "cuando la verificación desaparezca."
+    )
+    print("")
+
+    deadline = time.monotonic() + manual_timeout_seconds
+    last_notice = 0.0
+
+    while time.monotonic() < deadline:
+        time.sleep(1.0)
+
+        try:
+            if not is_blocked(cdp, session_id):
+                print("VERIFICACION RESUELTA: continuando con el scraping.")
+                print("")
+                time.sleep(1.0)
+                return
+        except Exception:
+            pass
+
+        elapsed = manual_timeout_seconds - max(
+            0.0,
+            deadline - time.monotonic(),
         )
+        if elapsed - last_notice >= 30:
+            print("Esperando verificación manual...")
+            last_notice = elapsed
+
+    raise RuntimeError(
+        "La verificación manual de Bodega Aurrera no se resolvió "
+        f"dentro de {int(manual_timeout_seconds)} segundos."
+    )
 
 
 def navigate(
