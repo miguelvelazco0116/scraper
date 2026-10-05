@@ -43,17 +43,9 @@ if ($Lines.Count -lt 2) {
 
 $Port = $Lines[0].Trim()
 $WebSocketPath = $Lines[1].Trim()
-$CdpUrl = "http://127.0.0.1:$Port"
+$CdpUrl = "ws://127.0.0.1:$Port$WebSocketPath"
 
 Write-Host "Chrome existente detectado."
-try {
-    $Version = Invoke-RestMethod -Uri "$CdpUrl/json/version" -TimeoutSec 5
-    Write-Host "Chrome CDP listo: $($Version.Browser)"
-} catch {
-    Write-Host "ERROR: Chrome expone DevToolsActivePort pero /json/version no responde."
-    exit 13
-}
-
 Write-Host "CDP: $CdpUrl"
 Write-Host "El test usara ESTA sesion; NO abrira otro navegador."
 Write-Host ""
