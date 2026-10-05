@@ -193,7 +193,7 @@ def product_link_count(cdp: RawCDP, session_id: str) -> int:
 
 
 def click_load_more(cdp: RawCDP, session_id: str) -> dict:
-    result = cdp.evaluate(
+    target = cdp.evaluate(
         session_id,
         r"""
         (() => {
@@ -262,11 +262,23 @@ def click_load_more(cdp: RawCDP, session_id: str) -> dict:
             clickable = clickable || node;
             if (!visible(clickable)) continue;
 
-            clickable.scrollIntoView({block: 'center', inline: 'center'});
-            clickable.click();
+            clickable.scrollIntoView({
+              block: 'center',
+              inline: 'center',
+              behavior: 'instant'
+            });
+
+            const rect = clickable.getBoundingClientRect();
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            const top = document.elementFromPoint(x, y);
 
             return {
-              clicked: true,
+              found: true,
+              x,
+              y,
+              width: rect.width,
+              height: rect.height,
               tag: clickable.tagName,
               text: norm(
                 clickable.innerText
@@ -274,15 +286,66 @@ def click_load_more(cdp: RawCDP, session_id: str) -> dict:
                 || clickable.getAttribute('aria-label')
                 || clickable.getAttribute('title')
                 || clickable.value
-              ).slice(0, 160)
+              ).slice(0, 160),
+              topTag: top ? top.tagName : null,
+              topText: top ? norm(top.innerText || top.textContent).slice(0, 160) : null
             };
           }
 
-          return {clicked: false};
+          return {found: false};
         })()
         """,
+    ) or {"found": False}
+
+    if not target.get("found"):
+        return {"clicked": False, "reason": "load_more_not_found"}
+
+    x = float(target["x"])
+    y = float(target["y"])
+
+    # Dispatch a real pointer-style mouse click at the visual center of the
+    # control. This triggers the same browser input path as a user click,
+    # instead of HTMLElement.click().
+    cdp.send(
+        "Input.dispatchMouseEvent",
+        {
+            "type": "mouseMoved",
+            "x": x,
+            "y": y,
+            "button": "none",
+        },
+        session_id=session_id,
     )
-    return result or {"clicked": False}
+    time.sleep(0.15)
+    cdp.send(
+        "Input.dispatchMouseEvent",
+        {
+            "type": "mousePressed",
+            "x": x,
+            "y": y,
+            "button": "left",
+            "buttons": 1,
+            "clickCount": 1,
+        },
+        session_id=session_id,
+    )
+    time.sleep(0.08)
+    cdp.send(
+        "Input.dispatchMouseEvent",
+        {
+            "type": "mouseReleased",
+            "x": x,
+            "y": y,
+            "button": "left",
+            "buttons": 0,
+            "clickCount": 1,
+        },
+        session_id=session_id,
+    )
+
+    target["clicked"] = True
+    target["mode"] = "cdp_mouse"
+    return target
 
 
 def expand_catalog(
