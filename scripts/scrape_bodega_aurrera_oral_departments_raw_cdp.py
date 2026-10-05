@@ -295,19 +295,129 @@ def paged_url(url: str, page_number: int) -> str:
     )
 
 
+def next_data_catalog_meta(
+    cdp: RawCDP,
+    session_id: str,
+) -> dict:
+    raw = cdp.evaluate(
+        session_id,
+        """
+        (() => {
+          const node = document.getElementById('__NEXT_DATA__');
+          return node ? node.textContent : null;
+        })()
+        """,
+    )
+    if not raw:
+        return {}
+
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return {}
+
+    candidates: list[dict] = []
+
+    def walk(value):
+        if isinstance(value, dict):
+            item_stacks = value.get("itemStacks")
+            if isinstance(item_stacks, list):
+                candidates.append(value)
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    walk(data)
+    if not candidates:
+        return {}
+
+    def candidate_score(candidate: dict) -> tuple[int, int]:
+        items = []
+        for stack in candidate.get("itemStacks") or []:
+            if isinstance(stack, dict):
+                items.extend(stack.get("items") or [])
+        count = candidate.get("aggregatedCount")
+        try:
+            count_int = int(count)
+        except Exception:
+            count_int = 0
+        return (count_int, len(items))
+
+    search_result = max(candidates, key=candidate_score)
+
+    items: list[dict] = []
+    for stack in search_result.get("itemStacks") or []:
+        if not isinstance(stack, dict):
+            continue
+        for item in stack.get("items") or []:
+            if isinstance(item, dict):
+                items.append(item)
+
+    item_ids: list[str] = []
+    for item in items:
+        raw_id = (
+            item.get("usItemId")
+            or item.get("itemId")
+            or item.get("id")
+        )
+        if raw_id is None:
+            continue
+        item_id = str(raw_id).strip()
+        if item_id and item_id not in item_ids:
+            item_ids.append(item_id)
+
+    total = (
+        search_result.get("aggregatedCount")
+        or search_result.get("totalCount")
+        or search_result.get("count")
+    )
+    try:
+        total = int(total)
+    except Exception:
+        total = None
+
+    pagination = (
+        search_result.get("paginationV2")
+        or search_result.get("pagination")
+        or {}
+    )
+    max_page = None
+    if isinstance(pagination, dict):
+        max_page = (
+            pagination.get("maxPage")
+            or pagination.get("maxPages")
+            or pagination.get("totalPages")
+        )
+    try:
+        max_page = int(max_page)
+    except Exception:
+        max_page = None
+
+    return {
+        "aggregated_count": total,
+        "max_page": max_page,
+        "item_ids": item_ids,
+        "item_count": len(item_ids),
+    }
+
 def catalog_cards(
     cdp: RawCDP,
     session_id: str,
     family: str,
+    allowed_item_ids: list[str] | None = None,
 ) -> dict:
     spec = TARGETS[family]
     expected_heading = spec["subcategory"].casefold()
+    allowed_json = json.dumps(allowed_item_ids or [])
 
     payload = cdp.evaluate(
         session_id,
         rf"""
         (() => {{
           const expected = {json.dumps(expected_heading, ensure_ascii=False)};
+          const allowedIds = new Set({allowed_json}.map(String));
           const normalize = value =>
             String(value || '').replace(/\s+/g, ' ').trim();
 
@@ -344,6 +454,19 @@ def catalog_cards(
           ).filter(a => {{
             if (a.closest('header, nav, footer')) return false;
             if (!isAfterHeading(a)) return false;
+
+            if (allowedIds.size) {{
+              const card = a.closest('[data-item-id]');
+              const cardId = card
+                ? String(card.getAttribute('data-item-id') || '')
+                : '';
+              const href = canonical(a.href || '');
+              const hrefMatch = Array.from(allowedIds).some(id =>
+                href.endsWith('/' + id)
+              );
+              if (!allowedIds.has(cardId) && !hrefMatch) return false;
+            }}
+
             return true;
           }});
 
@@ -473,12 +596,18 @@ def wait_for_catalog(
     cdp: RawCDP,
     session_id: str,
     family: str,
+    allowed_item_ids: list[str] | None = None,
     timeout_seconds: float = 20.0,
 ) -> dict:
     deadline = time.monotonic() + timeout_seconds
     last = {}
     while time.monotonic() < deadline:
-        last = catalog_cards(cdp, session_id, family)
+        last = catalog_cards(
+            cdp,
+            session_id,
+            family,
+            allowed_item_ids=allowed_item_ids,
+        )
         if (last.get("cards") or []):
             time.sleep(0.8)
             return last
@@ -506,8 +635,13 @@ def scrape_route(
     empty_or_duplicate_pages = 0
     stopped_reason = None
     high_traffic_events = 0
+    published_total = None
+    published_max_page = None
+    pagination_metadata_verified = False
 
     for page_number in range(1, max_pages + 1):
+        if published_max_page is not None and page_number > published_max_page:
+            break
         if page_number > 1:
             if batch_size > 0 and (page_number - 1) % batch_size == 0:
                 print(
@@ -538,10 +672,40 @@ def scrape_route(
             )
             break
 
+        next_meta = next_data_catalog_meta(cdp, session_id)
+        if page_number == 1:
+            published_total = next_meta.get("aggregated_count")
+            published_max_page = next_meta.get("max_page")
+            pagination_metadata_verified = bool(
+                published_total is not None
+                or published_max_page is not None
+            )
+
+            print(
+                "  CATALOG_META: "
+                f"published_total={published_total} | "
+                f"max_page={published_max_page} | "
+                f"next_items={next_meta.get('item_count')}"
+            )
+
+            if published_max_page is None and published_total:
+                first_page_items = int(next_meta.get("item_count") or 0)
+                if first_page_items > 0:
+                    published_max_page = max(
+                        1,
+                        (published_total + first_page_items - 1)
+                        // first_page_items,
+                    )
+                    print(
+                        "  CATALOG_META: max_page inferido="
+                        f"{published_max_page}"
+                    )
+
         payload = wait_for_catalog(
             cdp,
             session_id,
             family,
+            allowed_item_ids=next_meta.get("item_ids") or None,
         )
 
         cards = payload.get("cards") or []
@@ -575,6 +739,9 @@ def scrape_route(
             "missing_price": extraction["rejected_missing_price"],
             "cumulative": len(unique_rows),
             "high_traffic_retries": retries_used,
+            "next_data_item_count": next_meta.get("item_count"),
+            "published_total": published_total,
+            "published_max_page": published_max_page,
         }
         page_meta.append(page_info)
 
@@ -588,6 +755,9 @@ def scrape_route(
             f"cumulative={len(unique_rows)}"
         )
 
+        if published_total is not None and len(unique_rows) >= published_total:
+            break
+
         if extraction["rows"] == 0 or new_count == 0:
             empty_or_duplicate_pages += 1
         else:
@@ -596,6 +766,18 @@ def scrape_route(
         # Two consecutive empty/duplicate pages means the catalog has ended
         # or the requested page has been clamped back to the last page.
         if empty_or_duplicate_pages >= 2:
+            break
+
+        if (
+            page_number >= 3
+            and not pagination_metadata_verified
+            and published_max_page is None
+        ):
+            stopped_reason = "NO_PAGINATION_METADATA"
+            print(
+                "  STOP_NO_METADATA: no fue posible validar total/maxPage "
+                "desde __NEXT_DATA__; se conserva la muestra obtenida."
+            )
             break
 
     frame = pd.DataFrame(list(unique_rows.values()))
@@ -620,11 +802,26 @@ def scrape_route(
         "pages_scanned": len(page_meta),
         "page_meta": page_meta,
         "high_traffic_events": high_traffic_events,
+        "published_total": published_total,
+        "published_max_page": published_max_page,
+        "pagination_metadata_verified": pagination_metadata_verified,
         "stopped_reason": stopped_reason,
         "status": (
             "PARTIAL"
             if len(frame) > 0 and stopped_reason
             else "SUCCESS"
+            if (
+                len(frame) > 0
+                and (
+                    published_total is None
+                    or len(frame) >= published_total
+                    or (
+                        published_max_page is not None
+                        and len(page_meta) >= published_max_page
+                    )
+                )
+            )
+            else "PARTIAL"
             if len(frame) > 0
             else "EMPTY"
         ),
@@ -725,6 +922,8 @@ def main() -> int:
                 f"price={meta['price_complete']} | "
                 f"url={meta['url_complete']} | "
                 f"pages_scanned={meta['pages_scanned']} | "
+                f"published_total={meta['published_total']} | "
+                f"max_page={meta['published_max_page']} | "
                 f"high_traffic={meta['high_traffic_events']} | "
                 f"stopped={meta['stopped_reason']}"
             )
@@ -769,6 +968,9 @@ def main() -> int:
                     "price_complete",
                     "url_complete",
                     "pages_scanned",
+                    "published_total",
+                    "published_max_page",
+                    "pagination_metadata_verified",
                     "high_traffic_events",
                     "stopped_reason",
                 ]
