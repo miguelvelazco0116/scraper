@@ -113,6 +113,7 @@ def main() -> int:
     parser.add_argument("--category", required=True)
     parser.add_argument("--cdp-url", default=DEFAULT_CDP_URL)
     parser.add_argument("--max-load-more", type=int, default=100)
+    parser.add_argument("--output", default=str(OUTPUT))
     parser.add_argument("--update-consolidated", action="store_true")
     args = parser.parse_args()
 
@@ -193,7 +194,10 @@ def main() -> int:
             return 1
 
         frame = normalize_frame(rows)
-        OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+        output_path = Path(args.output)
+        if not output_path.is_absolute():
+            output_path = ROOT / output_path
+        output_path.parent.mkdir(parents=True, exist_ok=True)
 
         diagnostics_dir = ROOT / "diagnostics" / "farmacias_guadalajara_manual"
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
@@ -202,7 +206,7 @@ def main() -> int:
             encoding="utf-8",
         )
 
-        with pd.ExcelWriter(OUTPUT, engine="openpyxl") as writer:
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
             frame.to_excel(writer, index=False, sheet_name="Concentrado")
             summary = pd.DataFrame(
                 [{
@@ -257,7 +261,7 @@ def main() -> int:
             "Diagnostico        : "
             f"{diagnostics_dir / (category.id + '_meta.json')}"
         )
-        print(f"Output             : {OUTPUT}")
+        print(f"Output             : {output_path}")
         print(
             "Consolidado         : "
             + ("actualizado" if args.update_consolidated else "sin cambios")
