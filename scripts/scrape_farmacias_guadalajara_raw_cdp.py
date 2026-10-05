@@ -708,6 +708,7 @@ def main() -> int:
     parser.add_argument("--category", default="cuidado-bucal")
     parser.add_argument("--ws-url", required=True)
     parser.add_argument("--max-load-more", type=int, default=100)
+    parser.add_argument("--output", default=str(OUTPUT))
     args = parser.parse_args()
 
     categories = {
@@ -833,7 +834,11 @@ def main() -> int:
         frame = normalize_frame(rows)
         final_links = product_link_count(cdp, session_id)
 
-        OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+        output_path = Path(args.output)
+        if not output_path.is_absolute():
+            output_path = ROOT / output_path
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         DIAG.mkdir(parents=True, exist_ok=True)
 
         meta = {
@@ -873,7 +878,7 @@ def main() -> int:
             }]
         )
 
-        with pd.ExcelWriter(OUTPUT, engine="openpyxl") as writer:
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
             frame.to_excel(writer, index=False, sheet_name="Concentrado")
             summary.to_excel(writer, index=False, sheet_name="Resumen")
             for sheet_name in ("Concentrado", "Resumen"):
@@ -913,7 +918,7 @@ def main() -> int:
                         f"hit={hit.get('tag')} {hit.get('text')!r} | "
                         f"after={attempt.get('after')}"
                     )
-        print(f"Output             : {OUTPUT}")
+        print(f"Output             : {output_path}")
         return 0
     finally:
         cdp.close()
