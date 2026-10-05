@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -194,6 +195,13 @@ def main() -> int:
         frame = normalize_frame(rows)
         OUTPUT.parent.mkdir(parents=True, exist_ok=True)
 
+        diagnostics_dir = ROOT / "diagnostics" / "farmacias_guadalajara_manual"
+        diagnostics_dir.mkdir(parents=True, exist_ok=True)
+        (diagnostics_dir / f"{category.id}_meta.json").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
         with pd.ExcelWriter(OUTPUT, engine="openpyxl") as writer:
             frame.to_excel(writer, index=False, sheet_name="Concentrado")
             summary = pd.DataFrame(
@@ -235,6 +243,20 @@ def main() -> int:
         print(f"SKU completos      : {int(frame['sku'].fillna('').astype(str).str.strip().ne('').sum())}")
         print(f"Precios completos  : {int(frame['price_current'].notna().sum())}")
         print(f"URLs completas     : {int(frame['url'].fillna('').astype(str).str.strip().ne('').sum())}")
+        trace = meta.get("expansion_trace") or []
+        print(f"Rondas expansion   : {len(trace)}")
+        for item in trace:
+            print(
+                "  ronda "
+                f"{item.get('round')}: "
+                f"{item.get('before')} -> {item.get('after')} | "
+                f"clicked={item.get('clicked')} | "
+                f"{item.get('reason') or item.get('click_method') or ''}"
+            )
+        print(
+            "Diagnostico        : "
+            f"{diagnostics_dir / (category.id + '_meta.json')}"
+        )
         print(f"Output             : {OUTPUT}")
         print(
             "Consolidado         : "
