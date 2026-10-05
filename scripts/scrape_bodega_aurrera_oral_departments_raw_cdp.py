@@ -38,18 +38,27 @@ PARENT_URL = (
 
 TARGETS = {
     "enjuagues-bucales": {
-        "labels": ["enjuagues bucales", "enjuague bucal"],
+        "url": (
+            "https://www.bodegaaurrera.com.mx/browse/"
+            "cuidado-personal/cuidado-bucal/enjuagues-bucales/"
+            "264479_950014_950025"
+        ),
         "department": "Cuidado personal",
         "category": "Cuidado bucal",
         "subcategory": "Enjuagues bucales",
     },
     "pasta-dental": {
-        "labels": ["pasta dental", "pastas dentales"],
+        "url": (
+            "https://www.bodegaaurrera.com.mx/browse/"
+            "cuidado-personal/cuidado-bucal/pasta-dental/"
+            "264479_950014_950022"
+        ),
         "department": "Cuidado personal",
         "category": "Cuidado bucal",
         "subcategory": "Pasta dental",
     },
 }
+
 
 OUTPUT = ROOT / "output" / "bodega_aurrera_enjuagues_pastas_raw_cdp.xlsx"
 TEMP_DIR = ROOT / "output" / "_bodega_oral_departments"
@@ -329,7 +338,7 @@ def main() -> int:
     print("=" * 84)
     print("BODEGA AURRERA - ENJUAGUES BUCALES + PASTA DENTAL")
     print("=" * 84)
-    print("Ruta padre : Cuidado personal > Cuidado bucal")
+    print("Ramas      : Cuidado personal > Cuidado bucal > Enjuagues/Pasta dental")
     print("")
 
     cdp = RawCDP(args.ws_url)
@@ -349,19 +358,15 @@ def main() -> int:
         cdp.send("Runtime.enable", session_id=session_id)
         cdp.send("Page.enable", session_id=session_id)
 
-        urls = discover_target_urls(cdp, session_id)
-        print("")
-        print("RUTAS DESCUBIERTAS")
-        for family in TARGETS:
-            print(f"  {family}: {urls.get(family)}")
+        urls = {
+            family: spec["url"]
+            for family, spec in TARGETS.items()
+        }
 
-        missing = [family for family in TARGETS if family not in urls]
-        if missing:
-            print(
-                "ERROR: no fue posible descubrir todas las ramas objetivo: "
-                + ", ".join(missing)
-            )
-            return 3
+        print("")
+        print("RUTAS OBJETIVO")
+        for family in TARGETS:
+            print(f"  {family}: {urls[family]}")
 
         frames = []
         summaries = []
