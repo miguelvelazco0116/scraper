@@ -2,29 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-import pandas as pd
-from openpyxl.styles import Font
-from playwright.sync_api import sync_playwright
-
-from main import COLUMNS
-from scraper.config import load_categories, load_locations
-from scraper.retailers.farmacias_guadalajara import (
-    FarmaciasGuadalajaraBlocked,
-    FarmaciasGuadalajaraScraper,
-)
-from scripts.scrape_farmacias_guadalajara_manual_session import (
-    find_fg_page,
-    navigate_to_category,
-    normalize_frame,
-)
-
 OUTPUT = ROOT / "output" / "farmacias_guadalajara_full_test.xlsx"
 DIAG_DIR = ROOT / "diagnostics" / "farmacias_guadalajara_full"
 
@@ -41,24 +23,18 @@ def main() -> int:
         description="Prueba completa de Farmacias Guadalajara sobre Chrome existente."
     )
     parser.add_argument("--cdp-url", required=True)
-    parser.add_argument("--max-load-more", type=int, default=100)
     args = parser.parse_args()
 
-    categories = {
-        item.id: item
-        for item in load_categories(
-            ROOT / "config" / "farmacias-guadalajara" / "categories.yaml"
-        )
-    }
-    location = next(
-        item
-        for item in load_locations(ROOT / "config" / "locations.yaml")
-        if item.id == "fg-online"
-    )
+    import pandas as pd
+    from openpyxl.styles import Font
+    from main import COLUMNS
 
     DIAG_DIR.mkdir(parents=True, exist_ok=True)
-    all_frames: list[pd.DataFrame] = []
-    summaries: list[dict] = []
+    temp_dir = ROOT / "output" / "_fg_full_test"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    frames = []
+    summaries = []
 
     print("=" * 82)
     print("FARMACIAS GUADALAJARA - PRUEBA COMPLETA")
@@ -67,82 +43,91 @@ def main() -> int:
     print(f"CDP        : {args.cdp_url}")
     print("")
 
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.connect_over_cdp(args.cdp_url)
-        page = find_fg_page(browser)
-        if page is None:
-            print("ERROR: no se encontró una pestaña abierta de Farmacias Guadalajara.")
-            return 1
+    for index, category_id in enumerate(CATEGORY_ORDER, start=1):
+        print("-" * 82)
+        print(f"[{index}/{len(CATEGORY_ORDER)}] {category_id}")
 
-        print(f"Pestaña inicial: {page.url}")
-        print("")
+        category_output = temp_dir / f"{category_id}.xlsx"
+        cmd = [
+            sys.executable,
+            str(ROOT / "scripts" / "scrape_farmacias_guadalajara_manual_session.py"),
+            "--category",
+            category_id,
+            "--cdp-url",
+            args.cdp_url,
+            "--output",
+            str(category_output),
+        ]
 
-        for index, category_id in enumerate(CATEGORY_ORDER, start=1):
-            category = categories[category_id]
-            scraper = FarmaciasGuadalajaraScraper(
-                headless=False,
-                max_load_more=args.max_load_more,
-            )
+        completed = subprocess.run(
+            cmd,
+            cwd=ROOT,
+            text=True,
+        )
 
-            print("-" * 82)
-            print(f"[{index}/{len(CATEGORY_ORDER)}] {category_id}")
+        meta_path = (
+            ROOT
+            / "diagnostics"
+            / "farmacias_guadalajara_manual"
+            / f"{category_id}_meta.json"
+        )
 
-            status = "SUCCESS"
-            error = None
-            rows: list[dict] = []
-            meta: dict = {}
-
+        meta = {}
+        if meta_path.exists():
             try:
-                navigation_method = navigate_to_category(
-                    page,
-                    category,
-                    scraper,
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            except Exception:
+                meta = {}
+
+        status = "SUCCESS" if completed.returncode == 0 else "ERROR"
+        frame = pd.DataFrame(columns=COLUMNS)
+
+        if category_output.exists():
+            try:
+                frame = pd.read_excel(
+                    category_output,
+                    sheet_name="Concentrado",
+                    dtype={"sku": str, "store_id": str},
                 )
-                print(f"Navegación : {navigation_method}")
-                print(f"URL        : {page.url}")
+            except Exception:
+                frame = pd.DataFrame(columns=COLUMNS)
 
-                rows, meta = scraper.extract_loaded_page(
-                    page,
-                    category,
-                    location,
-                    expand=True,
-                    context_method="manual_browser_online_catalog",
-                )
-            except FarmaciasGuadalajaraBlocked as exc:
-                status = "BLOCKED"
-                error = str(exc)
-            except Exception as exc:
-                status = "ERROR"
-                error = f"{type(exc).__name__}: {exc}"
+        if not frame.empty:
+            for column in COLUMNS:
+                if column not in frame.columns:
+                    frame[column] = None
+            frame = frame[COLUMNS]
+            frames.append(frame)
 
-            frame = normalize_frame(rows)
-            if not frame.empty:
-                all_frames.append(frame)
+        target = meta.get("target_products")
+        products = len(frame)
+        coverage = (
+            round(products / target, 4)
+            if isinstance(target, int) and target > 0
+            else None
+        )
 
-            target = meta.get("target_products")
-            products = len(frame)
-            coverage = (
-                round(products / target, 4)
-                if isinstance(target, int) and target > 0
-                else None
-            )
-            sku_complete = int(
-                frame["sku"].fillna("").astype(str).str.strip().ne("").sum()
-            ) if not frame.empty else 0
-            price_complete = int(
-                frame["price_current"].notna().sum()
-            ) if not frame.empty else 0
-            url_complete = int(
-                frame["url"].fillna("").astype(str).str.strip().ne("").sum()
-            ) if not frame.empty else 0
+        if completed.returncode == 2:
+            status = "BLOCKED"
+        elif completed.returncode != 0:
+            status = f"ERROR_{completed.returncode}"
+        elif products == 0:
+            status = "EMPTY"
+        elif coverage is not None and coverage < 0.95:
+            status = "PARTIAL"
 
-            if status == "SUCCESS":
-                if products <= 0:
-                    status = "EMPTY"
-                elif coverage is not None and coverage < 0.95:
-                    status = "PARTIAL"
+        sku_complete = int(
+            frame["sku"].fillna("").astype(str).str.strip().ne("").sum()
+        ) if not frame.empty else 0
+        price_complete = int(
+            frame["price_current"].notna().sum()
+        ) if not frame.empty else 0
+        url_complete = int(
+            frame["url"].fillna("").astype(str).str.strip().ne("").sum()
+        ) if not frame.empty else 0
 
-            summary = {
+        summaries.append(
+            {
                 "retailer": "Farmacias Guadalajara",
                 "category_id": category_id,
                 "status": status,
@@ -154,30 +139,22 @@ def main() -> int:
                 "price_complete": price_complete,
                 "url_complete": url_complete,
                 "expansion_rounds": len(meta.get("expansion_trace") or []),
-                "error": error,
+                "return_code": completed.returncode,
             }
-            summaries.append(summary)
+        )
 
-            (DIAG_DIR / f"{category_id}_meta.json").write_text(
-                json.dumps(meta, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+        print(
+            f"FULL_TEST       : {status} | target={target} | "
+            f"products={products} | coverage={coverage}"
+        )
 
-            print(
-                f"Resultado   : {status} | target={target} | "
-                f"products={products} | coverage={coverage} | "
-                f"sku={sku_complete} | price={price_complete} | url={url_complete}"
-            )
-            if error:
-                print(f"Error       : {error}")
-
-            if status in {"BLOCKED", "ERROR"}:
-                print("La prueba se detiene para no forzar la sesión.")
-                break
+        if status.startswith("ERROR") or status == "BLOCKED":
+            print("La prueba se detiene para no forzar la sesión.")
+            break
 
     concentrated = (
-        pd.concat(all_frames, ignore_index=True)
-        if all_frames
+        pd.concat(frames, ignore_index=True)
+        if frames
         else pd.DataFrame(columns=COLUMNS)
     )
     summary_df = pd.DataFrame(summaries)
@@ -202,7 +179,10 @@ def main() -> int:
     print(f"Filas totales: {len(concentrated)}")
     print(f"Output      : {OUTPUT}")
 
-    bad = summary_df["status"].isin(["BLOCKED", "ERROR", "EMPTY"])
+    if summary_df.empty:
+        return 2
+    bad = summary_df["status"].astype(str).str.startswith("ERROR")
+    bad = bad | summary_df["status"].isin(["BLOCKED", "EMPTY"])
     return 2 if bool(bad.any()) else 0
 
 
