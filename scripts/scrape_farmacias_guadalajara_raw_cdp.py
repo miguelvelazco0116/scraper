@@ -192,120 +192,12 @@ def product_link_count(cdp: RawCDP, session_id: str) -> int:
     return int(value or 0)
 
 
-def click_load_more(cdp: RawCDP, session_id: str) -> dict:
-    target = cdp.evaluate(
-        session_id,
-        r"""
-        (() => {
-          const norm = value => String(value || '')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .toLowerCase();
-
-          const matches = el => {
-            const blob = [
-              el.innerText,
-              el.textContent,
-              el.getAttribute && el.getAttribute('aria-label'),
-              el.getAttribute && el.getAttribute('title'),
-              el.value
-            ]
-              .filter(Boolean)
-              .map(norm)
-              .join(' | ');
-
-            return blob.includes('ver más productos')
-              || blob.includes('ver mas productos')
-              || blob.includes('mostrar los siguientes');
-          };
-
-          const visible = el => {
-            if (!el || !el.getBoundingClientRect) return false;
-            const style = getComputedStyle(el);
-            const rect = el.getBoundingClientRect();
-            return style.display !== 'none'
-              && style.visibility !== 'hidden'
-              && Number(style.opacity || 1) !== 0
-              && rect.width > 0
-              && rect.height > 0;
-          };
-
-          const nodes = Array.from(document.querySelectorAll(
-            'button, a, [role="button"], input[type="button"], input[type="submit"], span, div, p'
-          ));
-
-          for (const node of nodes) {
-            if (!visible(node) || !matches(node)) continue;
-
-            let clickable = node.closest(
-              'button, a, [role="button"], input[type="button"], input[type="submit"]'
-            );
-
-            if (!clickable) {
-              let parent = node;
-              for (
-                let i = 0;
-                i < 8 && parent;
-                i++, parent = parent.parentElement
-              ) {
-                if (
-                  typeof parent.onclick === 'function'
-                  || parent.hasAttribute('onclick')
-                  || getComputedStyle(parent).cursor === 'pointer'
-                ) {
-                  clickable = parent;
-                  break;
-                }
-              }
-            }
-
-            clickable = clickable || node;
-            if (!visible(clickable)) continue;
-
-            clickable.scrollIntoView({
-              block: 'center',
-              inline: 'center',
-              behavior: 'instant'
-            });
-
-            const rect = clickable.getBoundingClientRect();
-            const x = rect.left + rect.width / 2;
-            const y = rect.top + rect.height / 2;
-            const top = document.elementFromPoint(x, y);
-
-            return {
-              found: true,
-              x,
-              y,
-              width: rect.width,
-              height: rect.height,
-              tag: clickable.tagName,
-              text: norm(
-                clickable.innerText
-                || clickable.textContent
-                || clickable.getAttribute('aria-label')
-                || clickable.getAttribute('title')
-                || clickable.value
-              ).slice(0, 160),
-              topTag: top ? top.tagName : null,
-              topText: top ? norm(top.innerText || top.textContent).slice(0, 160) : null
-            };
-          }
-
-          return {found: false};
-        })()
-        """,
-    ) or {"found": False}
-
-    if not target.get("found"):
-        return {"clicked": False, "reason": "load_more_not_found"}
-
-    x = float(target["x"])
-    y = float(target["y"])
-
-    # Dispatch a real pointer-style mouse click at the visual center of the
-    # control. This triggers the same browser input path as a user click,
-    # instead of HTMLElement.click().
+def _dispatch_mouse_click(
+    cdp: RawCDP,
+    session_id: str,
+    x: float,
+    y: float,
+) -> None:
     cdp.send(
         "Input.dispatchMouseEvent",
         {
@@ -316,7 +208,7 @@ def click_load_more(cdp: RawCDP, session_id: str) -> dict:
         },
         session_id=session_id,
     )
-    time.sleep(0.15)
+    time.sleep(0.12)
     cdp.send(
         "Input.dispatchMouseEvent",
         {
@@ -343,9 +235,317 @@ def click_load_more(cdp: RawCDP, session_id: str) -> dict:
         session_id=session_id,
     )
 
-    target["clicked"] = True
-    target["mode"] = "cdp_mouse"
-    return target
+
+def click_load_more(
+    cdp: RawCDP,
+    session_id: str,
+    previous_count: int,
+) -> dict:
+    candidates = cdp.evaluate(
+        session_id,
+        r"""
+        (() => {
+          const norm = value => String(value || '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase();
+
+          const textBlob = el => [
+            el.innerText,
+            el.textContent,
+            el.getAttribute && el.getAttribute('aria-label'),
+            el.getAttribute && el.getAttribute('title'),
+            el.value
+          ]
+            .filter(Boolean)
+            .map(norm)
+            .join(' | ');
+
+          const matches = el => {
+            const blob = textBlob(el);
+            return blob.includes('ver más productos')
+              || blob.includes('ver mas productos')
+              || blob.includes('mostrar los siguientes');
+          };
+
+          const visible = el => {
+            if (!el || !el.getBoundingClientRect) return false;
+            const style = getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
+            return style.display !== 'none'
+              && style.visibility !== 'hidden'
+              && Number(style.opacity || 1) !== 0
+              && rect.width > 3
+              && rect.height > 3;
+          };
+
+          const depth = el => {
+            let d = 0;
+            let node = el;
+            while (node && node.parentElement) {
+              d++;
+              node = node.parentElement;
+            }
+            return d;
+          };
+
+          const score = el => {
+            const rect = el.getBoundingClientRect();
+            const blob = textBlob(el);
+            const exact =
+              blob === 'ver más productos'
+              || blob === 'ver mas productos'
+              || blob.startsWith('ver más productos |')
+              || blob.startsWith('ver mas productos |');
+
+            const interactive =
+              el.matches('button, a, [role="button"], input[type="button"], input[type="submit"]')
+              || typeof el.onclick === 'function'
+              || el.hasAttribute('onclick')
+              || getComputedStyle(el).cursor === 'pointer';
+
+            return {
+              exact,
+              interactive,
+              area: rect.width * rect.height,
+              depth: depth(el)
+            };
+          };
+
+          const raw = Array.from(document.querySelectorAll(
+            'button, a, [role="button"], input[type="button"], input[type="submit"], span, div, p'
+          ))
+            .filter(el => visible(el) && matches(el))
+            .map(el => {
+              let clickable = el.closest(
+                'button, a, [role="button"], input[type="button"], input[type="submit"]'
+              );
+
+              if (!clickable) {
+                let parent = el;
+                for (
+                  let i = 0;
+                  i < 8 && parent;
+                  i++, parent = parent.parentElement
+                ) {
+                  if (
+                    typeof parent.onclick === 'function'
+                    || parent.hasAttribute('onclick')
+                    || getComputedStyle(parent).cursor === 'pointer'
+                  ) {
+                    clickable = parent;
+                    break;
+                  }
+                }
+              }
+
+              clickable = clickable || el;
+              if (!visible(clickable)) return null;
+
+              const rect = clickable.getBoundingClientRect();
+              const s = score(clickable);
+
+              return {
+                tag: clickable.tagName,
+                text: textBlob(clickable).slice(0, 180),
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+                width: rect.width,
+                height: rect.height,
+                area: s.area,
+                depth: s.depth,
+                exact: s.exact,
+                interactive: s.interactive
+              };
+            })
+            .filter(Boolean);
+
+          const unique = [];
+          const seen = new Set();
+          for (const item of raw) {
+            const key = [
+              item.tag,
+              Math.round(item.x),
+              Math.round(item.y),
+              Math.round(item.width),
+              Math.round(item.height)
+            ].join('|');
+            if (seen.has(key)) continue;
+            seen.add(key);
+            unique.push(item);
+          }
+
+          unique.sort((a, b) => {
+            if (a.exact !== b.exact) return a.exact ? -1 : 1;
+            if (a.interactive !== b.interactive) return a.interactive ? -1 : 1;
+            if (a.area !== b.area) return a.area - b.area;
+            return b.depth - a.depth;
+          });
+
+          return unique.slice(0, 12);
+        })()
+        """,
+    ) or []
+
+    if not candidates:
+        return {
+            "clicked": False,
+            "reason": "load_more_not_found",
+            "candidates": [],
+        }
+
+    attempts: list[dict] = []
+
+    for index, candidate in enumerate(candidates, start=1):
+        try:
+            # Recenter the intended candidate immediately before input.
+            cdp.evaluate(
+                session_id,
+                f"""
+                (() => {{
+                  const x = {float(candidate['x'])};
+                  const y = {float(candidate['y'])};
+                  const el = document.elementFromPoint(x, y);
+                  if (el) {{
+                    el.scrollIntoView({{
+                      block: 'center',
+                      inline: 'center',
+                      behavior: 'instant'
+                    }});
+                  }}
+                  return true;
+                }})()
+                """,
+            )
+        except Exception:
+            pass
+
+        time.sleep(0.2)
+
+        # Coordinates may shift slightly after centering; resolve the best
+        # exact/smallest candidate again and use its current viewport center.
+        refreshed = cdp.evaluate(
+            session_id,
+            r"""
+            (() => {
+              const norm = value => String(value || '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .toLowerCase();
+
+              const visible = el => {
+                if (!el || !el.getBoundingClientRect) return false;
+                const style = getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                return style.display !== 'none'
+                  && style.visibility !== 'hidden'
+                  && rect.width > 3
+                  && rect.height > 3;
+              };
+
+              const nodes = Array.from(document.querySelectorAll(
+                'button, a, [role="button"], input[type="button"], input[type="submit"], span, div, p'
+              ))
+                .filter(el => {
+                  if (!visible(el)) return false;
+                  const text = norm(
+                    el.innerText
+                    || el.textContent
+                    || el.getAttribute('aria-label')
+                    || el.getAttribute('title')
+                    || el.value
+                  );
+                  return text === 'ver más productos'
+                    || text === 'ver mas productos';
+                })
+                .map(el => {
+                  let clickable = el.closest(
+                    'button, a, [role="button"], input[type="button"], input[type="submit"]'
+                  ) || el;
+                  const rect = clickable.getBoundingClientRect();
+                  return {
+                    tag: clickable.tagName,
+                    text: norm(
+                      clickable.innerText
+                      || clickable.textContent
+                      || clickable.getAttribute('aria-label')
+                      || clickable.getAttribute('title')
+                      || clickable.value
+                    ).slice(0, 180),
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                    width: rect.width,
+                    height: rect.height,
+                    area: rect.width * rect.height
+                  };
+                })
+                .sort((a, b) => a.area - b.area);
+
+              return nodes[0] || null;
+            })()
+            """,
+        )
+
+        point = refreshed or candidate
+        x = float(point["x"])
+        y = float(point["y"])
+
+        hit = cdp.evaluate(
+            session_id,
+            f"""
+            (() => {{
+              const el = document.elementFromPoint({x}, {y});
+              if (!el) return null;
+              const rect = el.getBoundingClientRect();
+              return {{
+                tag: el.tagName,
+                text: String(el.innerText || el.textContent || '')
+                  .replace(/\\s+/g, ' ')
+                  .trim()
+                  .slice(0, 180),
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2
+              }};
+            }})()
+            """,
+        )
+
+        # Click the actual topmost hit element at the candidate point.
+        click_x = float(hit["x"]) if hit and hit.get("x") is not None else x
+        click_y = float(hit["y"]) if hit and hit.get("y") is not None else y
+        _dispatch_mouse_click(cdp, session_id, click_x, click_y)
+
+        deadline = time.monotonic() + 5.0
+        current = previous_count
+        while time.monotonic() < deadline:
+            time.sleep(0.35)
+            current = product_link_count(cdp, session_id)
+            if current > previous_count:
+                return {
+                    "clicked": True,
+                    "mode": "cdp_mouse_ranked",
+                    "candidate_index": index,
+                    "candidate": candidate,
+                    "hit": hit,
+                    "after": current,
+                    "attempts": attempts,
+                }
+
+        attempts.append(
+            {
+                "candidate_index": index,
+                "candidate": candidate,
+                "hit": hit,
+                "after": current,
+            }
+        )
+
+    return {
+        "clicked": False,
+        "reason": "all_load_more_candidates_failed",
+        "candidates": candidates,
+        "attempts": attempts,
+    }
 
 
 def expand_catalog(
@@ -367,7 +567,7 @@ def expand_catalog(
         )
         time.sleep(0.8)
 
-        click = click_load_more(cdp, session_id)
+        click = click_load_more(cdp, session_id, previous)
         if not click.get("clicked"):
             trace.append(
                 {
@@ -380,13 +580,7 @@ def expand_catalog(
             )
             break
 
-        deadline = time.monotonic() + 15
-        current = previous
-        while time.monotonic() < deadline:
-            time.sleep(0.5)
-            current = product_link_count(cdp, session_id)
-            if current > previous:
-                break
+        current = int(click.get("after") or product_link_count(cdp, session_id))
 
         trace.append(
             {
@@ -394,7 +588,10 @@ def expand_catalog(
                 "before": previous,
                 "after": current,
                 "clicked": True,
-                "tag": click.get("tag"),
+                "mode": click.get("mode"),
+                "candidate_index": click.get("candidate_index"),
+                "candidate": click.get("candidate"),
+                "hit": click.get("hit"),
             }
         )
 
@@ -698,7 +895,7 @@ def main() -> int:
                 f"  ronda {item.get('round')}: "
                 f"{item.get('before')} -> {item.get('after')} | "
                 f"clicked={item.get('clicked')} | "
-                f"{item.get('tag') or item.get('reason') or ''}"
+                f"{item.get('mode') or item.get('reason') or ''}"
             )
         print(f"Output             : {OUTPUT}")
         return 0
