@@ -189,7 +189,7 @@ def click_load_more(cdp: RawCDP, session_id: str) -> bool:
             r"""
             (() => {
               const norm = value => String(value || '')
-                .replace(/s+/g, ' ')
+                .replace(/\\s+/g, ' ')
                 .trim()
                 .toLowerCase();
 
@@ -370,37 +370,52 @@ def raw_cards(cdp: RawCDP, session_id: str) -> list[dict]:
             r"""
             (() => {
               const normalize = value =>
-                String(value || '').replace(/s+/g, ' ').trim();
+                String(value || '').replace(/\s+/g, ' ').trim();
 
               const out = [];
               const seen = new Set();
+              const money = /\$\s*[0-9][0-9,]*(?:\.\d{1,2})?/;
               const unavailable =
                 /Agotado|No disponible|Sin existencia|Sin stock|Out of stock/i;
 
-              for (const a of Array.from(
+              const links = Array.from(
                 document.querySelectorAll('a[href*="/ip/"]')
-              )) {
+              );
+
+              for (const a of links) {
                 const href = a.href || '';
                 if (!href || seen.has(href)) continue;
 
                 let node = a;
                 let found = null;
 
-                for (let i = 0; i < 12 && node; i++, node = node.parentElement) {
+                // Walk upward until we find the smallest product container
+                // that contains price/availability and only a few /ip/ links.
+                for (let i = 0; i < 14 && node; i++, node = node.parentElement) {
                   const text = normalize(node.innerText || node.textContent);
+                  if (!text) continue;
+
+                  const productLinks =
+                    node.querySelectorAll('a[href*="/ip/"]').length;
+
                   if (
-                    text
-                    && (
-                      /$s*[0-9][0-9,]*(?:.d{1,2})?/.test(text)
-                      || unavailable.test(text)
-                    )
-                    && text.length >= 10
-                    && text.length <= 3500
+                    productLinks <= 4
+                    && (money.test(text) || unavailable.test(text))
+                    && text.length >= 8
+                    && text.length <= 5000
                   ) {
-                    const productLinks =
-                      node.querySelectorAll('a[href*="/ip/"]').length;
-                    if (productLinks <= 3) {
-                      found = node;
+                    found = node;
+                    break;
+                  }
+                }
+
+                // Fallback: Bodega sometimes keeps price in a sibling wrapper.
+                if (!found) {
+                  let node2 = a.parentElement;
+                  for (let i = 0; i < 8 && node2; i++, node2 = node2.parentElement) {
+                    const text = normalize(node2.innerText || node2.textContent);
+                    if (text && money.test(text) && text.length <= 8000) {
+                      found = node2;
                       break;
                     }
                   }
@@ -408,28 +423,53 @@ def raw_cards(cdp: RawCDP, session_id: str) -> list[dict]:
 
                 if (!found) continue;
 
-                const text = (found.innerText || found.textContent || '').trim();
+                const text = normalize(
+                  found.innerText || found.textContent || ''
+                );
+
                 const heading = found.querySelector(
-                  'h1,h2,h3,h4,h5,[class*="name"],[class*="title"]'
+                  'h1,h2,h3,h4,h5,[class*="name" i],[class*="title" i],[data-automation-id*="product-title" i]'
                 );
                 const image = found.querySelector('img[alt]');
                 const brandNode = found.querySelector(
-                  '[data-automation-id*="brand"], [class*="brand"]'
+                  '[data-automation-id*="brand" i],[class*="brand" i]'
                 );
 
-                const title =
+                let title =
                   normalize(a.getAttribute('aria-label'))
                   || normalize(a.getAttribute('title'))
                   || normalize(a.innerText)
                   || normalize(heading ? heading.innerText : '')
                   || normalize(image ? image.alt : '');
 
+                if (!title) {
+                  const lines = String(found.innerText || '')
+                    .split(/\n+/)
+                    .map(normalize)
+                    .filter(Boolean);
+
+                  title = lines.find(line =>
+                    line.length > 6
+                    && !money.test(line)
+                    && !/Agregar|Añadir|Entrega|Envío|Rebaja|Antes/i.test(line)
+                  ) || '';
+                }
+
                 const brand = normalize(
-                  brandNode ? brandNode.innerText || brandNode.textContent : ''
+                  brandNode
+                    ? brandNode.innerText || brandNode.textContent
+                    : ''
                 );
 
                 seen.add(href);
-                out.push({href, title, brand, text});
+                out.push({
+                  href,
+                  title,
+                  brand,
+                  text,
+                  cardTag: found.tagName,
+                  cardClass: String(found.className || '').slice(0, 300)
+                });
               }
 
               return out;
@@ -445,24 +485,37 @@ def cards_to_rows(
     scraper: BodegaAurreraScraper,
     category,
     location,
-) -> list[dict]:
+) -> tuple[list[dict], dict]:
     now = datetime.now().astimezone().isoformat(timespec="seconds")
     rows = []
+    stats = {
+        "raw_cards": len(cards),
+        "rejected_missing_href_or_product": 0,
+        "rejected_missing_sku": 0,
+        "rejected_missing_price": 0,
+    }
 
     for card in cards:
         href = clean_text(card.get("href"))
         product = clean_text(card.get("title"))
         text = clean_text(card.get("text")) or ""
+
         if not href or not product:
+            stats["rejected_missing_href_or_product"] += 1
             continue
 
         sku = extract_sku(href)
         if not sku:
+            stats["rejected_missing_sku"] += 1
             continue
 
         current, regular = scraper._prices(text)
         availability = availability_fields(text=text)
-        if current is None and availability["availability_status"] != UNAVAILABLE:
+        if (
+            current is None
+            and availability["availability_status"] != UNAVAILABLE
+        ):
+            stats["rejected_missing_price"] += 1
             continue
 
         rows.append(
@@ -492,12 +545,13 @@ def cards_to_rows(
                 "pickup_available": None,
                 "store_context_verified": False,
                 "store_context_method": "manual_browser_raw_cdp",
-                "url": urljoin(BASE_URL, href),
+                "url": href,
                 "price_raw": text,
             }
         )
 
-    return rows
+    stats["rows"] = len(rows)
+    return rows, stats
 
 
 def main() -> int:
@@ -573,8 +627,9 @@ def main() -> int:
             expansion = expand_current_page(cdp, session_id)
             pages = explicit_page_urls(cdp, session_id)
 
-            source_rows = cards_to_rows(
-                raw_cards(cdp, session_id),
+            source_cards = raw_cards(cdp, session_id)
+            source_rows, extraction_stats = cards_to_rows(
+                source_cards,
                 scraper,
                 category,
                 location,
@@ -584,14 +639,14 @@ def main() -> int:
             for page_url in pages:
                 navigate(cdp, session_id, page_url)
                 page_expansion = expand_current_page(cdp, session_id)
-                source_rows.extend(
-                    cards_to_rows(
-                        raw_cards(cdp, session_id),
-                        scraper,
-                        category,
-                        location,
-                    )
+                page_cards = raw_cards(cdp, session_id)
+                page_rows, page_stats = cards_to_rows(
+                    page_cards,
+                    scraper,
+                    category,
+                    location,
                 )
+                source_rows.extend(page_rows)
                 page_meta.append(
                     {
                         "url": page_url,
@@ -626,6 +681,7 @@ def main() -> int:
                 "stabilized": expansion["stabilized"],
                 "explicit_pages": len(pages),
                 "explicit_page_meta": page_meta,
+                "extraction": extraction_stats,
             }
             source_meta.append(meta)
 
@@ -634,7 +690,10 @@ def main() -> int:
                 f"links={initial_links}->{expansion['product_links']} | "
                 f"rows={len(unique_source)} | new={len(new_rows)} | "
                 f"cumulative={len(all_rows)} | pages={len(pages)} | "
-                f"stabilized={expansion['stabilized']}"
+                f"stabilized={expansion['stabilized']} | "
+                f"raw_cards={extraction_stats['raw_cards']} | "
+                f"missing_sku={extraction_stats['rejected_missing_sku']} | "
+                f"missing_price={extraction_stats['rejected_missing_price']}"
             )
 
         frame = pd.DataFrame(all_rows)
