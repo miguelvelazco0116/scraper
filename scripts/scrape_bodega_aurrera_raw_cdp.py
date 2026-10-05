@@ -189,7 +189,7 @@ def click_load_more(cdp: RawCDP, session_id: str) -> bool:
             r"""
             (() => {
               const norm = value => String(value || '')
-                .replace(/\\s+/g, ' ')
+                .replace(/\s+/g, ' ')
                 .trim()
                 .toLowerCase();
 
