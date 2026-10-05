@@ -268,6 +268,7 @@ class FarmaciasGuadalajaraScraper:
         location: Location,
         *,
         expand: bool = True,
+        context_method: str = "online_catalog_no_store_requested",
     ) -> tuple[list[dict], dict]:
         """Extrae una categoría ya cargada en el navegador.
 
@@ -322,11 +323,7 @@ class FarmaciasGuadalajaraScraper:
                     "promotion": promotion,
                     "pickup_available": None,
                     "store_context_verified": False,
-                    "store_context_method": (
-                        "manual_browser_online_catalog"
-                        if page.context.browser is not None
-                        else "online_catalog_no_store_requested"
-                    ),
+                    "store_context_method": context_method,
                     "url": url,
                     "price_raw": clean_text(card.get("text")),
                 }
@@ -340,7 +337,7 @@ class FarmaciasGuadalajaraScraper:
             "target_products": target,
             "product_links": self._product_link_count(page),
             "rows": len(rows),
-            "store_context": "online_catalog_no_store_requested",
+            "store_context": context_method,
         }
         return rows, meta
 
@@ -393,6 +390,7 @@ class FarmaciasGuadalajaraScraper:
                     category,
                     location,
                     expand=True,
+                    context_method="online_catalog_no_store_requested",
                 )
                 (DIAGNOSTICS / f"farmacias_guadalajara_{slug}.json").write_text(
                     json.dumps(meta, ensure_ascii=False, indent=2),
