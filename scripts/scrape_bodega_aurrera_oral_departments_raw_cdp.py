@@ -227,6 +227,59 @@ def build_category(family: str):
     )
 
 
+class BodegaHighTraffic(RuntimeError):
+    pass
+
+
+def is_high_traffic(cdp: RawCDP, session_id: str) -> bool:
+    text = str(
+        cdp.evaluate(
+            session_id,
+            "document.body ? document.body.innerText : ''",
+        )
+        or ""
+    ).casefold()
+
+    markers = (
+        "we are experiencing high traffic",
+        "experiencing high traffic",
+        "please check after sometime",
+        "please check after some time",
+        "demasiado tráfico",
+        "alto tráfico",
+    )
+    return any(marker in text for marker in markers)
+
+
+def navigate_with_backoff(
+    cdp: RawCDP,
+    session_id: str,
+    url: str,
+    *,
+    cooldown_seconds: float = 90.0,
+    max_retries: int = 2,
+) -> int:
+    for attempt in range(max_retries + 1):
+        navigate(cdp, session_id, url)
+
+        if not is_high_traffic(cdp, session_id):
+            return attempt
+
+        if attempt >= max_retries:
+            raise BodegaHighTraffic(
+                "Bodega Aurrera mantiene el mensaje de high traffic "
+                f"después de {max_retries + 1} intentos."
+            )
+
+        print(
+            "HIGH_TRAFFIC: Bodega Aurrera pidió reducir el ritmo. "
+            f"Cooldown de {int(cooldown_seconds)} s antes de reintentar "
+            f"la misma página ({attempt + 1}/{max_retries})."
+        )
+        time.sleep(cooldown_seconds)
+
+    return max_retries
+
 def paged_url(url: str, page_number: int) -> str:
     parts = urlsplit(url)
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
@@ -440,16 +493,50 @@ def scrape_route(
     scraper: BodegaAurreraScraper,
     location,
     max_pages: int = 60,
+    page_delay_seconds: float = 10.0,
+    batch_size: int = 5,
+    batch_cooldown_seconds: float = 45.0,
+    high_traffic_cooldown_seconds: float = 90.0,
+    high_traffic_retries: int = 2,
 ) -> tuple[pd.DataFrame, dict]:
     category = build_category(family)
 
     unique_rows: dict[str, dict] = {}
     page_meta: list[dict] = []
     empty_or_duplicate_pages = 0
+    stopped_reason = None
+    high_traffic_events = 0
 
     for page_number in range(1, max_pages + 1):
+        if page_number > 1:
+            if batch_size > 0 and (page_number - 1) % batch_size == 0:
+                print(
+                    f"  BATCH_COOLDOWN: {int(batch_cooldown_seconds)} s "
+                    f"después de {page_number - 1} páginas."
+                )
+                time.sleep(batch_cooldown_seconds)
+            else:
+                time.sleep(page_delay_seconds)
+
         url = paged_url(route_url, page_number)
-        navigate(cdp, session_id, url)
+
+        try:
+            retries_used = navigate_with_backoff(
+                cdp,
+                session_id,
+                url,
+                cooldown_seconds=high_traffic_cooldown_seconds,
+                max_retries=high_traffic_retries,
+            )
+            if retries_used:
+                high_traffic_events += 1
+        except BodegaHighTraffic as exc:
+            stopped_reason = "HIGH_TRAFFIC"
+            print(
+                "  STOP_HIGH_TRAFFIC: se conserva la muestra acumulada "
+                f"hasta page={page_number - 1}. {exc}"
+            )
+            break
 
         payload = wait_for_catalog(
             cdp,
@@ -487,6 +574,7 @@ def scrape_route(
             "missing_sku": extraction["rejected_missing_sku"],
             "missing_price": extraction["rejected_missing_price"],
             "cumulative": len(unique_rows),
+            "high_traffic_retries": retries_used,
         }
         page_meta.append(page_info)
 
@@ -531,8 +619,12 @@ def scrape_route(
         ) if not frame.empty else 0,
         "pages_scanned": len(page_meta),
         "page_meta": page_meta,
+        "high_traffic_events": high_traffic_events,
+        "stopped_reason": stopped_reason,
         "status": (
-            "SUCCESS"
+            "PARTIAL"
+            if len(frame) > 0 and stopped_reason
+            else "SUCCESS"
             if len(frame) > 0
             else "EMPTY"
         ),
@@ -632,7 +724,9 @@ def main() -> int:
                 f"sku={meta['sku_complete']} | "
                 f"price={meta['price_complete']} | "
                 f"url={meta['url_complete']} | "
-                f"pages_scanned={meta['pages_scanned']}"
+                f"pages_scanned={meta['pages_scanned']} | "
+                f"high_traffic={meta['high_traffic_events']} | "
+                f"stopped={meta['stopped_reason']}"
             )
 
         concentrated = pd.concat(frames, ignore_index=True)
@@ -675,6 +769,8 @@ def main() -> int:
                     "price_complete",
                     "url_complete",
                     "pages_scanned",
+                    "high_traffic_events",
+                    "stopped_reason",
                 ]
             ].to_string(index=False)
         )
