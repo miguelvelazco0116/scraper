@@ -295,6 +295,64 @@ class FarmaciasSanPabloScraper:
         )
         return urlunparse(parsed._replace(query=encoded))
 
+    @classmethod
+    def _fetch_occ_json_browser(cls, driver, url: str) -> dict:
+        """Consulta OCC usando la misma sesión real de Chrome.
+
+        Se usa sólo como fallback cuando el request HTTP directo recibe un
+        bloqueo del CDN. No intenta resolver ni evadir verificaciones: si el
+        navegador también queda bloqueado, la corrida se detiene normalmente.
+        """
+
+        original_handle = driver.current_window_handle
+        opened_handle = None
+
+        try:
+            driver.switch_to.new_window("tab")
+            opened_handle = driver.current_window_handle
+            driver.get(url)
+
+            WebDriverWait(driver, 30).until(
+                EC.presence_of_element_located((By.TAG_NAME, "body"))
+            )
+            time.sleep(0.5)
+
+            title = driver.title or ""
+            body = cls._body_text(driver)
+
+            if cls._is_blocked(title, body):
+                raise FarmaciasSanPabloNetworkUnavailable(
+                    "OCC search-sponsored también fue bloqueado dentro "
+                    "de la sesión visible de Chrome."
+                )
+
+            text = (body or "").strip()
+            if not text:
+                raise FarmaciasSanPabloNetworkUnavailable(
+                    "OCC search-sponsored devolvió una respuesta vacía "
+                    "dentro de Chrome."
+                )
+
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise FarmaciasSanPabloNetworkUnavailable(
+                    "OCC devolvió JSON inválido dentro de Chrome: "
+                    f"{text[:300]}"
+                ) from exc
+
+            return payload if isinstance(payload, dict) else {}
+        finally:
+            if opened_handle is not None:
+                try:
+                    driver.close()
+                except Exception:
+                    pass
+            try:
+                driver.switch_to.window(original_handle)
+            except Exception:
+                pass
+
     @staticmethod
     def _fetch_occ_json(driver, url: str) -> dict:
         """Consulta OCC desde Python para evitar restricciones CORS del navegador."""
@@ -346,6 +404,19 @@ class FarmaciasSanPabloScraper:
                 detail = exc.read().decode("utf-8", errors="replace")
             except Exception:
                 detail = str(exc)
+
+            if int(exc.code or 0) in {401, 403, 429}:
+                print(
+                    "OCC_BROWSER_FALLBACK: el request directo recibió "
+                    f"HTTP {exc.code}; reintentando desde la sesión visible "
+                    "de Chrome.",
+                    flush=True,
+                )
+                return FarmaciasSanPabloScraper._fetch_occ_json_browser(
+                    driver,
+                    url,
+                )
+
             raise FarmaciasSanPabloNetworkUnavailable(
                 f"OCC search-sponsored falló HTTP {exc.code}: {detail[:500]}"
             ) from exc
