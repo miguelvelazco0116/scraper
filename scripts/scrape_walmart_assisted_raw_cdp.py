@@ -294,6 +294,36 @@ def paged_url(url: str, page_number: int) -> str:
     )
 
 
+def dom_product_ids(cdp: RawCDP, session_id: str) -> list[str]:
+    values = cdp.evaluate(
+        session_id,
+        r"""
+        (() => {
+          const ids = new Set();
+
+          for (const node of document.querySelectorAll('[data-item-id]')) {
+            const value = String(
+              node.getAttribute('data-item-id') || ''
+            ).trim();
+            if (value) ids.add(value);
+          }
+
+          for (const anchor of document.querySelectorAll('a[href*="/ip/"]')) {
+            try {
+              const url = new URL(anchor.href, location.href);
+              const match = url.pathname.match(/\/(\d{8,})\/?$/);
+              if (match) ids.add(match[1]);
+            } catch {}
+          }
+
+          return Array.from(ids);
+        })()
+        """,
+    ) or []
+
+    return [str(value).strip() for value in values if str(value).strip()]
+
+
 def next_data_meta(cdp: RawCDP, session_id: str) -> dict:
     raw = cdp.evaluate(
         session_id,
@@ -312,6 +342,7 @@ def next_data_meta(cdp: RawCDP, session_id: str) -> dict:
     except Exception:
         return {}
 
+    dom_ids = set(dom_product_ids(cdp, session_id))
     candidates: list[dict] = []
 
     def walk(value):
@@ -328,66 +359,98 @@ def next_data_meta(cdp: RawCDP, session_id: str) -> dict:
     if not candidates:
         return {}
 
-    def score(candidate: dict) -> tuple[int, int]:
-        total = candidate.get("aggregatedCount")
+    ranked: list[dict] = []
+
+    for candidate in candidates:
+        item_ids: list[str] = []
+        for stack in candidate.get("itemStacks") or []:
+            if not isinstance(stack, dict):
+                continue
+            for item in stack.get("items") or []:
+                if not isinstance(item, dict):
+                    continue
+                raw_id = (
+                    item.get("usItemId")
+                    or item.get("itemId")
+                    or item.get("id")
+                )
+                if raw_id is None:
+                    continue
+                value = str(raw_id).strip()
+                if value and value not in item_ids:
+                    item_ids.append(value)
+
+        overlap = len(dom_ids.intersection(item_ids))
+        total = (
+            candidate.get("aggregatedCount")
+            or candidate.get("totalCount")
+            or candidate.get("count")
+        )
         try:
             total_int = int(total)
         except Exception:
-            total_int = 0
-        item_count = 0
-        for stack in candidate.get("itemStacks") or []:
-            if isinstance(stack, dict):
-                item_count += len(stack.get("items") or [])
-        return total_int, item_count
+            total_int = None
 
-    result = max(candidates, key=score)
-
-    item_ids: list[str] = []
-    for stack in result.get("itemStacks") or []:
-        if not isinstance(stack, dict):
-            continue
-        for item in stack.get("items") or []:
-            if not isinstance(item, dict):
-                continue
-            raw_id = (
-                item.get("usItemId")
-                or item.get("itemId")
-                or item.get("id")
-            )
-            if raw_id is None:
-                continue
-            value = str(raw_id).strip()
-            if value and value not in item_ids:
-                item_ids.append(value)
-
-    total = (
-        result.get("aggregatedCount")
-        or result.get("totalCount")
-        or result.get("count")
-    )
-    try:
-        total = int(total)
-    except Exception:
-        total = None
-
-    pagination = result.get("paginationV2") or result.get("pagination") or {}
-    max_page = None
-    if isinstance(pagination, dict):
-        max_page = (
-            pagination.get("maxPage")
-            or pagination.get("maxPages")
-            or pagination.get("totalPages")
+        pagination = (
+            candidate.get("paginationV2")
+            or candidate.get("pagination")
+            or {}
         )
-    try:
-        max_page = int(max_page)
-    except Exception:
         max_page = None
+        if isinstance(pagination, dict):
+            max_page = (
+                pagination.get("maxPage")
+                or pagination.get("maxPages")
+                or pagination.get("totalPages")
+            )
+        try:
+            max_page = int(max_page)
+        except Exception:
+            max_page = None
+
+        ranked.append(
+            {
+                "item_ids": item_ids,
+                "item_count": len(item_ids),
+                "overlap": overlap,
+                "published_total": total_int,
+                "max_page": max_page,
+            }
+        )
+
+    ranked.sort(
+        key=lambda item: (
+            item["overlap"],
+            -abs(item["item_count"] - len(dom_ids)),
+            item["item_count"],
+        ),
+        reverse=True,
+    )
+
+    best = ranked[0]
+    verified = bool(best["overlap"] > 0)
+
+    if not verified:
+        return {
+            "metadata_verified": False,
+            "published_total": None,
+            "max_page": None,
+            "item_ids": [],
+            "item_count": 0,
+            "dom_item_count": len(dom_ids),
+            "overlap": 0,
+            "candidate_count": len(ranked),
+        }
 
     return {
-        "published_total": total,
-        "max_page": max_page,
-        "item_ids": item_ids,
-        "item_count": len(item_ids),
+        "metadata_verified": True,
+        "published_total": best["published_total"],
+        "max_page": best["max_page"],
+        "item_ids": best["item_ids"],
+        "item_count": best["item_count"],
+        "dom_item_count": len(dom_ids),
+        "overlap": best["overlap"],
+        "candidate_count": len(ranked),
     }
 
 
@@ -404,7 +467,7 @@ def catalog_cards(
             (() => {{
               const allowedIds = new Set({allowed_json}.map(String));
               const normalize = value =>
-                String(value || '').replace(/s+/g, ' ').trim();
+                String(value || '').replace(/\s+/g, ' ').trim();
 
               const canonical = href => {{
                 try {{
@@ -415,7 +478,7 @@ def catalog_cards(
                 }}
               }};
 
-              const money = /$s*[0-9][0-9,]*(?:.d{{1,2}})?/;
+              const money = /\$\s*[0-9][0-9,]*(?:\.\d{{1,2}})?/;
               const unavailable =
                 /Agotado|No disponible|Sin existencia|Sin stock|Out of stock/i;
 
@@ -550,12 +613,12 @@ def cards_to_rows(
             continue
 
         current_match = re.search(
-            r"precios+actuals*(?:MXN)?s*$?s*([d,]+(?:.d{1,2})?)",
+            r"precio\s+actual\s*(?:MXN)?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)",
             text,
             re.I,
         )
         before_match = re.search(
-            r"(?:Antes|costaba)s*$?s*([d,]+(?:.d{1,2})?)",
+            r"(?:Antes|costaba)\s*\$?\s*([\d,]+(?:\.\d{1,2})?)",
             text,
             re.I,
         )
@@ -575,7 +638,7 @@ def cards_to_rows(
             values = [
                 parse_money(token)
                 for token in re.findall(
-                    r"$s*[d,]+(?:.d{1,2})?",
+                    r"\$\s*[\d,]+(?:\.\d{1,2})?",
                     text,
                 )
             ]
@@ -595,8 +658,8 @@ def cards_to_rows(
             r"Rebaja",
             r"Precio en línea",
             r"Más vendido",
-            r"Combinas+d+s*xs*$[d,.]+",
-            r"Ahorras*$[d,.]+",
+            r"Combina\s+\d+\s*x\s*\$[\d,.]+",
+            r"Ahorra\s*\$[\d,.]+",
         ):
             match = re.search(pattern, text, re.I)
             if match:
@@ -721,7 +784,11 @@ def scrape_category(
             published_total = next_meta.get("published_total")
             published_max_page = next_meta.get("max_page")
 
-            if published_max_page is None and published_total:
+            if (
+                next_meta.get("metadata_verified")
+                and published_max_page is None
+                and published_total
+            ):
                 item_count = int(next_meta.get("item_count") or 0)
                 if item_count > 0:
                     published_max_page = max(
@@ -731,9 +798,13 @@ def scrape_category(
 
             print(
                 "  CATALOG_META: "
+                f"verified={next_meta.get('metadata_verified')} | "
                 f"published_total={published_total} | "
                 f"max_page={published_max_page} | "
-                f"next_items={next_meta.get('item_count')}"
+                f"next_items={next_meta.get('item_count')} | "
+                f"dom_items={next_meta.get('dom_item_count')} | "
+                f"overlap={next_meta.get('overlap')} | "
+                f"candidates={next_meta.get('candidate_count')}"
             )
 
         payload = catalog_cards(
