@@ -667,6 +667,7 @@ def scrape_category(
             break
 
     recovery_search_url = None
+    recovery_search_target = None
     recovery_cards = 0
     recovery_new = 0
 
@@ -691,9 +692,7 @@ def scrape_category(
             )
             navigate(cdp, session_id, recovery_search_url)
 
-            recovery_target = target_count(cdp, session_id)
-            if recovery_target:
-                target = max(target or 0, recovery_target)
+            recovery_search_target = target_count(cdp, session_id)
 
             recovery_page_cards, recovery_hydration = collect_page_cards(
                 cdp,
@@ -818,6 +817,7 @@ def scrape_category(
         "url_complete": url_complete,
         "pages_scanned": len(pages),
         "recovery_search_url": recovery_search_url,
+        "recovery_search_target": recovery_search_target,
         "recovery_cards": recovery_cards,
         "recovery_new": recovery_new,
         "pages": pages,
