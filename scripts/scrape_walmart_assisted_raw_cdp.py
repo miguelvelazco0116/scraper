@@ -267,7 +267,14 @@ def store_context(cdp: RawCDP, session_id: str, location) -> dict:
         "postal_code": bool(postal and postal in blob),
         "store_id": bool(store_id and store_id in blob),
     }
-    verified = sum(bool(value) for value in hits.values()) >= 2
+
+    # SC Toreo's numeric store_id is a strong identifier. Walmart may stop
+    # rendering the store name/postal code after category navigation while
+    # retaining the selected store id in browser state.
+    verified = bool(
+        hits["store_id"]
+        or (hits["store_name"] and hits["postal_code"])
+    )
 
     return {"verified": verified, "hits": hits}
 
