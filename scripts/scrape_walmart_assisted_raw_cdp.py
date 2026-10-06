@@ -282,7 +282,10 @@ def store_context(cdp: RawCDP, session_id: str, location) -> dict:
 def paged_url(url: str, page_number: int) -> str:
     parts = urlsplit(url)
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
-    query["page"] = str(page_number)
+    if page_number <= 1:
+        query.pop("page", None)
+    else:
+        query["page"] = str(page_number)
     return urlunsplit(
         (
             parts.scheme,
@@ -728,6 +731,8 @@ def scrape_category(
     initial_store_context = initial_store_context or {}
     session_store_verified = bool(initial_store_context.get("verified"))
     store_signal_losses = 0
+    scan_limit = max_pages
+    expected_pages = None
 
     if not session_store_verified:
         raise RuntimeError(
@@ -736,7 +741,7 @@ def scrape_category(
         )
 
     for page_number in range(1, max_pages + 1):
-        if published_max_page is not None and page_number > published_max_page:
+        if page_number > scan_limit:
             break
 
         if page_number > 1:
@@ -784,17 +789,30 @@ def scrape_category(
             published_total = next_meta.get("published_total")
             published_max_page = next_meta.get("max_page")
 
+            item_count = int(next_meta.get("item_count") or 0)
             if (
                 next_meta.get("metadata_verified")
-                and published_max_page is None
                 and published_total
+                and item_count > 0
             ):
-                item_count = int(next_meta.get("item_count") or 0)
-                if item_count > 0:
-                    published_max_page = max(
-                        1,
-                        (published_total + item_count - 1) // item_count,
-                    )
+                expected_pages = max(
+                    1,
+                    (published_total + item_count - 1) // item_count,
+                )
+
+                # Walmart's pagination metadata can behave as an internal
+                # zero-based maximum. Do not use max_page as a hard stop.
+                # Scan a small safety margin and let SKU convergence / total
+                # published decide the real end.
+                metadata_bound = (
+                    int(published_max_page) + 2
+                    if published_max_page is not None
+                    else 0
+                )
+                scan_limit = min(
+                    max_pages,
+                    max(expected_pages + 2, metadata_bound, 3),
+                )
 
             print(
                 "  CATALOG_META: "
@@ -804,7 +822,9 @@ def scrape_category(
                 f"next_items={next_meta.get('item_count')} | "
                 f"dom_items={next_meta.get('dom_item_count')} | "
                 f"overlap={next_meta.get('overlap')} | "
-                f"candidates={next_meta.get('candidate_count')}"
+                f"candidates={next_meta.get('candidate_count')} | "
+                f"expected_pages={expected_pages} | "
+                f"scan_limit={scan_limit}"
             )
 
         payload = catalog_cards(
@@ -837,6 +857,8 @@ def scrape_category(
                 "new_rows": new_count,
                 "cumulative": len(unique),
                 "next_item_count": next_meta.get("item_count"),
+                "expected_pages": expected_pages,
+                "scan_limit": scan_limit,
                 "store_signal_visible": bool(context.get("verified")),
                 "store_signal_hits": context.get("hits"),
             }
@@ -875,13 +897,21 @@ def scrape_category(
             frame[column] = None
     frame = frame[COLUMNS].copy()
 
-    status = (
-        "PARTIAL"
-        if len(frame) > 0 and stopped_reason
-        else "SUCCESS"
-        if len(frame) > 0
-        else "EMPTY"
+    coverage = (
+        (len(frame) / published_total)
+        if published_total
+        else None
     )
+
+    if len(frame) <= 0:
+        status = "EMPTY"
+    elif stopped_reason:
+        status = "PARTIAL"
+    elif published_total is not None and len(frame) < published_total:
+        status = "PARTIAL"
+        stopped_reason = "CATALOG_GAP"
+    else:
+        status = "SUCCESS"
 
     meta = {
         "retailer": "Walmart",
@@ -898,6 +928,9 @@ def scrape_category(
         ) if not frame.empty else 0,
         "published_total": published_total,
         "published_max_page": published_max_page,
+        "expected_pages": expected_pages,
+        "scan_limit": scan_limit,
+        "coverage": coverage,
         "pages_scanned": len(pages),
         "high_traffic_events": high_traffic_events,
         "stopped_reason": stopped_reason,
@@ -1020,7 +1053,10 @@ def main() -> int:
         print(f"Precios completos   : {meta['price_complete']}")
         print(f"URLs completas      : {meta['url_complete']}")
         print(f"Total publicado     : {meta['published_total']}")
-        print(f"Max page            : {meta['published_max_page']}")
+        print(f"Max page metadata   : {meta['published_max_page']}")
+        print(f"Páginas esperadas   : {meta['expected_pages']}")
+        print(f"Scan limit          : {meta['scan_limit']}")
+        print(f"Cobertura publicada : {meta['coverage']}")
         print(f"Páginas recorridas  : {meta['pages_scanned']}")
         print(f"High traffic events : {meta['high_traffic_events']}")
         print(f"Stop reason         : {meta['stopped_reason']}")
