@@ -746,7 +746,6 @@ def scrape_category(
             parser,
             category,
             location,
-            initial_store_context=initial_context,
         )
 
         new_count = 0
@@ -915,6 +914,7 @@ def main() -> int:
             session_id,
             category,
             location,
+            initial_store_context=initial_context,
         )
 
         output_path = Path(args.output)
