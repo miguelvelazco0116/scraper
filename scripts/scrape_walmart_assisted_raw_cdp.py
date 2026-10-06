@@ -627,7 +627,7 @@ def cards_to_rows(
                 **availability,
                 "pickup_available": None,
                 "store_context_verified": True,
-                "store_context_method": "manual_session_cdp_sc_toreo",
+                "store_context_method": "initial_manual_session_continuity",
                 "url": url,
                 "price_raw": text,
             }
@@ -647,6 +647,7 @@ def scrape_category(
     page_delay_seconds: float = 10.0,
     batch_size: int = 5,
     batch_cooldown_seconds: float = 45.0,
+    initial_store_context: dict | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     parser = WalmartScraper(
         headless=False,
@@ -661,6 +662,15 @@ def scrape_category(
     no_new_pages = 0
     stopped_reason = None
     high_traffic_events = 0
+    initial_store_context = initial_store_context or {}
+    session_store_verified = bool(initial_store_context.get("verified"))
+    store_signal_losses = 0
+
+    if not session_store_verified:
+        raise RuntimeError(
+            "STORE_CONTEXT_ERROR: la sesión debe validar SC Toreo antes "
+            "de iniciar la navegación asistida."
+        )
 
     for page_number in range(1, max_pages + 1):
         if published_max_page is not None and page_number > published_max_page:
@@ -694,10 +704,16 @@ def scrape_category(
 
         context = store_context(cdp, session_id, location)
         if not context["verified"]:
-            raise RuntimeError(
-                "STORE_CONTEXT_ERROR: no se pudo verificar SC Toreo / "
-                f"{location.postal_code}. hits={context['hits']}"
-            )
+            store_signal_losses += 1
+            if store_signal_losses == 1:
+                print(
+                    "  STORE_CONTEXT_CONTINUITY: la categoría ya no expone "
+                    "nombre/CP/store_id, pero la sesión fue verificada como "
+                    f"{location.store} / {location.postal_code} antes de navegar. "
+                    "Se conserva ese contexto para esta misma pestaña."
+                )
+        else:
+            session_store_verified = True
 
         next_meta = next_data_meta(cdp, session_id)
 
@@ -730,6 +746,7 @@ def scrape_category(
             parser,
             category,
             location,
+            initial_store_context=initial_context,
         )
 
         new_count = 0
@@ -750,6 +767,8 @@ def scrape_category(
                 "new_rows": new_count,
                 "cumulative": len(unique),
                 "next_item_count": next_meta.get("item_count"),
+                "store_signal_visible": bool(context.get("verified")),
+                "store_signal_hits": context.get("hits"),
             }
         )
 
@@ -812,7 +831,10 @@ def scrape_category(
         "pages_scanned": len(pages),
         "high_traffic_events": high_traffic_events,
         "stopped_reason": stopped_reason,
-        "store_context_verified": True,
+        "store_context_verified": session_store_verified,
+        "store_context_method": "initial_manual_session_continuity",
+        "initial_store_context": initial_store_context,
+        "store_signal_losses": store_signal_losses,
         "store": location.store,
         "postal_code": location.postal_code,
         "pages": pages,
