@@ -14,7 +14,7 @@ categories:
     subcategory: Enjuagues bucales
     sub_subcategory: null
     url: https://www.walmart.com.mx/browse/cuidado-personal/cuidado-bucal/enjuagues-bucales/264479_950014_950025
-    enabled: false
+    enabled: true
 
   - id: cuidado-de-la-ropa
     department: Limpieza del hogar y cuidado personal
