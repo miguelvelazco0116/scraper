@@ -303,6 +303,8 @@ def target_count(cdp: RawCDP, session_id: str) -> int | None:
         r"\((\d{1,5})\s+resultados?\)",
         r"\b\d+\s*-\s*\d+\s+de\s+(\d{1,5})\b",
         r"\b(\d{1,5})\s+resultados?\b",
+        r"\b(\d{1,5})\s+productos?\b",
+        r"\b(\d{1,5})\s+art[ií]culos?\b",
     ):
         values.extend(
             int(match)
@@ -873,6 +875,10 @@ def scrape_category(
             session_id,
             expected_on_page=None,
         )
+
+        hydrated_target = target_count(cdp, session_id)
+        if hydrated_target:
+            target = max(target or 0, int(hydrated_target))
 
         before = len(unique_cards)
         for card in cards:
