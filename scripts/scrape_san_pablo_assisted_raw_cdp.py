@@ -670,11 +670,16 @@ def scrape_category(
     recovery_search_target = None
     recovery_cards = 0
     recovery_new = 0
+    target_source = "category" if target is not None else None
 
-    # If the published total is still not reached, make one additional
-    # storefront search using the category term. This is a recovery pass,
-    # not the primary source, and it is only used to fill a catalog gap.
-    if target and len(unique_cards) < int(target):
+    # If the category route is empty/legacy OR the category count still has a
+    # gap, retry through the storefront's public search inside the same Chrome
+    # session. The recovery search paginates too; it is not limited to page 1.
+    needs_recovery = (
+        (target is None and len(unique_cards) == 0)
+        or (target is not None and len(unique_cards) < int(target))
+    )
+    if needs_recovery:
         query = (
             clean_text(category.subcategory)
             or clean_text(category.name)
@@ -687,47 +692,118 @@ def scrape_category(
                 "search/" + quote(query, safe=""),
             )
             print(
-                f"  RECOVERY_SEARCH: {len(unique_cards)}/{target}; "
+                f"  RECOVERY_SEARCH: category_cards={len(unique_cards)} "
+                f"category_target={target}; "
                 f"probando busqueda publica: {recovery_search_url}"
             )
-            navigate(cdp, session_id, recovery_search_url)
 
-            recovery_search_target = target_count(cdp, session_id)
+            recovery_no_new_pages = 0
+            recovery_seen_before = len(unique_cards)
 
-            recovery_page_cards, recovery_hydration = collect_page_cards(
-                cdp,
-                session_id,
-                expected_on_page=None,
-            )
-            recovery_cards = len(recovery_page_cards)
-            before_recovery = len(unique_cards)
+            for recovery_index in range(max_pages):
+                recovery_page_number = recovery_index + 1
+                recovery_url = page_url(
+                    recovery_search_url,
+                    recovery_index,
+                )
 
-            for card in recovery_page_cards:
-                code = FarmaciasSanPabloScraper._code_from_card(card) or ""
-                href = clean_text(card.get("href")) or ""
-                title = clean_text(card.get("title")) or ""
-                text = clean_text(card.get("text")) or ""
-                key = code or href or f"{title}|{text[:180]}"
-                if key:
-                    unique_cards[key] = card
+                if recovery_index > 0:
+                    time.sleep(page_delay_seconds)
 
-            recovery_new = len(unique_cards) - before_recovery
-            pages.append(
-                {
-                    "page": "recovery-search",
-                    "requested_url": recovery_search_url,
-                    "actual_url": current_url(cdp, session_id),
-                    "target_products": target,
-                    "cards_on_page": recovery_cards,
-                    "new_cards": recovery_new,
-                    "cumulative_cards": len(unique_cards),
-                    "hydration": recovery_hydration,
-                }
-            )
+                navigate(cdp, session_id, recovery_url)
+
+                page_recovery_target = target_count(cdp, session_id)
+                if (
+                    recovery_search_target is None
+                    and page_recovery_target is not None
+                ):
+                    recovery_search_target = int(page_recovery_target)
+
+                # If the original category route yielded no catalog metadata,
+                # the search result becomes the only published count we can
+                # verify. Keep its provenance explicit.
+                if (
+                    target is None
+                    and len(unique_cards) == 0
+                    and recovery_search_target is not None
+                ):
+                    target = int(recovery_search_target)
+                    target_source = "recovery_search"
+
+                expected_recovery = None
+                if recovery_search_target:
+                    remaining_recovery = max(
+                        int(recovery_search_target)
+                        - (recovery_index * 48),
+                        0,
+                    )
+                    expected_recovery = (
+                        min(48, remaining_recovery)
+                        if remaining_recovery
+                        else 0
+                    )
+
+                recovery_page_cards, recovery_hydration = collect_page_cards(
+                    cdp,
+                    session_id,
+                    expected_on_page=expected_recovery,
+                )
+                recovery_cards += len(recovery_page_cards)
+
+                before_recovery_page = len(unique_cards)
+                for card in recovery_page_cards:
+                    code = FarmaciasSanPabloScraper._code_from_card(card) or ""
+                    href = clean_text(card.get("href")) or ""
+                    title = clean_text(card.get("title")) or ""
+                    text = clean_text(card.get("text")) or ""
+                    key = code or href or f"{title}|{text[:180]}"
+                    if key:
+                        unique_cards[key] = card
+
+                recovery_page_new = (
+                    len(unique_cards) - before_recovery_page
+                )
+
+                pages.append(
+                    {
+                        "page": f"recovery-{recovery_page_number}",
+                        "requested_url": recovery_url,
+                        "actual_url": current_url(cdp, session_id),
+                        "target_products": target,
+                        "recovery_search_target": recovery_search_target,
+                        "cards_on_page": len(recovery_page_cards),
+                        "new_cards": recovery_page_new,
+                        "cumulative_cards": len(unique_cards),
+                        "hydration": recovery_hydration,
+                    }
+                )
+                print(
+                    f"  recovery_page={recovery_page_number} | "
+                    f"cards={len(recovery_page_cards)} | "
+                    f"new={recovery_page_new} | "
+                    f"cumulative={len(unique_cards)} | "
+                    f"search_target={recovery_search_target}"
+                )
+
+                if (
+                    target is not None
+                    and len(unique_cards) >= int(target)
+                ):
+                    break
+
+                recovery_no_new_pages = (
+                    recovery_no_new_pages + 1
+                    if recovery_page_new == 0
+                    else 0
+                )
+                if recovery_no_new_pages >= 2:
+                    break
+
+            recovery_new = len(unique_cards) - recovery_seen_before
             print(
-                f"  RECOVERY_RESULT: cards={recovery_cards} | "
+                f"  RECOVERY_RESULT: cards_seen={recovery_cards} | "
                 f"new={recovery_new} | cumulative={len(unique_cards)} | "
-                f"target={target}"
+                f"target={target} | target_source={target_source}"
             )
 
     rows = [
@@ -794,6 +870,9 @@ def scrape_category(
     elif price_complete < products:
         status = "PARTIAL"
         coverage_status = "PRICE_GAP"
+    elif target is None:
+        status = "PARTIAL"
+        coverage_status = "TARGET_UNKNOWN"
     elif coverage is not None and coverage < min_coverage:
         status = "PARTIAL"
         coverage_status = "BELOW_THRESHOLD"
@@ -808,6 +887,7 @@ def scrape_category(
         "category_id": category.id,
         "status": status,
         "target_products": target,
+        "target_source": target_source,
         "products": products,
         "coverage": coverage,
         "min_accepted_coverage": min_coverage,
@@ -928,6 +1008,7 @@ def main() -> int:
         print(f"Status              : {meta['status']}")
         print(f"Productos           : {meta['products']}")
         print(f"Total publicado     : {meta['target_products']}")
+        print(f"Fuente del total    : {meta['target_source']}")
         print(f"Cobertura publicada : {meta['coverage']}")
         print(f"Estado cobertura     : {meta['coverage_status']}")
         print(f"SKU completos       : {meta['sku_complete']}")
