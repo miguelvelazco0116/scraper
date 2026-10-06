@@ -903,15 +903,27 @@ def scrape_category(
         else None
     )
 
+    min_accepted_coverage = 0.80
+    coverage_status = None
+
     if len(frame) <= 0:
         status = "EMPTY"
-    elif stopped_reason:
+        coverage_status = "EMPTY"
+    elif stopped_reason and stopped_reason != "CATALOG_GAP":
         status = "PARTIAL"
+        coverage_status = "INTERRUPTED"
     elif published_total is not None and len(frame) < published_total:
-        status = "PARTIAL"
-        stopped_reason = "CATALOG_GAP"
+        if coverage is not None and coverage >= min_accepted_coverage:
+            status = "SUCCESS"
+            coverage_status = "SAMPLE_ACCEPTED"
+            stopped_reason = "CATALOG_GAP_ACCEPTED"
+        else:
+            status = "PARTIAL"
+            coverage_status = "BELOW_THRESHOLD"
+            stopped_reason = "CATALOG_GAP"
     else:
         status = "SUCCESS"
+        coverage_status = "COMPLETE"
 
     meta = {
         "retailer": "Walmart",
@@ -931,6 +943,8 @@ def scrape_category(
         "expected_pages": expected_pages,
         "scan_limit": scan_limit,
         "coverage": coverage,
+        "min_accepted_coverage": min_accepted_coverage,
+        "coverage_status": coverage_status,
         "pages_scanned": len(pages),
         "high_traffic_events": high_traffic_events,
         "stopped_reason": stopped_reason,
@@ -1057,6 +1071,8 @@ def main() -> int:
         print(f"Páginas esperadas   : {meta['expected_pages']}")
         print(f"Scan limit          : {meta['scan_limit']}")
         print(f"Cobertura publicada : {meta['coverage']}")
+        print(f"Umbral aceptado      : {meta['min_accepted_coverage']}")
+        print(f"Estado cobertura     : {meta['coverage_status']}")
         print(f"Páginas recorridas  : {meta['pages_scanned']}")
         print(f"High traffic events : {meta['high_traffic_events']}")
         print(f"Stop reason         : {meta['stopped_reason']}")
