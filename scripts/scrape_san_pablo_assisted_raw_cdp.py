@@ -208,6 +208,94 @@ def page_url(url: str, page_index: int) -> str:
     return urlunparse(parsed._replace(query=encoded))
 
 
+def visible_pagination_urls(
+    cdp: RawCDP,
+    session_id: str,
+    base_url: str,
+) -> list[str]:
+    """Return only pagination URLs currently exposed by the storefront UI."""
+
+    payload = cdp.evaluate(
+        session_id,
+        r"""
+        (() => {
+          const visible = el => {
+            if (!el) return false;
+            const style = window.getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
+            return (
+              style.display !== 'none'
+              && style.visibility !== 'hidden'
+              && rect.width > 0
+              && rect.height > 0
+            );
+          };
+
+          const selectors = [
+            'nav a[href]',
+            '[class*="pagination"] a[href]',
+            '[class*="pagination"] button',
+            '[class*="pager"] a[href]',
+            '[class*="pager"] button',
+            'a[href*="currentPage="]'
+          ];
+
+          const nodes = Array.from(
+            new Set(selectors.flatMap(
+              selector => Array.from(document.querySelectorAll(selector))
+            ))
+          );
+
+          return nodes
+            .filter(visible)
+            .map(el => ({
+              text: String(
+                el.innerText
+                || el.textContent
+                || el.getAttribute('aria-label')
+                || ''
+              ).replace(/\s+/g, ' ').trim(),
+              href: el.href || el.getAttribute('href') || ''
+            }));
+        })()
+        """,
+    ) or []
+
+    parsed_base = urlparse(base_url)
+    pages: dict[int, str] = {0: base_url}
+
+    for item in payload:
+        href = clean_text(item.get("href"))
+        if not href:
+            continue
+
+        absolute = urljoin(base_url, href)
+        parsed = urlparse(absolute)
+
+        if (
+            parsed.scheme not in {"http", "https"}
+            or parsed.netloc.casefold() != parsed_base.netloc.casefold()
+        ):
+            continue
+
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        raw_page = (query.get("currentPage") or [None])[0]
+        if raw_page is None:
+            continue
+
+        try:
+            page_index = int(raw_page)
+        except (TypeError, ValueError):
+            continue
+
+        if page_index < 0:
+            continue
+
+        pages[page_index] = absolute
+
+    return [pages[index] for index in sorted(pages)]
+
+
 def target_count(cdp: RawCDP, session_id: str) -> int | None:
     text = body_text(cdp, session_id)
     values: list[int] = []
@@ -601,30 +689,40 @@ def scrape_category(
     unique_cards: dict[str, dict] = {}
     pages: list[dict] = []
     target: int | None = None
-    no_new_pages = 0
 
-    for page_index in range(max_pages):
-        page_number = page_index + 1
-        url = page_url(category.url, page_index)
+    # Always start from the real category URL, then discover the page links
+    # that the storefront itself exposes. Do not synthesize extra page numbers.
+    navigate(cdp, session_id, category.url)
+    category_target = target_count(cdp, session_id)
+    if category_target:
+        target = int(category_target)
 
-        if page_index > 0:
+    visible_urls = visible_pagination_urls(
+        cdp,
+        session_id,
+        category.url,
+    )
+    visible_urls = visible_urls[:max_pages]
+
+    print(
+        "  PAGINACION_VISIBLE: "
+        f"{len(visible_urls)} pagina(s) -> "
+        + ", ".join(visible_urls)
+    )
+
+    for page_number, url in enumerate(visible_urls, start=1):
+        if page_number > 1:
             time.sleep(page_delay_seconds)
-
-        navigate(cdp, session_id, url)
+            navigate(cdp, session_id, url)
 
         page_target = target_count(cdp, session_id)
-        if page_target:
-            target = max(target or 0, page_target)
-
-        expected_on_page = None
-        if target:
-            remaining = max(int(target) - (page_index * 48), 0)
-            expected_on_page = min(48, remaining) if remaining else 0
+        if page_target and target is None:
+            target = int(page_target)
 
         cards, hydration = collect_page_cards(
             cdp,
             session_id,
-            expected_on_page,
+            expected_on_page=None,
         )
 
         before = len(unique_cards)
@@ -643,7 +741,6 @@ def scrape_category(
         pages.append(
             {
                 "page": page_number,
-                "currentPage": page_index,
                 "requested_url": url,
                 "actual_url": current_url(cdp, session_id),
                 "target_products": target,
@@ -655,16 +752,10 @@ def scrape_category(
         )
 
         print(
-            f"  page={page_number} | cards={len(cards)} | "
-            f"new={new_count} | cumulative={after} | target={target}"
+            f"  page={page_number}/{len(visible_urls)} | "
+            f"cards={len(cards)} | new={new_count} | "
+            f"cumulative={after} | target={target}"
         )
-
-        if target and after >= target:
-            break
-
-        no_new_pages = no_new_pages + 1 if new_count == 0 else 0
-        if no_new_pages >= 2:
-            break
 
     recovery_search_url = None
     recovery_search_target = None
@@ -672,14 +763,9 @@ def scrape_category(
     recovery_new = 0
     target_source = "category" if target is not None else None
 
-    # If the category route is empty/legacy OR the category count still has a
-    # gap, retry through the storefront's public search inside the same Chrome
-    # session. The recovery search paginates too; it is not limited to page 1.
-    needs_recovery = (
-        (target is None and len(unique_cards) == 0)
-        or (target is not None and len(unique_cards) < int(target))
-    )
-    if needs_recovery:
+    # Recovery is only for an empty/legacy category route. If the category is
+    # valid but extraction is incomplete, do NOT leave the visible pagination.
+    if target is None and len(unique_cards) == 0:
         query = (
             clean_text(category.subcategory)
             or clean_text(category.name)
@@ -692,65 +778,45 @@ def scrape_category(
                 "search/" + quote(query, safe=""),
             )
             print(
-                f"  RECOVERY_SEARCH: category_cards={len(unique_cards)} "
-                f"category_target={target}; "
+                "  RECOVERY_SEARCH: categoria sin catalogo visible; "
                 f"probando busqueda publica: {recovery_search_url}"
             )
 
-            recovery_no_new_pages = 0
+            navigate(cdp, session_id, recovery_search_url)
+            recovery_search_target = target_count(cdp, session_id)
+            if recovery_search_target is not None:
+                target = int(recovery_search_target)
+                target_source = "recovery_search"
+
+            recovery_urls = visible_pagination_urls(
+                cdp,
+                session_id,
+                recovery_search_url,
+            )[:max_pages]
+
             recovery_seen_before = len(unique_cards)
+            print(
+                "  PAGINACION_VISIBLE_RECOVERY: "
+                f"{len(recovery_urls)} pagina(s) -> "
+                + ", ".join(recovery_urls)
+            )
 
-            for recovery_index in range(max_pages):
-                recovery_page_number = recovery_index + 1
-                recovery_url = page_url(
-                    recovery_search_url,
-                    recovery_index,
-                )
-
-                if recovery_index > 0:
+            for recovery_page_number, recovery_url in enumerate(
+                recovery_urls,
+                start=1,
+            ):
+                if recovery_page_number > 1:
                     time.sleep(page_delay_seconds)
-
-                navigate(cdp, session_id, recovery_url)
-
-                page_recovery_target = target_count(cdp, session_id)
-                if (
-                    recovery_search_target is None
-                    and page_recovery_target is not None
-                ):
-                    recovery_search_target = int(page_recovery_target)
-
-                # If the original category route yielded no catalog metadata,
-                # the search result becomes the only published count we can
-                # verify. Keep its provenance explicit.
-                if (
-                    target is None
-                    and len(unique_cards) == 0
-                    and recovery_search_target is not None
-                ):
-                    target = int(recovery_search_target)
-                    target_source = "recovery_search"
-
-                expected_recovery = None
-                if recovery_search_target:
-                    remaining_recovery = max(
-                        int(recovery_search_target)
-                        - (recovery_index * 48),
-                        0,
-                    )
-                    expected_recovery = (
-                        min(48, remaining_recovery)
-                        if remaining_recovery
-                        else 0
-                    )
+                    navigate(cdp, session_id, recovery_url)
 
                 recovery_page_cards, recovery_hydration = collect_page_cards(
                     cdp,
                     session_id,
-                    expected_on_page=expected_recovery,
+                    expected_on_page=None,
                 )
                 recovery_cards += len(recovery_page_cards)
 
-                before_recovery_page = len(unique_cards)
+                before_recovery = len(unique_cards)
                 for card in recovery_page_cards:
                     code = FarmaciasSanPabloScraper._code_from_card(card) or ""
                     href = clean_text(card.get("href")) or ""
@@ -760,17 +826,13 @@ def scrape_category(
                     if key:
                         unique_cards[key] = card
 
-                recovery_page_new = (
-                    len(unique_cards) - before_recovery_page
-                )
-
+                recovery_page_new = len(unique_cards) - before_recovery
                 pages.append(
                     {
                         "page": f"recovery-{recovery_page_number}",
                         "requested_url": recovery_url,
                         "actual_url": current_url(cdp, session_id),
                         "target_products": target,
-                        "recovery_search_target": recovery_search_target,
                         "cards_on_page": len(recovery_page_cards),
                         "new_cards": recovery_page_new,
                         "cumulative_cards": len(unique_cards),
@@ -778,33 +840,15 @@ def scrape_category(
                     }
                 )
                 print(
-                    f"  recovery_page={recovery_page_number} | "
+                    f"  recovery_page={recovery_page_number}/"
+                    f"{len(recovery_urls)} | "
                     f"cards={len(recovery_page_cards)} | "
                     f"new={recovery_page_new} | "
                     f"cumulative={len(unique_cards)} | "
                     f"search_target={recovery_search_target}"
                 )
 
-                if (
-                    target is not None
-                    and len(unique_cards) >= int(target)
-                ):
-                    break
-
-                recovery_no_new_pages = (
-                    recovery_no_new_pages + 1
-                    if recovery_page_new == 0
-                    else 0
-                )
-                if recovery_no_new_pages >= 2:
-                    break
-
             recovery_new = len(unique_cards) - recovery_seen_before
-            print(
-                f"  RECOVERY_RESULT: cards_seen={recovery_cards} | "
-                f"new={recovery_new} | cumulative={len(unique_cards)} | "
-                f"target={target} | target_source={target_source}"
-            )
 
     rows = [
         row
@@ -895,17 +939,17 @@ def scrape_category(
         "sku_complete": sku_complete,
         "price_complete": price_complete,
         "url_complete": url_complete,
+        "visible_pages": len(visible_urls),
         "pages_scanned": len(pages),
         "recovery_search_url": recovery_search_url,
         "recovery_search_target": recovery_search_target,
         "recovery_cards": recovery_cards,
         "recovery_new": recovery_new,
         "pages": pages,
-        "engine": "existing Chrome + raw CDP + category cards",
+        "engine": "existing Chrome + raw CDP + visible storefront pagination",
     }
 
     return frame, meta
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(
