@@ -329,36 +329,56 @@ EXTRACT_JS = r"""
 
   function findCard(seed) {
     let node = seed;
-    let fallback = null;
+    let moneyFallback = null;
+    let structuralFallback = null;
 
     for (let i = 0; i < 12 && node; i++, node = node.parentElement) {
       const text = normalize(node.innerText || node.textContent);
-      if (!text || !moneyRe.test(text)) continue;
-      if (text.length < 20 || text.length > 3200) continue;
+      if (!text || text.length < 8 || text.length > 3200) continue;
 
       const adds = addCount(node);
       const images = node.querySelectorAll('img').length;
       const productLinks = new Set(
-        Array.from(node.querySelectorAll('a[href*="/p/"]'))
+        Array.from(node.querySelectorAll('a[href]'))
           .map(a => a.href || a.getAttribute('href') || '')
-          .filter(Boolean)
+          .filter(h => h && !/javascript:|#$/i.test(h))
       );
+      const classBlob = String(node.className || '').toLowerCase();
+      const looksStructural =
+        /product|item|card|tile|plp|listing/.test(classBlob);
 
-      if (
-        adds === 1
-        || (
-          adds === 0
-          && images <= 4
-          && productLinks.size <= 2
-        )
-      ) {
-        return node;
+      if (moneyRe.test(text)) {
+        if (
+          adds === 1
+          || (
+            images >= 1
+            && images <= 4
+            && productLinks.size <= 4
+          )
+          || looksStructural
+        ) {
+          return node;
+        }
+        if (!moneyFallback) moneyFallback = node;
       }
 
-      if (!fallback) fallback = node;
+      if (
+        !structuralFallback
+        && looksStructural
+        && images >= 1
+        && images <= 4
+        && productLinks.size <= 4
+      ) {
+        structuralFallback = node;
+      }
     }
 
-    return fallback || seed.parentElement || seed;
+    return (
+      moneyFallback
+      || structuralFallback
+      || seed.parentElement
+      || seed
+    );
   }
 
   function readData(root) {
@@ -449,7 +469,26 @@ EXTRACT_JS = r"""
 
     const rawText = String(card.innerText || card.textContent || '').trim();
     const text = normalize(rawText);
-    if (!text || !moneyRe.test(text)) continue;
+    if (!text) continue;
+
+    const classBlob = String(card.className || '').toLowerCase();
+    const hasMoney = moneyRe.test(text);
+    const hasImage = card.querySelectorAll('img').length > 0;
+    const hasProductishClass =
+      /product|item|card|tile|plp|listing/.test(classBlob);
+    const hasUsefulLink = Array.from(
+      card.querySelectorAll('a[href]')
+    ).some(a => {
+      const h = a.href || a.getAttribute('href') || '';
+      return h && !/javascript:|#$/i.test(h);
+    });
+
+    if (
+      !hasMoney
+      && !(hasImage && (hasProductishClass || hasUsefulLink))
+    ) {
+      continue;
+    }
 
     const data = readData(card);
 
@@ -584,10 +623,29 @@ def candidate_counts(cdp: RawCDP, session_id: str) -> dict:
               )
             );
           });
+          const productishContainers = Array.from(
+            document.querySelectorAll(
+              '[class*="product"], [class*="Product"], ' +
+              '[class*="item"], [class*="Item"], ' +
+              '[class*="card"], [class*="Card"], ' +
+              '[class*="tile"], [class*="Tile"]'
+            )
+          ).filter(el => {
+            const text = normalize(el.innerText || el.textContent);
+            const images = el.querySelectorAll('img').length;
+            return (
+              text.length >= 8
+              && text.length <= 3200
+              && images >= 1
+              && images <= 4
+            );
+          });
+
           return {
             product_links: document.querySelectorAll(
               'a[href*="/p/"]'
             ).length,
+            productish_containers: productishContainers.length,
             add_controls: Array.from(
               document.querySelectorAll(
                 'button, a, [role="button"]'
@@ -622,7 +680,6 @@ def collect_page_cards(
 ) -> tuple[list[dict], dict]:
     collected: dict[str, dict] = {}
     samples: list[dict] = []
-    candidates = candidate_counts(cdp, session_id)
 
     cdp.evaluate(session_id, "window.scrollTo(0, 0)")
     time.sleep(0.5)
@@ -717,6 +774,7 @@ def collect_page_cards(
 
         previous_total = total
 
+    candidates = candidate_counts(cdp, session_id)
     cdp.evaluate(session_id, "window.scrollTo(0, 0)")
 
     return list(collected.values()), {
@@ -848,6 +906,7 @@ def scrape_category(
             f"cards={len(cards)} | new={new_count} | "
             f"cumulative={after} | target={target} | "
             f"links={candidate_info.get('product_links')} | "
+            f"containers={candidate_info.get('productish_containers')} | "
             f"add={candidate_info.get('add_controls')} | "
             f"images={candidate_info.get('product_images')} | "
             f"money={candidate_info.get('money_leaves')}"
