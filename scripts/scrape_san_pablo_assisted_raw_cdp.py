@@ -7,7 +7,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse, urlunparse
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -663,8 +663,73 @@ def scrape_category(
             break
 
         no_new_pages = no_new_pages + 1 if new_count == 0 else 0
-        if no_new_pages >= 1:
+        if no_new_pages >= 2:
             break
+
+    recovery_search_url = None
+    recovery_cards = 0
+    recovery_new = 0
+
+    # If the published total is still not reached, make one additional
+    # storefront search using the category term. This is a recovery pass,
+    # not the primary source, and it is only used to fill a catalog gap.
+    if target and len(unique_cards) < int(target):
+        query = (
+            clean_text(category.subcategory)
+            or clean_text(category.name)
+            or clean_text(category.id)
+            or ""
+        )
+        if query:
+            recovery_search_url = urljoin(
+                BASE_URL,
+                "search/" + quote(query, safe=""),
+            )
+            print(
+                f"  RECOVERY_SEARCH: {len(unique_cards)}/{target}; "
+                f"probando busqueda publica: {recovery_search_url}"
+            )
+            navigate(cdp, session_id, recovery_search_url)
+
+            recovery_target = target_count(cdp, session_id)
+            if recovery_target:
+                target = max(target or 0, recovery_target)
+
+            recovery_page_cards, recovery_hydration = collect_page_cards(
+                cdp,
+                session_id,
+                expected_on_page=None,
+            )
+            recovery_cards = len(recovery_page_cards)
+            before_recovery = len(unique_cards)
+
+            for card in recovery_page_cards:
+                code = FarmaciasSanPabloScraper._code_from_card(card) or ""
+                href = clean_text(card.get("href")) or ""
+                title = clean_text(card.get("title")) or ""
+                text = clean_text(card.get("text")) or ""
+                key = code or href or f"{title}|{text[:180]}"
+                if key:
+                    unique_cards[key] = card
+
+            recovery_new = len(unique_cards) - before_recovery
+            pages.append(
+                {
+                    "page": "recovery-search",
+                    "requested_url": recovery_search_url,
+                    "actual_url": current_url(cdp, session_id),
+                    "target_products": target,
+                    "cards_on_page": recovery_cards,
+                    "new_cards": recovery_new,
+                    "cumulative_cards": len(unique_cards),
+                    "hydration": recovery_hydration,
+                }
+            )
+            print(
+                f"  RECOVERY_RESULT: cards={recovery_cards} | "
+                f"new={recovery_new} | cumulative={len(unique_cards)} | "
+                f"target={target}"
+            )
 
     rows = [
         row
@@ -752,6 +817,9 @@ def scrape_category(
         "price_complete": price_complete,
         "url_complete": url_complete,
         "pages_scanned": len(pages),
+        "recovery_search_url": recovery_search_url,
+        "recovery_cards": recovery_cards,
+        "recovery_new": recovery_new,
         "pages": pages,
         "engine": "existing Chrome + raw CDP + category cards",
     }
@@ -866,6 +934,7 @@ def main() -> int:
         print(f"Precios completos   : {meta['price_complete']}")
         print(f"URLs completas      : {meta['url_complete']}")
         print(f"Paginas recorridas  : {meta['pages_scanned']}")
+        print(f"Recovery new        : {meta['recovery_new']}")
         print(f"Output              : {OUTPUT}")
         print(
             "Consolidado          : "
