@@ -383,20 +383,55 @@ EXTRACT_JS = r"""
     return result;
   }
 
-  const seeds = [
-    ...Array.from(document.querySelectorAll('a[href*="/p/"]')),
-    ...Array.from(document.querySelectorAll(
-      '[data-product-code], [data-product-id], [data-code], ' +
-      '[data-sku], [data-ean], [data-upc], [data-item-id]'
-    )),
-    ...Array.from(
-      document.querySelectorAll('button, a, [role="button"]')
-    ).filter(el =>
-      /Agregar|Anadir|Añadir/i.test(
-        normalize(el.innerText || el.textContent)
-      )
+  const seeds = [];
+
+  // Product-detail links and explicit product metadata.
+  seeds.push(...Array.from(document.querySelectorAll('a[href*="/p/"]')));
+  seeds.push(...Array.from(document.querySelectorAll(
+    '[data-product-code], [data-product-id], [data-code], ' +
+    '[data-sku], [data-ean], [data-upc], [data-item-id]'
+  )));
+
+  // Add-to-cart controls cover purchasable items.
+  seeds.push(...Array.from(
+    document.querySelectorAll('button, a, [role="button"]')
+  ).filter(el =>
+    /Agregar|Anadir|Añadir/i.test(
+      normalize(el.innerText || el.textContent)
     )
-  ];
+  ));
+
+  // Product images catch visible items that have no add-to-cart control,
+  // e.g. temporarily unavailable products.
+  seeds.push(...Array.from(document.querySelectorAll(
+    'img[alt][src], img[title][src]'
+  )).filter(img => {
+    const label = normalize(
+      img.getAttribute('alt') || img.getAttribute('title')
+    );
+    return label.length >= 5;
+  }));
+
+  // Price-bearing leaf nodes catch cards whose product link or metadata is
+  // rendered outside the price subtree.
+  seeds.push(...Array.from(document.querySelectorAll('body *')).filter(el => {
+    const text = normalize(el.innerText || el.textContent);
+    if (!text || text.length > 180 || !moneyRe.test(text)) return false;
+    const childHasMoney = Array.from(el.children || []).some(child =>
+      moneyRe.test(normalize(child.innerText || child.textContent))
+    );
+    return !childHasMoney;
+  }));
+
+  // Last-resort structural product containers.
+  seeds.push(...Array.from(document.querySelectorAll(
+    '[class*="product-card"], [class*="productCard"], ' +
+    '[class*="product-item"], [class*="productItem"], ' +
+    'article[class*="product"], li[class*="product"]'
+  )).filter(el => {
+    const text = normalize(el.innerText || el.textContent);
+    return text && moneyRe.test(text) && text.length <= 3200;
+  }));
 
   const out = [];
   const seen = new Set();
@@ -429,7 +464,8 @@ EXTRACT_JS = r"""
     );
 
     const href =
-      hrefs.find(h => /\/p\/\d+(?:[/?#]|$)/i.test(h))
+      hrefs.find(h => /\/p\/[^/?#]+(?:[/?#]|$)/i.test(h))
+      || hrefs.find(h => /\/p\//i.test(h))
       || '';
 
     const titleSelectors = [
@@ -444,6 +480,7 @@ EXTRACT_JS = r"""
       (seed.getAttribute && (
         seed.getAttribute('title')
         || seed.getAttribute('aria-label')
+        || seed.getAttribute('alt')
       )) || ''
     );
 
@@ -526,6 +563,58 @@ def extract_cards(cdp: RawCDP, session_id: str) -> list[dict]:
     return cdp.evaluate(session_id, EXTRACT_JS) or []
 
 
+def candidate_counts(cdp: RawCDP, session_id: str) -> dict:
+    return cdp.evaluate(
+        session_id,
+        r"""
+        (() => {
+          const normalize = value =>
+            String(value || '').replace(/\s+/g, ' ').trim();
+          const moneyRe = /\$\s*[0-9][0-9,]*(?:\.\d{1,2})?/;
+          const moneyLeaves = Array.from(
+            document.querySelectorAll('body *')
+          ).filter(el => {
+            const text = normalize(el.innerText || el.textContent);
+            if (!text || text.length > 180 || !moneyRe.test(text)) {
+              return false;
+            }
+            return !Array.from(el.children || []).some(child =>
+              moneyRe.test(
+                normalize(child.innerText || child.textContent)
+              )
+            );
+          });
+          return {
+            product_links: document.querySelectorAll(
+              'a[href*="/p/"]'
+            ).length,
+            add_controls: Array.from(
+              document.querySelectorAll(
+                'button, a, [role="button"]'
+              )
+            ).filter(el =>
+              /Agregar|Anadir|Añadir/i.test(
+                normalize(el.innerText || el.textContent)
+              )
+            ).length,
+            product_images: Array.from(
+              document.querySelectorAll(
+                'img[alt][src], img[title][src]'
+              )
+            ).filter(img => {
+              const label = normalize(
+                img.getAttribute('alt')
+                || img.getAttribute('title')
+              );
+              return label.length >= 5;
+            }).length,
+            money_leaves: moneyLeaves.length
+          };
+        })()
+        """,
+    ) or {}
+
+
 def collect_page_cards(
     cdp: RawCDP,
     session_id: str,
@@ -533,6 +622,7 @@ def collect_page_cards(
 ) -> tuple[list[dict], dict]:
     collected: dict[str, dict] = {}
     samples: list[dict] = []
+    candidates = candidate_counts(cdp, session_id)
 
     cdp.evaluate(session_id, "window.scrollTo(0, 0)")
     time.sleep(0.5)
@@ -632,6 +722,7 @@ def collect_page_cards(
     return list(collected.values()), {
         "expected_on_page": expected_on_page,
         "cards_collected": len(collected),
+        "candidate_counts": candidates,
         "scroll_samples": samples,
     }
 
@@ -751,10 +842,15 @@ def scrape_category(
             }
         )
 
+        candidate_info = hydration.get("candidate_counts") or {}
         print(
             f"  page={page_number}/{len(visible_urls)} | "
             f"cards={len(cards)} | new={new_count} | "
-            f"cumulative={after} | target={target}"
+            f"cumulative={after} | target={target} | "
+            f"links={candidate_info.get('product_links')} | "
+            f"add={candidate_info.get('add_controls')} | "
+            f"images={candidate_info.get('product_images')} | "
+            f"money={candidate_info.get('money_leaves')}"
         )
 
     recovery_search_url = None
