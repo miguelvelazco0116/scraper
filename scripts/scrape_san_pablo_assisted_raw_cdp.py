@@ -1040,7 +1040,12 @@ def main() -> int:
             encoding="utf-8",
         )
 
-        if args.update_consolidated and meta["status"] == "SUCCESS":
+        can_consolidate = (
+            args.update_consolidated
+            and meta["coverage_status"] == "COMPLETE"
+            and meta["price_complete"] == meta["products"]
+        )
+        if can_consolidate:
             update_consolidated_output(
                 frame,
                 ROOT / CONSOLIDATED_PATH,
@@ -1058,6 +1063,7 @@ def main() -> int:
         print(f"SKU completos       : {meta['sku_complete']}")
         print(f"Precios completos   : {meta['price_complete']}")
         print(f"URLs completas      : {meta['url_complete']}")
+        print(f"Paginas visibles    : {meta['visible_pages']}")
         print(f"Paginas recorridas  : {meta['pages_scanned']}")
         print(f"Recovery new        : {meta['recovery_new']}")
         print(f"Output              : {OUTPUT}")
@@ -1065,8 +1071,7 @@ def main() -> int:
             "Consolidado          : "
             + (
                 "actualizado"
-                if args.update_consolidated
-                and meta["status"] == "SUCCESS"
+                if can_consolidate
                 else "sin cambios"
             )
         )
