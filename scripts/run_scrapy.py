@@ -21,18 +21,23 @@ from scrapy_engine.spiders.ibarra_mayoreo import IbarraMayoreoSpider
 from scrapy_engine.spiders.farmacias_similares import (
     FarmaciasSimilaresSpider,
 )
+from scrapy_engine.spiders.farmacias_san_pablo import (
+    FarmaciasSanPabloSpider,
+)
 
 
 SPIDER_BY_RETAILER = {
     "farmacias-del-ahorro": FarmaciasDelAhorroSpider,
     "ibarra-mayoreo": IbarraMayoreoSpider,
     "farmacias-similares": FarmaciasSimilaresSpider,
+    "farmacias-san-pablo": FarmaciasSanPabloSpider,
 }
 
 DEFAULT_LOCATION = {
     "farmacias-del-ahorro": "fahorro-online",
     "ibarra-mayoreo": "ibarra-online",
     "farmacias-similares": "similares-online",
+    "farmacias-san-pablo": "san-pablo-online",
 }
 
 
