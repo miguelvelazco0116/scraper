@@ -109,3 +109,67 @@ def test_deferred_result_keeps_category_for_final_retry():
     assert result["status"] == "DEFERRED"
     assert result["data_status"] == "MISSING"
     assert "bloqueo" in result["quality_notes"]
+
+
+
+def test_apply_quality_preserves_scrapy_sample_accepted(
+    tmp_path,
+    monkeypatch,
+):
+    output = tmp_path / "concentrado_scraper.xlsx"
+    current = pd.DataFrame(
+        [
+            {
+                "retailer": "Ibarra Mayoreo",
+                "category_id": "perfumeria-abarrotes",
+                "sku": "123",
+                "url": "https://example.test/123",
+                "price_current": 100.0,
+                "price_regular": 100.0,
+                "availability_status": "AVAILABLE",
+                "store_context_verified": False,
+            }
+        ]
+    )
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        current.to_excel(
+            writer,
+            index=False,
+            sheet_name="Concentrado",
+        )
+
+    monkeypatch.setattr(runner, "OUTPUT", output)
+    results = [
+        {
+            "retailer": "Ibarra Mayoreo",
+            "category_id": "perfumeria-abarrotes",
+            "status": "SUCCESS",
+            "reported_products": 330,
+            "target_products": 331,
+            "coverage": 330 / 331,
+            "scrapy_quality_status": "SAMPLE_ACCEPTED",
+            "products": 0,
+            "sku_complete": 0,
+            "price_current_complete": 0,
+            "price_regular_complete": 0,
+            "url_complete": 0,
+            "duplicates_sku_url": 0,
+            "store_context_verified": 0,
+            "available_products": 0,
+            "unavailable_products": 0,
+            "availability_unknown": 0,
+            "price_required_products": 0,
+            "price_required_complete": 0,
+            "data_status": "MISSING",
+            "quality_status": "PENDING",
+            "quality_notes": "",
+        }
+    ]
+
+    _, summary = runner.apply_quality(results)
+
+    row = summary.iloc[0]
+    assert row["data_status"] == "FRESH"
+    assert row["quality_status"] == "SAMPLE_ACCEPTED"
+    assert row["target_products"] == 331
+    assert row["coverage"] == 330 / 331
