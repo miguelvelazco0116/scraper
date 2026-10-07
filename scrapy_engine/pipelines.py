@@ -1,0 +1,141 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pandas as pd
+from openpyxl.styles import Font
+
+from main import COLUMNS, CONSOLIDATED_PATH, deduplicate_catalog, update_consolidated_output
+
+
+def _as_bool(value) -> bool:
+    return str(value or "").strip().casefold() in {"1", "true", "yes", "si", "sí"}
+
+
+class CanonicalExcelPipeline:
+    """Collect Scrapy items and write the project's canonical Excel schema."""
+
+    def __init__(self) -> None:
+        self.rows: list[dict] = []
+
+    def process_item(self, item, spider):
+        row = dict(item)
+        for column in COLUMNS:
+            row.setdefault(column, None)
+        self.rows.append({column: row.get(column) for column in COLUMNS})
+        return item
+
+    def close_spider(self, spider) -> None:
+        frame = pd.DataFrame(self.rows)
+        for column in COLUMNS:
+            if column not in frame.columns:
+                frame[column] = None
+        frame = frame[COLUMNS]
+        frame = deduplicate_catalog(frame)
+
+        target = getattr(spider, "target_products", None)
+        products = len(frame)
+        coverage = (
+            products / int(target)
+            if target not in (None, 0)
+            else None
+        )
+        sku_complete = (
+            int(frame["sku"].fillna("").astype(str).str.strip().ne("").sum())
+            if not frame.empty
+            else 0
+        )
+        price_complete = (
+            int(frame["price_current"].notna().sum())
+            if not frame.empty
+            else 0
+        )
+        url_complete = (
+            int(frame["url"].fillna("").astype(str).str.strip().ne("").sum())
+            if not frame.empty
+            else 0
+        )
+
+        if products <= 0:
+            quality_status = "EMPTY"
+        elif target is None:
+            quality_status = "TARGET_UNKNOWN"
+        elif products >= int(target) and price_complete == products:
+            quality_status = "COMPLETE"
+        else:
+            quality_status = "PARTIAL"
+
+        output_path = Path(
+            getattr(
+                spider,
+                "output_path",
+                f"output/scrapy/{spider.name}.xlsx",
+            )
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        summary = pd.DataFrame(
+            [
+                {
+                    "retailer": (
+                        frame.iloc[0]["retailer"]
+                        if not frame.empty
+                        else getattr(spider, "retailer_label", spider.name)
+                    ),
+                    "category_id": getattr(spider, "category_id", None),
+                    "products": products,
+                    "target_products": target,
+                    "coverage": coverage,
+                    "quality_status": quality_status,
+                    "sku_complete": sku_complete,
+                    "price_complete": price_complete,
+                    "url_complete": url_complete,
+                    "requests": getattr(spider, "api_pages", None),
+                    "engine": "Scrapy",
+                }
+            ]
+        )
+
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+            frame.to_excel(writer, index=False, sheet_name="Concentrado")
+            summary.to_excel(writer, index=False, sheet_name="Resumen")
+
+            for sheet_name in ("Concentrado", "Resumen"):
+                ws = writer.book[sheet_name]
+                ws.freeze_panes = "A2"
+                ws.auto_filter.ref = ws.dimensions
+                for cell in ws[1]:
+                    cell.font = Font(bold=True)
+
+        update_requested = _as_bool(
+            getattr(spider, "update_consolidated", False)
+        )
+        consolidated_updated = False
+        if update_requested and quality_status == "COMPLETE":
+            update_consolidated_output(frame, CONSOLIDATED_PATH)
+            consolidated_updated = True
+
+        spider.scrapy_result = {
+            "output": str(output_path),
+            "products": products,
+            "target_products": target,
+            "coverage": coverage,
+            "quality_status": quality_status,
+            "sku_complete": sku_complete,
+            "price_complete": price_complete,
+            "url_complete": url_complete,
+            "consolidated_updated": consolidated_updated,
+        }
+
+        spider.logger.info(
+            "SCRAPY_RESULT products=%s target=%s coverage=%s "
+            "quality=%s price=%s/%s output=%s consolidated=%s",
+            products,
+            target,
+            coverage,
+            quality_status,
+            price_complete,
+            products,
+            output_path,
+            consolidated_updated,
+        )
