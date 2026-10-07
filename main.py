@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from scraper.config import load_categories, load_locations
+from scraper.io_utils import atomic_output_path
 from scraper.retailers.chedraui_polanco_api import ChedrauiBlocked, ChedrauiScraper, ChedrauiStoreContextError
 from scraper.retailers.farmacias_del_ahorro import (
     FarmaciasDelAhorroBlocked,
@@ -188,30 +189,46 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
             .reset_index()
         )
 
-    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        combined.to_excel(writer, index=False, sheet_name="Concentrado")
-        summary.to_excel(writer, index=False, sheet_name="Resumen")
+    with atomic_output_path(output_path) as temporary_output:
+        with pd.ExcelWriter(temporary_output, engine="openpyxl") as writer:
+            combined.to_excel(writer, index=False, sheet_name="Concentrado")
+            summary.to_excel(writer, index=False, sheet_name="Resumen")
 
-        workbook = writer.book
-        for sheet_name in ("Concentrado", "Resumen"):
-            ws = workbook[sheet_name]
-            ws.freeze_panes = "A2"
-            ws.auto_filter.ref = ws.dimensions
-            for cell in ws[1]:
-                header_font = copy(cell.font)
-                header_font.bold = True
-                cell.font = header_font
-            for col_cells in ws.columns:
-                values = [str(c.value) if c.value is not None else "" for c in col_cells[:200]]
-                width = min(max(max((len(v) for v in values), default=0) + 2, 10), 42)
-                ws.column_dimensions[col_cells[0].column_letter].width = width
+            workbook = writer.book
+            for sheet_name in ("Concentrado", "Resumen"):
+                ws = workbook[sheet_name]
+                ws.freeze_panes = "A2"
+                ws.auto_filter.ref = ws.dimensions
+                for cell in ws[1]:
+                    header_font = copy(cell.font)
+                    header_font.bold = True
+                    cell.font = header_font
+                for col_cells in ws.columns:
+                    values = [
+                        str(cell.value) if cell.value is not None else ""
+                        for cell in col_cells[:200]
+                    ]
+                    width = min(
+                        max(
+                            max(
+                                (len(value) for value in values),
+                                default=0,
+                            )
+                            + 2,
+                            10,
+                        ),
+                        42,
+                    )
+                    ws.column_dimensions[
+                        col_cells[0].column_letter
+                    ].width = width
 
-        for cell in workbook["Concentrado"]["P"]:
-            if cell.row > 1:
-                cell.number_format = '$#,##0.00'
-        for cell in workbook["Concentrado"]["Q"]:
-            if cell.row > 1:
-                cell.number_format = '$#,##0.00'
+            for cell in workbook["Concentrado"]["P"]:
+                if cell.row > 1:
+                    cell.number_format = '$#,##0.00'
+            for cell in workbook["Concentrado"]["Q"]:
+                if cell.row > 1:
+                    cell.number_format = '$#,##0.00'
 
     return output_path
 
