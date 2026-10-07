@@ -88,3 +88,61 @@ def test_ibarra_scrapy_product_keeps_box_price():
     assert row["price_regular"] == 240.0
     assert row["price_raw"] == "CAJA | 12 artículos por caja | $240.00 MXN"
     assert row["url"] == "https://ibarramayoreo.com/crema-dental-demo"
+
+
+def test_ibarra_scrapy_repairs_mojibake_in_pdp():
+    spider = IbarraMayoreoSpider(
+        category="perfumeria-abarrotes",
+        location="ibarra-online",
+    )
+    html = """
+    <html><body>
+      <h1>Desodorante Obao Mujer Rosa TentaciÃ³n Aerosol 150 ml</h1>
+      <div>Disponible</div>
+      <div>SKU: 46222</div>
+      <div>Marca: OBAO</div>
+      <div>4 de 5</div>
+      <div>PresentaciÃ³n: Caja - 12 artÃ­culo(s).</div>
+      <div>$576.00 MXN</div>
+    </body></html>
+    """
+    response = _html_response(
+        "https://ibarramayoreo.com/desodorante-obao-demo",
+        html,
+    )
+
+    detail = spider._parse_pdp_detail(
+        response,
+        "Desodorante Obao Mujer Rosa TentaciÃ³n Aerosol 150 ml",
+    )
+
+    assert detail["sku"] == "46222"
+    assert detail["box_units"] == 12
+    assert detail["box_price"] == 576.0
+
+
+def test_ibarra_scrapy_structural_card_without_price_signal_is_discovered():
+    spider = IbarraMayoreoSpider(
+        category="perfumeria-abarrotes",
+        location="ibarra-online",
+    )
+    html = """
+    <html><body>
+      <div class="product-card">
+        <a href="/producto-sin-precio-en-card" title="Producto sin precio">
+          <img alt="Producto sin precio">
+        </a>
+      </div>
+    </body></html>
+    """
+    response = _html_response(spider.category.url, html)
+
+    links = spider._root_product_links(response)
+
+    assert links == [
+        {
+            "href": "https://ibarramayoreo.com/producto-sin-precio-en-card",
+            "title": "Producto sin precio",
+            "card_text": "Producto sin precio",
+        }
+    ]
