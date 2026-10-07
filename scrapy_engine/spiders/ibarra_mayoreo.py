@@ -3,7 +3,14 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import parse_qsl, unquote, urljoin, urlsplit
+from urllib.parse import (
+    parse_qsl,
+    unquote,
+    urlencode,
+    urljoin,
+    urlsplit,
+    urlunsplit,
+)
 
 import scrapy
 from scrapy.exceptions import CloseSpider
@@ -39,6 +46,27 @@ class IbarraMayoreoSpider(scrapy.Spider):
         except (UnicodeEncodeError, UnicodeDecodeError):
             return text
         return clean_text(repaired) or text
+
+    @staticmethod
+    def _catalog_page_url(base_url: str, page_number: int) -> str:
+        parts = urlsplit(base_url)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        query["marca"] = "TODAS"
+        query["n"] = "36"
+        query["o"] = "3"
+        if page_number <= 1:
+            query.pop("p", None)
+        else:
+            query["p"] = str(page_number)
+        return urlunsplit(
+            (
+                parts.scheme,
+                parts.netloc,
+                parts.path,
+                urlencode(query),
+                parts.fragment,
+            )
+        )
 
     @classmethod
     def _parse_pdp_detail(
@@ -124,6 +152,7 @@ class IbarraMayoreoSpider(scrapy.Spider):
         self.no_box_products: list[dict] = []
         self.catalog_orphan_keys: set[str] = set()
         self.catalog_orphan_rows: list[dict] = []
+        self.catalog_pages: list[dict] = []
         self.parse_errors = 0
         self.no_box_available = 0
 
@@ -135,7 +164,7 @@ class IbarraMayoreoSpider(scrapy.Spider):
 
     async def start(self):
         yield scrapy.Request(
-            self.category.url,
+            self._catalog_page_url(self.category.url, 1),
             callback=self.parse_catalog,
             cb_kwargs={"page_number": 1},
         )
@@ -460,6 +489,7 @@ class IbarraMayoreoSpider(scrapy.Spider):
         orphans = self._catalog_orphans(response)
         new_links = 0
         new_orphans = 0
+        seen_before = len(self.discovery_links)
 
         for orphan in orphans:
             key = orphan["key"]
@@ -497,6 +527,28 @@ class IbarraMayoreoSpider(scrapy.Spider):
                 cb_kwargs={"fallback_title": item.get("title")},
             )
 
+        self.catalog_pages.append(
+            {
+                "page": page_number,
+                "url": response.url,
+                "links_on_page": len(links),
+                "new_links": new_links,
+                "duplicate_links": max(
+                    len(links) - new_links,
+                    0,
+                ),
+                "orphans_on_page": len(orphans),
+                "new_orphans": new_orphans,
+                "seen_before": seen_before,
+                "cumulative_products": (
+                    len(self.discovery_links)
+                    + len(self.catalog_orphan_keys)
+                ),
+                "target": self.target_products,
+                "last_page": self.last_page,
+            }
+        )
+
         self.logger.info(
             "IBARRA_CATALOG page=%s links=%s new=%s orphans=%s "
             "new_orphans=%s cumulative=%s target=%s last_page=%s",
@@ -529,7 +581,7 @@ class IbarraMayoreoSpider(scrapy.Spider):
 
         next_page = page_number + 1
         yield scrapy.Request(
-            IbarraMayoreoScraper._page_url(
+            self._catalog_page_url(
                 self.category.url,
                 next_page,
             ),
