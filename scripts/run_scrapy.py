@@ -18,16 +18,21 @@ from scrapy_engine.spiders.farmacias_del_ahorro import (
     FarmaciasDelAhorroSpider,
 )
 from scrapy_engine.spiders.ibarra_mayoreo import IbarraMayoreoSpider
+from scrapy_engine.spiders.farmacias_similares import (
+    FarmaciasSimilaresSpider,
+)
 
 
 SPIDER_BY_RETAILER = {
     "farmacias-del-ahorro": FarmaciasDelAhorroSpider,
     "ibarra-mayoreo": IbarraMayoreoSpider,
+    "farmacias-similares": FarmaciasSimilaresSpider,
 }
 
 DEFAULT_LOCATION = {
     "farmacias-del-ahorro": "fahorro-online",
     "ibarra-mayoreo": "ibarra-online",
+    "farmacias-similares": "similares-online",
 }
 
 
@@ -112,7 +117,10 @@ def main() -> int:
         f"{result.get('catalog_orphan_products')}"
     )
     print(f"PDP recibidos: {result.get('parsed_product_pages')}")
-    print(f"Sin CAJA     : {result.get('no_box_products')}")
+    print(
+        f"Sin precio req: "
+        f"{result.get('missing_price_products')}"
+    )
     print(f"PDP fallidos : {result.get('failed_product_requests')}")
     print(f"Parse errors : {result.get('parse_errors')}")
     print(f"PDP faltantes: {result.get('missing_pdp_count')}")
