@@ -82,6 +82,7 @@ def run_case(retailer: str, category: str) -> dict:
         )
 
     status = (_field(text, "Status") or "UNKNOWN").upper()
+    finish_reason = _field(text, "Finish reason")
     products = _as_int(_field(text, "Productos"))
     target = _as_int(_field(text, "Target"))
     coverage = _as_float(_field(text, "Cobertura"))
@@ -93,6 +94,12 @@ def run_case(retailer: str, category: str) -> dict:
         "category_id": category,
         "exit_code": proc.returncode,
         "status": status,
+        "finish_reason": finish_reason,
+        "engine_classification": (
+            "BROWSER_REQUIRED"
+            if status == "BLOCKED" or proc.returncode == 2
+            else "HTTP_OK"
+        ),
         "products": products,
         "target_products": target,
         "coverage": coverage,
@@ -167,6 +174,7 @@ def main() -> int:
                     "retailer",
                     "category_id",
                     "status",
+                    "engine_classification",
                     "products",
                     "target_products",
                     "coverage",
