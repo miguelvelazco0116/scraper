@@ -73,8 +73,26 @@ Scrapy 2.19.0
 Python 3.10+
 ```
 
-El primer spider migrado es **Farmacias del Ahorro**. Reutiliza el parser y las
-reglas existentes de Empathy Search, precio, promoción y disponibilidad.
+El primer retailer migrado y validado completamente en Scrapy es
+**Farmacias del Ahorro**. Reutiliza el parser y las reglas existentes de Empathy
+Search, precio, promoción y disponibilidad.
+
+Validación Scrapy del 6 de octubre de 2026:
+
+```text
+congestion-nasal       55 / 55   COMPLETE
+preservativos          73 / 73   COMPLETE
+enjuagues-bucales      45 / 45   COMPLETE
+cremas-dentales       115 / 115  COMPLETE
+Total                 288 / 288
+```
+
+El runner principal usa Scrapy para Farmacias del Ahorro y sólo actualiza el
+consolidado cuando la categoría termina `COMPLETE`.
+
+**Ibarra Mayoreo** es el segundo retailer en migración a Scrapy. Su spider está
+disponible para pruebas dedicadas, pero permanece en el motor anterior dentro
+del runner activo hasta reproducir la cobertura validada de 574 productos.
 
 Instalación/actualización del ambiente:
 
@@ -422,6 +440,8 @@ El catálogo/precio autoritativo sigue siendo `productSearchV3`. La disponibilid
 
 ## Farmacias del Ahorro
 
+Motor activo: **Scrapy 2.19.0**.
+
 Contexto:
 
 ```text
@@ -441,6 +461,9 @@ Total                 288
 ```
 
 Cobertura completa de SKU, precio actual y URL.
+
+La validación Scrapy del 6 de octubre de 2026 reprodujo 288/288 productos con
+`coverage=1.0`, `quality=COMPLETE` y precio completo en las cuatro categorías.
 
 ## Farmacias San Pablo
 
@@ -545,10 +568,18 @@ Regla crítica: para productos disponibles **sólo se guarda la presentación co
 
 Cobertura de precio de la última validación previa a disponibilidad: 574/574. Cobertura de SKU: 570/574.
 
-Test dedicado:
+Test dedicado del motor anterior:
 
 ```powershell
 & .\scripts\test_ibarra_mayoreo.ps1
+```
+
+Prueba experimental con Scrapy, sin tocar el consolidado:
+
+```powershell
+& .\scripts\run_scrapy.ps1 `
+    -Retailer ibarra-mayoreo `
+    -Category dentifricos-abarrotes
 ```
 
 ## Bodega Aurrera
