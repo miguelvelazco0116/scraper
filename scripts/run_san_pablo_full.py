@@ -91,6 +91,16 @@ def main() -> int:
         action="store_true",
         help="Ejecuta Chrome sin ventana. Por defecto el test es visible.",
     )
+    parser.add_argument(
+        "--profile-dir",
+        default=".san_pablo_profile",
+        help="Perfil persistente de Chrome para la prueba.",
+    )
+    parser.add_argument(
+        "--update-consolidated",
+        action="store_true",
+        help="Actualiza el master sólo cuando se solicita explícitamente.",
+    )
     args = parser.parse_args()
 
     categories = load_categories(
@@ -114,7 +124,14 @@ def main() -> int:
     print("=" * 68)
     print(f"Categorías : {len(categories)}")
     print(f"Salida     : {OUTPUT_PATH}")
-    print(f"Consolidado: {CONSOLIDATED_PATH}")
+    print(
+        "Consolidado: "
+        + (
+            str(CONSOLIDATED_PATH)
+            if args.update_consolidated
+            else "sin cambios"
+        )
+    )
     print("")
 
     for index, category in enumerate(categories, start=1):
@@ -126,6 +143,7 @@ def main() -> int:
         scraper = FarmaciasSanPabloScraper(
             headless=args.headless,
             max_pages=args.max_pages,
+            profile_dir=args.profile_dir,
         )
 
         status = "SUCCESS"
@@ -167,9 +185,13 @@ def main() -> int:
             ).reset_index(drop=True)
             all_rows.extend(df.to_dict("records"))
 
-            safe = _safe_for_global(df)
-            if not safe.empty:
-                update_consolidated_output(safe, ROOT / CONSOLIDATED_PATH)
+            if args.update_consolidated:
+                safe = _safe_for_global(df)
+                if not safe.empty:
+                    update_consolidated_output(
+                        safe,
+                        ROOT / CONSOLIDATED_PATH,
+                    )
 
         target = meta.get("target_products")
         products = len(df)
@@ -259,7 +281,14 @@ def main() -> int:
 
     print("")
     print(f"Archivo de prueba : {OUTPUT_PATH}")
-    print(f"Consolidado global: {ROOT / CONSOLIDATED_PATH}")
+    print(
+        "Consolidado global: "
+        + (
+            str(ROOT / CONSOLIDATED_PATH)
+            if args.update_consolidated
+            else "sin cambios"
+        )
+    )
 
     successful = all(
         item["status"] == "SUCCESS"
