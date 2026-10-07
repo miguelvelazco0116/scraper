@@ -66,8 +66,9 @@ def main() -> int:
     )
     print("")
 
+    crawler = process.create_crawler(spider_cls)
     process.crawl(
-        spider_cls,
+        crawler,
         category=args.category,
         location=location,
         max_pages=args.max_pages,
@@ -75,7 +76,42 @@ def main() -> int:
         update_consolidated=args.update_consolidated,
     )
     process.start()
-    return 0
+
+    finish_reason = str(
+        crawler.stats.get_value("finish_reason") or ""
+    ).strip()
+    result = getattr(crawler.spider, "scrapy_result", {}) or {}
+    quality = str(result.get("quality_status") or "").strip().upper()
+    products = int(result.get("products") or 0)
+    target = result.get("target_products")
+    coverage = result.get("coverage")
+
+    print("")
+    print("-" * 78)
+    print("RESULTADO SCRAPY")
+    print("-" * 78)
+    print(f"Status       : {quality or finish_reason or 'UNKNOWN'}")
+    print(f"Productos    : {products}")
+    print(f"Target       : {target}")
+    print(f"Cobertura    : {coverage}")
+    print(f"Finish reason: {finish_reason}")
+    print(f"Output       : {result.get('output')}")
+    print(
+        "Consolidado : "
+        + (
+            "actualizado"
+            if result.get("consolidated_updated")
+            else "sin cambios"
+        )
+    )
+
+    if finish_reason == "blocked":
+        return 2
+    if quality == "COMPLETE":
+        return 0
+    if quality == "EMPTY":
+        return 3
+    return 1
 
 
 if __name__ == "__main__":
