@@ -2,7 +2,9 @@ param(
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = "",
     [string]$Category = "all",
-    [int]$MaxPages = 20
+    [int]$MaxPages = 20,
+    [string]$ProfileDir = ".san_pablo_profile",
+    [switch]$UpdateConsolidated
 )
 
 $ErrorActionPreference = "Stop"
