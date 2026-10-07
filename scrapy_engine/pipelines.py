@@ -63,6 +63,30 @@ class CanonicalExcelPipeline:
             else 0
         )
 
+        if frame.empty:
+            availability = pd.Series(dtype="object")
+        else:
+            availability = (
+                frame["availability_status"]
+                .fillna("UNKNOWN")
+                .astype(str)
+                .str.strip()
+                .str.upper()
+                .replace("", "UNKNOWN")
+            )
+        price_required_mask = ~availability.eq("UNAVAILABLE")
+        price_required_products = int(price_required_mask.sum())
+        price_required_complete = (
+            int(
+                frame.loc[
+                    price_required_mask,
+                    "price_current",
+                ].notna().sum()
+            )
+            if not frame.empty
+            else 0
+        )
+
         minimum_coverage = float(
             getattr(spider, "minimum_coverage", 1.0) or 1.0
         )
@@ -74,7 +98,7 @@ class CanonicalExcelPipeline:
         )
         parse_errors = int(getattr(spider, "parse_errors", 0) or 0)
         clean_run = (
-            price_complete == products
+            price_required_complete == price_required_products
             and not no_box_products
             and not failed_product_requests
             and parse_errors == 0
@@ -135,6 +159,8 @@ class CanonicalExcelPipeline:
                     "minimum_coverage": minimum_coverage,
                     "sku_complete": sku_complete,
                     "price_complete": price_complete,
+                    "price_required_products": price_required_products,
+                    "price_required_complete": price_required_complete,
                     "url_complete": url_complete,
                     "requests": getattr(spider, "api_pages", None),
                     "discovered_products": discovered_products or None,
@@ -264,6 +290,8 @@ class CanonicalExcelPipeline:
             "minimum_coverage": minimum_coverage,
             "sku_complete": sku_complete,
             "price_complete": price_complete,
+            "price_required_products": price_required_products,
+            "price_required_complete": price_required_complete,
             "url_complete": url_complete,
             "discovered_products": discovered_products,
             "discovered_link_products": discovered_link_products,
@@ -288,14 +316,14 @@ class CanonicalExcelPipeline:
 
         spider.logger.info(
             "SCRAPY_RESULT products=%s target=%s coverage=%s "
-            "quality=%s price=%s/%s discovered=%s parsed=%s "
+            "quality=%s price_required=%s/%s discovered=%s parsed=%s "
             "no_box=%s failed=%s output=%s consolidated=%s",
             products,
             target,
             coverage,
             quality_status,
-            price_complete,
-            products,
+            price_required_complete,
+            price_required_products,
             discovered_products,
             parsed_product_pages,
             len(no_box_products),
