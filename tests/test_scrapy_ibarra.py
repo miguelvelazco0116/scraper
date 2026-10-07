@@ -145,3 +145,29 @@ def test_ibarra_scrapy_structural_card_without_price_signal_is_discovered():
     )
     assert links[0]["title"] == "Producto sin precio"
     assert "card_text" in links[0]
+
+
+def test_ibarra_scrapy_recovers_catalog_card_without_pdp_link():
+    spider = IbarraMayoreoSpider(
+        category="perfumeria-abarrotes",
+        location="ibarra-online",
+    )
+    html = """
+    <html><body>
+      <div class="product-card">
+        <h3>Producto Visible Sin PDP</h3>
+        <div>CAJA</div>
+        <div>12 artículo(s) por caja</div>
+        <div>$480.00</div>
+        <button>Agregar al carrito</button>
+      </div>
+    </body></html>
+    """
+    response = _html_response(spider.category.url, html)
+
+    rows = spider._catalog_orphans(response)
+
+    assert len(rows) == 1
+    assert rows[0]["title"] == "Producto Visible Sin PDP"
+    assert rows[0]["box_units"] == 12
+    assert rows[0]["box_price"] == 480.0
