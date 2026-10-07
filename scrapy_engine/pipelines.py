@@ -81,8 +81,14 @@ class CanonicalExcelPipeline:
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        discovered_products = len(
+        discovered_link_products = len(
             getattr(spider, "discovery_links", set()) or set()
+        )
+        catalog_orphan_rows = list(
+            getattr(spider, "catalog_orphan_rows", []) or []
+        )
+        discovered_products = (
+            discovered_link_products + len(catalog_orphan_rows)
         )
         parsed_product_pages = len(
             getattr(spider, "parsed_product_urls", set()) or set()
@@ -116,6 +122,10 @@ class CanonicalExcelPipeline:
                     "url_complete": url_complete,
                     "requests": getattr(spider, "api_pages", None),
                     "discovered_products": discovered_products or None,
+                    "discovered_link_products": (
+                        discovered_link_products or None
+                    ),
+                    "catalog_orphan_products": len(catalog_orphan_rows),
                     "parsed_product_pages": parsed_product_pages or None,
                     "yielded_product_pages": yielded_product_pages or None,
                     "no_box_products": len(no_box_products),
@@ -187,6 +197,8 @@ class CanonicalExcelPipeline:
             "coverage": coverage,
             "quality_status": quality_status,
             "discovered_products": discovered_products,
+            "discovered_link_products": discovered_link_products,
+            "catalog_orphan_products": catalog_orphan_rows,
             "missing_from_discovery": missing_discovery,
             "parsed_product_pages": parsed_product_pages,
             "yielded_product_pages": yielded_product_pages,
@@ -229,6 +241,8 @@ class CanonicalExcelPipeline:
             "price_complete": price_complete,
             "url_complete": url_complete,
             "discovered_products": discovered_products,
+            "discovered_link_products": discovered_link_products,
+            "catalog_orphan_products": len(catalog_orphan_rows),
             "parsed_product_pages": parsed_product_pages,
             "yielded_product_pages": yielded_product_pages,
             "no_box_products": len(no_box_products),
