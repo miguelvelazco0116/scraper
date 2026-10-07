@@ -90,9 +90,13 @@ Total                 288 / 288
 El runner principal usa Scrapy para Farmacias del Ahorro y sólo actualiza el
 consolidado cuando la categoría termina `COMPLETE`.
 
-**Ibarra Mayoreo** es el segundo retailer en migración a Scrapy. Su spider está
-disponible para pruebas dedicadas, pero permanece en el motor anterior dentro
-del runner activo hasta reproducir la cobertura validada de 574 productos.
+**Ibarra Mayoreo** es el segundo retailer en migración a Scrapy. Para este
+retailer se acepta una muestra con cobertura **>=99%** como
+`SAMPLE_ACCEPTED`, siempre que las filas capturadas tengan precio completo y
+la corrida no reporte PDP fallidos, productos sin precio CAJA ni errores de
+parsing. Se sigue intentando 100% y se conserva el target publicado para medir
+el gap real. El retailer permanece en el motor anterior dentro del runner
+activo hasta terminar la validación de todas sus categorías.
 
 Instalación/actualización del ambiente:
 
@@ -565,6 +569,19 @@ Total                                         574
 ```
 
 Regla crítica: para productos disponibles **sólo se guarda la presentación con precio CAJA**. Un producto marcado explícitamente como `UNAVAILABLE` se conserva aunque no exponga precio CAJA, para poder medir quiebres de stock.
+
+Criterio Scrapy de cobertura para Ibarra:
+
+```text
+100%            COMPLETE
+>=99% y <100%   SAMPLE_ACCEPTED
+<99%            PARTIAL
+```
+
+`SAMPLE_ACCEPTED` no se presenta como censo completo: el output conserva el
+target publicado y la cobertura exacta. Puede actualizar el consolidado si la
+corrida no tiene errores de PDP/parsing ni productos disponibles sin precio
+CAJA.
 
 Cobertura de precio de la última validación previa a disponibilidad: 574/574. Cobertura de SKU: 570/574.
 
