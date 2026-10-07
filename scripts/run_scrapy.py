@@ -61,8 +61,9 @@ def main() -> int:
     )
     print("")
 
+    spider_cls = process.spider_loader.load(spider_name)
     process.crawl(
-        spider_name,
+        spider_cls,
         category=args.category,
         location=location,
         max_pages=args.max_pages,
