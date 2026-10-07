@@ -1,7 +1,11 @@
 import pandas as pd
 
 import scripts.run_all_retailers as runner
-from main import COLUMNS, update_consolidated_output
+from main import (
+    COLUMNS,
+    evaluate_legacy_output_quality,
+    update_consolidated_output,
+)
 from scripts.run_all_retailers import (
     classify_result,
     deferred_result,
@@ -35,6 +39,7 @@ def test_run_all_retailers_classifies_controlled_failures():
     assert classify_result(4, "STORE_CONTEXT_ERROR: SC Toreo") == "STORE_CONTEXT_ERROR"
     assert classify_result(6, "DEFERRED: cooldown activo") == "DEFERRED"
     assert classify_result(3, "No se encontraron productos") == "EMPTY"
+    assert classify_result(7, "QUALITY_GATE: FAIL") == "PARTIAL"
     assert classify_result(1, "unexpected") == "ERROR"
 
 
@@ -227,3 +232,94 @@ def test_consolidated_update_replaces_multiple_blocks_atomically(
         "keep-c",
     }
     assert len(final) == 3
+
+
+
+class _DummyLegacyScraper:
+    def __init__(self, meta):
+        self.run_meta = meta
+
+
+def test_legacy_quality_gate_rejects_partial_catalog():
+    rows = []
+    for index in range(2):
+        row = {column: None for column in COLUMNS}
+        row.update(
+            {
+                "retailer": "Farmacias Similares",
+                "category_id": "condones",
+                "sku": str(index + 1),
+                "product": f"Producto {index + 1}",
+                "price_current": 10.0,
+                "price_regular": 10.0,
+                "availability_status": "AVAILABLE",
+                "url": f"https://example.test/{index + 1}",
+            }
+        )
+        rows.append(row)
+
+    frame = pd.DataFrame(rows, columns=COLUMNS)
+    scraper = _DummyLegacyScraper(
+        {
+            "status": "PARTIAL",
+            "target_products": 3,
+        }
+    )
+
+    passed, notes, _ = evaluate_legacy_output_quality(
+        frame,
+        scraper,
+        "farmacias-similares",
+    )
+
+    assert passed is False
+    assert "scraper status=PARTIAL" in notes
+    assert "cobertura 2/3" in notes
+
+
+def test_legacy_quality_gate_accepts_explicit_unavailable_without_price():
+    rows = []
+    available = {column: None for column in COLUMNS}
+    available.update(
+        {
+            "retailer": "Farmacias Similares",
+            "category_id": "condones",
+            "sku": "1",
+            "product": "Producto disponible",
+            "price_current": 10.0,
+            "price_regular": 10.0,
+            "availability_status": "AVAILABLE",
+            "url": "https://example.test/1",
+        }
+    )
+    unavailable = {column: None for column in COLUMNS}
+    unavailable.update(
+        {
+            "retailer": "Farmacias Similares",
+            "category_id": "condones",
+            "product": "Producto agotado",
+            "price_current": None,
+            "price_regular": None,
+            "availability_status": "UNAVAILABLE",
+            "url": None,
+            "sku": None,
+        }
+    )
+    rows.extend([available, unavailable])
+
+    frame = pd.DataFrame(rows, columns=COLUMNS)
+    scraper = _DummyLegacyScraper(
+        {
+            "status": "SUCCESS",
+            "target_products": 2,
+        }
+    )
+
+    passed, notes, _ = evaluate_legacy_output_quality(
+        frame,
+        scraper,
+        "farmacias-similares",
+    )
+
+    assert passed is True
+    assert notes == []
