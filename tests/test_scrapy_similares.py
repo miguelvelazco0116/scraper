@@ -1,5 +1,8 @@
 from scrapy.http import HtmlResponse, Request
 
+from scraper.retailers.farmacias_similares import (
+    FarmaciasSimilaresScraper,
+)
 from scrapy_engine.spiders.farmacias_similares import (
     FarmaciasSimilaresSpider,
 )
@@ -148,19 +151,9 @@ def test_similares_scrapy_page_url_preserves_category_and_sets_page():
         location="similares-online",
     )
 
-    page2 = FarmaciasSimilaresSpider.__mro__[1]
-    del page2
-
-    url = FarmaciasSimilaresSpider.__dict__
-    del url
-
-    page_url = (
-        __import__(
-            "scraper.retailers.farmacias_similares",
-            fromlist=["FarmaciasSimilaresScraper"],
-        )
-        .FarmaciasSimilaresScraper
-        ._page_url(spider.category.url, 2)
+    page_url = FarmaciasSimilaresScraper._page_url(
+        spider.category.url,
+        2,
     )
 
     assert page_url.startswith(spider.category.url)
