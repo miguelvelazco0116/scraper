@@ -160,6 +160,9 @@ class CanonicalExcelPipeline:
                 int(target) - discovered_products,
                 0,
             )
+        catalog_pages = list(
+            getattr(spider, "catalog_pages", []) or []
+        )
         product_candidates = dict(
             getattr(spider, "product_candidates", {}) or {}
         )
@@ -205,6 +208,7 @@ class CanonicalExcelPipeline:
             "no_box_products": no_box_products,
             "failed_product_requests": failed_product_requests,
             "parse_errors": parse_errors,
+            "catalog_pages": catalog_pages,
             "undispatched_or_unreceived": [
                 product_candidates.get(url, {"url": url})
                 for url in undispatched_or_unreceived
@@ -250,6 +254,7 @@ class CanonicalExcelPipeline:
                 failed_product_requests
             ),
             "parse_errors": parse_errors,
+            "catalog_pages": len(catalog_pages),
             "missing_pdp_count": len(
                 undispatched_or_unreceived
             ),
