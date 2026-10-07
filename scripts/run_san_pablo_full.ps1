@@ -4,6 +4,7 @@ param(
     [string]$Category = "all",
     [int]$MaxPages = 20,
     [string]$ProfileDir = ".san_pablo_profile",
+    [string]$DebuggerAddress = "127.0.0.1:9223",
     [switch]$UpdateConsolidated
 )
 
@@ -35,7 +36,7 @@ Write-Host "============================================================"
 Write-Host "Python   : $PythonExe"
 Write-Host "Category : $Category"
 Write-Host "MaxPages : $MaxPages"
-Write-Host "Profile  : $ProfileDir"
+Write-Host "Browser  : manual attach $DebuggerAddress"
 Write-Host ("Consolidado: " + $(if ($UpdateConsolidated) { "actualizar" } else { "sin cambios" }))
 Write-Host ""
 
@@ -43,7 +44,7 @@ $ArgsList = @(
     ".\scripts\run_san_pablo_full.py",
     "--category", $Category,
     "--max-pages", $MaxPages,
-    "--profile-dir", $ProfileDir
+    "--debugger-address", $DebuggerAddress
 )
 if ($UpdateConsolidated) {
     $ArgsList += "--update-consolidated"
