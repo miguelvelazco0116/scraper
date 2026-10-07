@@ -88,6 +88,50 @@ class CanonicalExcelPipeline:
             else 0
         )
 
+        identifier_required_mask = ~availability.eq("UNAVAILABLE")
+        identifier_required_products = int(
+            identifier_required_mask.sum()
+        )
+        sku_required_complete = (
+            int(
+                frame.loc[
+                    identifier_required_mask,
+                    "sku",
+                ]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .ne("")
+                .sum()
+            )
+            if not frame.empty
+            else 0
+        )
+        url_required_complete = (
+            int(
+                frame.loc[
+                    identifier_required_mask,
+                    "url",
+                ]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .ne("")
+                .sum()
+            )
+            if not frame.empty
+            else 0
+        )
+        require_sku = bool(getattr(spider, "require_sku", True))
+        require_url = bool(getattr(spider, "require_url", True))
+        identifier_clean = (
+            (not require_sku or sku_required_complete == identifier_required_products)
+            and (
+                not require_url
+                or url_required_complete == identifier_required_products
+            )
+        )
+
         minimum_coverage = float(
             getattr(spider, "minimum_coverage", 1.0) or 1.0
         )
@@ -105,6 +149,7 @@ class CanonicalExcelPipeline:
         parse_errors = int(getattr(spider, "parse_errors", 0) or 0)
         clean_run = (
             price_required_complete == price_required_products
+            and identifier_clean
             and not missing_price_products
             and not failed_product_requests
             and parse_errors == 0
@@ -182,6 +227,13 @@ class CanonicalExcelPipeline:
                     "price_complete": price_complete,
                     "price_required_products": price_required_products,
                     "price_required_complete": price_required_complete,
+                    "identifier_required_products": (
+                        identifier_required_products
+                    ),
+                    "sku_required_complete": sku_required_complete,
+                    "url_required_complete": url_required_complete,
+                    "require_sku": require_sku,
+                    "require_url": require_url,
                     "url_complete": url_complete,
                     "requests": getattr(spider, "api_pages", None),
                     "discovered_products": discovered_products or None,
@@ -330,6 +382,13 @@ class CanonicalExcelPipeline:
             "price_complete": price_complete,
             "price_required_products": price_required_products,
             "price_required_complete": price_required_complete,
+            "identifier_required_products": (
+                identifier_required_products
+            ),
+            "sku_required_complete": sku_required_complete,
+            "url_required_complete": url_required_complete,
+            "require_sku": require_sku,
+            "require_url": require_url,
             "url_complete": url_complete,
             "discovered_products": discovered_products,
             "discovery_source": discovery_source,
