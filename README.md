@@ -153,6 +153,7 @@ La capa común aplica las siguientes protecciones:
 
 ```text
 escritura de Excel/JSON -> temporal + reemplazo atómico
+master Excel            -> lock entre procesos en read-modify-write
 HTTP 401/403/429        -> clasificación explícita de bloqueo
 target + coverage       -> se conservan también en el resumen maestro
 AVAILABLE/UNKNOWN       -> precio obligatorio
@@ -165,6 +166,24 @@ diagnostics/scrapy      -> target, páginas, gaps, errores y faltantes
 Una interrupción durante la escritura no reemplaza el último archivo válido.
 El runner principal tampoco convierte un `SAMPLE_ACCEPTED` en `COMPLETE`;
 conserva el target y la cobertura exacta.
+
+Validación secuencial de regresiones y candidatos Scrapy, sin modificar el
+consolidado:
+
+```powershell
+& .\scripts\validate_scrapy_candidates.ps1 -Group all
+```
+
+Grupos disponibles:
+
+```text
+regression  -> Farmacias del Ahorro + Ibarra
+candidates  -> Farmacias Similares + Farmacias San Pablo
+all         -> ambos grupos, en secuencia
+```
+
+Los logs quedan en `diagnostics\scrapy_validation\` y el resumen en
+`diagnostics\scrapy_validation\summary.csv`.
 
 ## Ejecución local
 
