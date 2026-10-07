@@ -122,6 +122,8 @@ class IbarraMayoreoSpider(scrapy.Spider):
         self.yielded_product_urls: set[str] = set()
         self.failed_product_requests: list[dict] = []
         self.no_box_products: list[dict] = []
+        self.catalog_orphan_keys: set[str] = set()
+        self.catalog_orphan_rows: list[dict] = []
         self.parse_errors = 0
         self.no_box_available = 0
 
@@ -298,6 +300,150 @@ class IbarraMayoreoSpider(scrapy.Spider):
 
         return out
 
+    def _catalog_orphans(self, response) -> list[dict]:
+        out: list[dict] = []
+        seen: set[str] = set()
+
+        selectors = (
+            '[class*="product"], [class*="Product"], '
+            '[class*="card"], [class*="Card"], '
+            '[class*="item"], [class*="Item"], '
+            '[class*="tile"], [class*="Tile"]'
+        )
+
+        for container in response.css(selectors):
+            text = self._repair_mojibake(
+                " ".join(container.css("::text").getall())
+            )
+            if not text or len(text) < 8 or len(text) > 1400:
+                continue
+            if "CAJA" not in text.upper():
+                continue
+            if not re.search(r"\$\s*[0-9]", text):
+                continue
+
+            has_product_href = False
+            for href in container.css("a[href]::attr(href)").getall():
+                full_url = response.urljoin(href)
+                try:
+                    parsed = urlsplit(full_url)
+                except Exception:
+                    continue
+                parts = [part for part in parsed.path.split("/") if part]
+                if (
+                    parsed.netloc.casefold()
+                    == urlsplit(BASE_URL).netloc.casefold()
+                    and len(parts) == 1
+                ):
+                    has_product_href = True
+                    break
+
+            if has_product_href:
+                continue
+
+            title = clean_text(
+                " ".join(
+                    container.css(
+                        "h1::text, h2::text, h3::text, h4::text, "
+                        "h5::text, [class*='name']::text, "
+                        "[class*='title']::text"
+                    ).getall()
+                )
+            )
+            if not title:
+                title = clean_text(
+                    container.css("img::attr(alt)").get()
+                    or container.css("img::attr(title)").get()
+                )
+            title = self._repair_mojibake(title)
+            if not title or len(title) < 3 or len(title) > 220:
+                continue
+
+            detail = IbarraMayoreoScraper._parse_box_detail(
+                text,
+                title,
+            )
+            box_price = detail.get("box_price")
+            if box_price is None:
+                continue
+
+            key = (
+                (detail.get("sku") or "")
+                + "|"
+                + title.casefold()
+                + "|"
+                + str(box_price)
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+
+            out.append(
+                {
+                    "key": key,
+                    "title": detail.get("product") or title,
+                    "sku": detail.get("sku"),
+                    "brand": detail.get("brand"),
+                    "box_units": detail.get("box_units"),
+                    "box_price": box_price,
+                    "promotion": detail.get("promotion"),
+                    "availability_status": detail.get(
+                        "availability_status"
+                    ),
+                    "is_available": detail.get("is_available"),
+                    "availability_raw": detail.get("availability_raw"),
+                    "card_text": text,
+                }
+            )
+
+        return out
+
+    def _row_from_catalog_orphan(self, item: dict) -> dict:
+        box_price = item.get("box_price")
+        pack_count = item.get("box_units")
+        if pack_count is not None:
+            price_raw = (
+                "CAJA | {} artículos por caja | ${:.2f} MXN".format(
+                    pack_count,
+                    box_price,
+                )
+            )
+        else:
+            price_raw = "CAJA | ${:.2f} MXN".format(box_price)
+
+        now = datetime.now().astimezone().isoformat(timespec="seconds")
+
+        return {
+            "scrape_timestamp": now,
+            "retailer": "Ibarra Mayoreo",
+            "city": self.location.city,
+            "state": self.location.state,
+            "postal_code": self.location.postal_code,
+            "store": self.location.store,
+            "store_id": self.location.store_id,
+            "department": self.category.department,
+            "category": self.category.name,
+            "subcategory": self.category.subcategory,
+            "sub_subcategory": self.category.sub_subcategory,
+            "category_id": self.category.id,
+            "sku": item.get("sku"),
+            "brand": item.get("brand"),
+            "product": item.get("title"),
+            "price_current": box_price,
+            "price_regular": box_price,
+            "promotion": item.get("promotion"),
+            "availability_status": item.get("availability_status"),
+            "is_available": item.get("is_available"),
+            "availability_raw": item.get("availability_raw"),
+            "pickup_available": None,
+            "store_context_verified": False,
+            "store_context_method": (
+                "ibarra_scrapy_catalog_card_without_pdp"
+            ),
+            "url": None,
+            "price_raw": price_raw,
+        }
+
     def parse_catalog(self, response, page_number: int):
         if self._looks_blocked(response):
             raise CloseSpider("blocked")
@@ -311,7 +457,25 @@ class IbarraMayoreoSpider(scrapy.Spider):
             self.last_page = max(self.last_page or 0, last_page)
 
         links = self._root_product_links(response)
+        orphans = self._catalog_orphans(response)
         new_links = 0
+        new_orphans = 0
+
+        for orphan in orphans:
+            key = orphan["key"]
+            if key in self.catalog_orphan_keys:
+                continue
+            self.catalog_orphan_keys.add(key)
+            self.catalog_orphan_rows.append(
+                {
+                    "page": page_number,
+                    "title": orphan.get("title"),
+                    "sku": orphan.get("sku"),
+                    "price": orphan.get("box_price"),
+                }
+            )
+            new_orphans += 1
+            yield self._row_from_catalog_orphan(orphan)
 
         for item in links:
             href = item["href"]
@@ -334,12 +498,14 @@ class IbarraMayoreoSpider(scrapy.Spider):
             )
 
         self.logger.info(
-            "IBARRA_CATALOG page=%s links=%s new=%s cumulative=%s "
-            "target=%s last_page=%s",
+            "IBARRA_CATALOG page=%s links=%s new=%s orphans=%s "
+            "new_orphans=%s cumulative=%s target=%s last_page=%s",
             page_number,
             len(links),
             new_links,
-            len(self.discovery_links),
+            len(orphans),
+            new_orphans,
+            len(self.discovery_links) + len(self.catalog_orphan_keys),
             self.target_products,
             self.last_page,
         )
@@ -349,7 +515,11 @@ class IbarraMayoreoSpider(scrapy.Spider):
         if (
             self.last_page is None
             and self.target_products is not None
-            and len(self.discovery_links) >= self.target_products
+            and (
+                len(self.discovery_links)
+                + len(self.catalog_orphan_keys)
+                >= self.target_products
+            )
         ):
             return
         if page_number >= self.max_pages:
