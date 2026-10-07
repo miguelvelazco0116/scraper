@@ -14,9 +14,13 @@ os.environ.setdefault("SCRAPY_SETTINGS_MODULE", "scrapy_engine.settings")
 from scrapy.crawler import CrawlerProcess
 from scrapy.utils.project import get_project_settings
 
+from scrapy_engine.spiders.farmacias_del_ahorro import (
+    FarmaciasDelAhorroSpider,
+)
+
 
 SPIDER_BY_RETAILER = {
-    "farmacias-del-ahorro": "farmacias_del_ahorro",
+    "farmacias-del-ahorro": FarmaciasDelAhorroSpider,
 }
 
 DEFAULT_LOCATION = {
@@ -40,7 +44,8 @@ def main() -> int:
     parser.add_argument("--update-consolidated", action="store_true")
     args = parser.parse_args()
 
-    spider_name = SPIDER_BY_RETAILER[args.retailer]
+    spider_cls = SPIDER_BY_RETAILER[args.retailer]
+    spider_name = spider_cls.name
     location = args.location or DEFAULT_LOCATION[args.retailer]
 
     settings = get_project_settings()
@@ -61,7 +66,6 @@ def main() -> int:
     )
     print("")
 
-    spider_cls = process.spider_loader.load(spider_name)
     process.crawl(
         spider_cls,
         category=args.category,
