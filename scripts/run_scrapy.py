@@ -129,7 +129,7 @@ def main() -> int:
 
     if finish_reason == "blocked":
         return 2
-    if quality == "COMPLETE":
+    if quality in {"COMPLETE", "SAMPLE_ACCEPTED"}:
         return 0
     if quality == "EMPTY":
         return 3
