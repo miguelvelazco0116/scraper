@@ -98,6 +98,12 @@ def main() -> int:
     print(f"Target       : {target}")
     print(f"Cobertura    : {coverage}")
     print(f"Finish reason: {finish_reason}")
+    print(f"Descubiertos : {result.get('discovered_products')}")
+    print(f"PDP recibidos: {result.get('parsed_product_pages')}")
+    print(f"Sin CAJA     : {result.get('no_box_products')}")
+    print(f"PDP fallidos : {result.get('failed_product_requests')}")
+    print(f"Parse errors : {result.get('parse_errors')}")
+    print(f"Diagnostico  : {result.get('diagnostics')}")
     print(f"Output       : {result.get('output')}")
     print(
         "Consolidado : "
