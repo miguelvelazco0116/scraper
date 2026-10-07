@@ -8,7 +8,7 @@ No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadi
 
 ## Estado actual
 
-Última actualización: **2 de octubre de 2026**.
+Última actualización: **6 de octubre de 2026**.
 
 Última muestra completa validada localmente:
 
@@ -18,14 +18,14 @@ No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadi
 | Chedraui | 2 | 683 | 100% | 100% | Activo |
 | Farmacias del Ahorro | 4 | 288 | 100% | 100% | Activo |
 | Farmacias San Pablo | 4 | 232 | 100% | 100% en última validación | Activo |
-| Ibarra Mayoreo | 4 | 574 | 100% | 570/574 SKU | Activo |
+| Ibarra Mayoreo | 4 | 570/571 live | 100% en filas capturadas | URL 100%; SKU informativo | Activo / Scrapy |
 | Bodega Aurrera | 2 | 555 | 100% | 100% | Activo |
 | Farmacias Similares | 2 | 30 | 100% | 100% | Activo |
 | La Comer | 2 | Pendiente | Pendiente | Pendiente | Implementado, no activo |
 | Walmart | 3 | Pausado | — | — | Pausado |
 | Farmacias Guadalajara | 4 | Pausado | — | — | Pausado |
 
-**Total validado en el stack activo: 4,514 filas** considerando la última validación individual de San Pablo (232 productos).
+**Total observado en la última base validada del stack activo: 4,510 filas**, considerando Ibarra Mayoreo en 570/571 productos live y la última validación individual de San Pablo (232 productos).
 
 ## Retailers activos
 
@@ -90,13 +90,25 @@ Total                 288 / 288
 El runner principal usa Scrapy para Farmacias del Ahorro y sólo actualiza el
 consolidado cuando la categoría termina `COMPLETE`.
 
-**Ibarra Mayoreo** es el segundo retailer en migración a Scrapy. Para este
-retailer se acepta una muestra con cobertura **>=99%** como
-`SAMPLE_ACCEPTED`, siempre que las filas capturadas tengan precio completo y
-la corrida no reporte PDP fallidos, productos sin precio CAJA ni errores de
-parsing. Se sigue intentando 100% y se conserva el target publicado para medir
-el gap real. El retailer permanece en el motor anterior dentro del runner
-activo hasta terminar la validación de todas sus categorías.
+**Ibarra Mayoreo** es el segundo retailer migrado al runner principal de
+Scrapy. Para este retailer se acepta una muestra con cobertura **>=99%** como
+`SAMPLE_ACCEPTED`, siempre que las filas que requieren precio tengan precio
+completo y la corrida no reporte PDP fallidos, productos disponibles sin precio
+CAJA ni errores de parsing. Se sigue intentando 100% y se conserva el target
+publicado para medir el gap real.
+
+Validación Scrapy live del 6 de octubre de 2026:
+
+```text
+detergentes-lavatrastes-jab-abarrotes       152 / 152  COMPLETE
+detergentes-lavatrastes-jab-marca-propia      2 / 2    COMPLETE
+dentifricos-abarrotes                         86 / 86   COMPLETE
+perfumeria-abarrotes                         330 / 331  SAMPLE_ACCEPTED
+Total                                        570 / 571
+```
+
+El runner principal usa Scrapy tanto para Farmacias del Ahorro como para Ibarra
+Mayoreo.
 
 Instalación/actualización del ambiente:
 
@@ -129,9 +141,11 @@ Sólo después de obtener estado `COMPLETE` puede actualizarse el consolidado:
     -UpdateConsolidated
 ```
 
-El pipeline Scrapy escribe las mismas columnas canónicas que `main.py` y sólo
-actualiza `output\concentrado_scraper.xlsx` cuando la cobertura del catálogo y
-los precios son completos.
+El pipeline Scrapy escribe las mismas columnas canónicas que `main.py`.
+Actualiza `output\concentrado_scraper.xlsx` cuando la muestra termina
+`COMPLETE` o, para retailers con umbral explícito como Ibarra Mayoreo,
+`SAMPLE_ACCEPTED`. Los productos explícitamente `UNAVAILABLE` pueden carecer
+de precio sin degradar por sí solos la calidad de la muestra.
 
 ## Ejecución local
 
@@ -558,14 +572,16 @@ state: Nacional
 store: Ibarra Mayoreo online
 ```
 
-Categorías activas y última muestra:
+Motor activo: **Scrapy 2.19.0**.
+
+Categorías activas y última validación live:
 
 ```text
-detergentes-lavatrastes-jab-abarrotes        153
-detergentes-lavatrastes-jab-marca-propia      3
-dentifricos-abarrotes                         87
-perfumeria-abarrotes                         331
-Total                                         574
+detergentes-lavatrastes-jab-abarrotes       152 / 152  COMPLETE
+detergentes-lavatrastes-jab-marca-propia      2 / 2    COMPLETE
+dentifricos-abarrotes                         86 / 86   COMPLETE
+perfumeria-abarrotes                         330 / 331  SAMPLE_ACCEPTED
+Total                                        570 / 571
 ```
 
 Regla crítica: para productos disponibles **sólo se guarda la presentación con precio CAJA**. Un producto marcado explícitamente como `UNAVAILABLE` se conserva aunque no exponga precio CAJA, para poder medir quiebres de stock.
@@ -583,15 +599,17 @@ target publicado y la cobertura exacta. Puede actualizar el consolidado si la
 corrida no tiene errores de PDP/parsing ni productos disponibles sin precio
 CAJA.
 
-Cobertura de precio de la última validación previa a disponibilidad: 574/574. Cobertura de SKU: 570/574.
+La muestra Scrapy actual conserva 570 filas observadas sobre un target live de
+571. Perfumería mantiene documentado un gap de 1 producto publicado no
+observable en el storefront; no se fabrica una fila para completarlo.
 
-Test dedicado del motor anterior:
+Test dedicado del motor anterior (fallback/diagnóstico):
 
 ```powershell
 & .\scripts\test_ibarra_mayoreo.ps1
 ```
 
-Prueba experimental con Scrapy, sin tocar el consolidado:
+Prueba dedicada con Scrapy, sin tocar el consolidado:
 
 ```powershell
 & .\scripts\run_scrapy.ps1 `
