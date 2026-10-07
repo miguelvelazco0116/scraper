@@ -29,6 +29,53 @@ class IbarraMayoreoSpider(scrapy.Spider):
 
     BLOCK_MARKERS = tuple(IbarraMayoreoScraper.BLOCK_MARKERS)
 
+    @staticmethod
+    def _repair_mojibake(value: str | None) -> str:
+        text = clean_text(value) or ""
+        if not text or "Ã" not in text:
+            return text
+        try:
+            repaired = text.encode("latin1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            return text
+        return clean_text(repaired) or text
+
+    @classmethod
+    def _parse_pdp_detail(
+        cls,
+        response,
+        fallback_title: str | None,
+    ) -> dict:
+        raw_body = " ".join(response.css("body ::text").getall())
+        body = cls._repair_mojibake(raw_body)
+        fallback = cls._repair_mojibake(fallback_title)
+
+        detail = IbarraMayoreoScraper._parse_box_detail(
+            body,
+            fallback,
+        )
+
+        if not detail.get("sku"):
+            match = re.search(
+                r"\bSKU\s*:?\s*([A-Za-z0-9._-]+)",
+                body,
+                flags=re.IGNORECASE,
+            )
+            if match:
+                detail["sku"] = clean_text(match.group(1))
+
+        if not detail.get("brand"):
+            match = re.search(
+                r"\bMarca\s*:?\s*(.{2,60}?)"
+                r"(?=\s+\d+\s+de\s+5|\s+Presentaci[oó]n\s*:)",
+                body,
+                flags=re.IGNORECASE,
+            )
+            if match:
+                detail["brand"] = clean_text(match.group(1))
+
+        return detail
+
     def __init__(
         self,
         category: str = "dentifricos-abarrotes",
@@ -186,16 +233,6 @@ class IbarraMayoreoSpider(scrapy.Spider):
                 else " ".join(anchor.css("::text").getall())
             ) or ""
 
-            if not re.search(
-                r"Agregar al carrito|No disponible|Agotado|Sin existencia|"
-                r"art[ií]culo(?:\(s\)|s)?\s+por\s+"
-                r"(?:caja|bolsa|barra|garrafa|botella|paquete|saco)|"
-                r"\$\s*[0-9]",
-                card_text,
-                flags=re.IGNORECASE,
-            ):
-                continue
-
             title = (
                 clean_text(anchor.attrib.get("title"))
                 or clean_text(anchor.attrib.get("aria-label"))
@@ -207,6 +244,38 @@ class IbarraMayoreoSpider(scrapy.Spider):
                 title = clean_text(image_alt)
 
             if not title or len(title) < 3 or len(title) > 220:
+                continue
+
+            product_signal = bool(
+                re.search(
+                    r"Agregar al carrito|No disponible|Agotado|Sin existencia|"
+                    r"art[ií]culo(?:\(s\)|s)?\s+por\s+"
+                    r"(?:caja|bolsa|barra|garrafa|botella|paquete|saco)|"
+                    r"\$\s*[0-9]",
+                    card_text,
+                    flags=re.IGNORECASE,
+                )
+            )
+            ancestor_classes = " ".join(
+                anchor.xpath(
+                    "ancestor::*[position() <= 8]/@class"
+                ).getall()
+            )
+            structural_product = bool(
+                re.search(
+                    r"product|producto|card|item|tile",
+                    ancestor_classes,
+                    flags=re.IGNORECASE,
+                )
+            )
+            has_product_image = bool(
+                anchor.css("img[alt]::attr(alt)").get()
+                or anchor.css("img[title]::attr(title)").get()
+            )
+
+            if not product_signal and not (
+                structural_product and has_product_image
+            ):
                 continue
 
             key = (
@@ -321,10 +390,9 @@ class IbarraMayoreoSpider(scrapy.Spider):
         if self._looks_blocked(response):
             raise CloseSpider("blocked")
 
-        body = clean_text(" ".join(response.css("body ::text").getall())) or ""
         try:
-            detail = IbarraMayoreoScraper._parse_box_detail(
-                body,
+            detail = self._parse_pdp_detail(
+                response,
                 fallback_title,
             )
         except Exception:
