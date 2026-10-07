@@ -12,7 +12,7 @@ import yaml
 from openpyxl.styles import Font
 
 from main import update_consolidated_output
-from scraper.io_utils import atomic_output_path
+from scraper.io_utils import atomic_output_path, exclusive_file_lock
 from scraper.config import load_categories, load_locations
 from scraper.retailers.soriana import SorianaScraper
 
@@ -859,9 +859,17 @@ def main() -> int:
                     )
                     time.sleep(retry_spacing)
 
-    concentrated, summary = apply_quality(results)
-    write_final_workbook(concentrated, summary)
-    summary.to_csv(LOG_DIR / "summary.csv", index=False, encoding="utf-8-sig")
+    with exclusive_file_lock(OUTPUT):
+        concentrated, summary = apply_quality(results)
+        write_final_workbook(concentrated, summary)
+
+    summary_path = LOG_DIR / "summary.csv"
+    with atomic_output_path(summary_path) as temporary_summary:
+        summary.to_csv(
+            temporary_summary,
+            index=False,
+            encoding="utf-8-sig",
+        )
 
     print("\nRESUMEN FINAL")
     columns = [
