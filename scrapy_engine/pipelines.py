@@ -150,6 +150,35 @@ class CanonicalExcelPipeline:
                 int(target) - discovered_products,
                 0,
             )
+        product_candidates = dict(
+            getattr(spider, "product_candidates", {}) or {}
+        )
+        normalized_discovered = {
+            str(url).rstrip("/") for url in product_candidates
+        }
+        normalized_parsed = {
+            str(url).rstrip("/")
+            for url in getattr(
+                spider,
+                "parsed_product_urls",
+                set(),
+            )
+        }
+        normalized_yielded = {
+            str(url).rstrip("/")
+            for url in getattr(
+                spider,
+                "yielded_product_urls",
+                set(),
+            )
+        }
+        undispatched_or_unreceived = sorted(
+            normalized_discovered - normalized_parsed
+        )
+        parsed_without_row = sorted(
+            normalized_parsed - normalized_yielded
+        )
+
         diagnostics = {
             "spider": spider.name,
             "category_id": getattr(spider, "category_id", None),
@@ -164,6 +193,14 @@ class CanonicalExcelPipeline:
             "no_box_products": no_box_products,
             "failed_product_requests": failed_product_requests,
             "parse_errors": parse_errors,
+            "undispatched_or_unreceived": [
+                product_candidates.get(url, {"url": url})
+                for url in undispatched_or_unreceived
+            ],
+            "parsed_without_row": [
+                product_candidates.get(url, {"url": url})
+                for url in parsed_without_row
+            ],
         }
         diagnostics_path.write_text(
             json.dumps(
@@ -199,6 +236,12 @@ class CanonicalExcelPipeline:
                 failed_product_requests
             ),
             "parse_errors": parse_errors,
+            "missing_pdp_count": len(
+                undispatched_or_unreceived
+            ),
+            "parsed_without_row_count": len(
+                parsed_without_row
+            ),
             "diagnostics": str(diagnostics_path),
             "consolidated_updated": consolidated_updated,
         }
