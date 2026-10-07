@@ -631,6 +631,7 @@ def main() -> int:
             headless=not args.headed,
             browser_channel=args.browser_channel or "chrome",
             max_pages=args.max_load_more,
+            profile_dir=args.profile_dir,
         )
         try:
             rows = scraper.scrape_category(category, location)
