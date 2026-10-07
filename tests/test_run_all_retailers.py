@@ -22,6 +22,7 @@ def test_run_all_retailers_discovers_current_categories():
     }
     assert {item["id"] for item in walmart} == {
         "cuidado-bucal",
+        "enjuagues-bucales",
         "cuidado-de-la-ropa",
         "depilacion-y-rasurado",
     }
