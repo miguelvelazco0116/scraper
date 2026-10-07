@@ -29,6 +29,8 @@ class FarmaciasSanPabloSpider(scrapy.Spider):
         "farmaciasanpablo.com.mx",
     ]
     discovery_source = "occ_search_sponsored"
+    require_sku = False
+    require_url = False
 
     custom_settings = {
         "CONCURRENT_REQUESTS_PER_DOMAIN": 3,
