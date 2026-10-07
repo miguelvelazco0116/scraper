@@ -5,3 +5,4 @@ PyYAML==6.0.3
 pytest==8.4.1
 selenium>=4.20,<5
 websocket-client>=1.8,<2
+Scrapy==2.19.0
