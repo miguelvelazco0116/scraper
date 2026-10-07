@@ -12,6 +12,7 @@ import yaml
 from openpyxl.styles import Font
 
 from main import update_consolidated_output
+from scraper.io_utils import atomic_output_path
 from scraper.config import load_categories, load_locations
 from scraper.retailers.soriana import SorianaScraper
 
@@ -503,20 +504,46 @@ def apply_quality(results: list[dict]) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 def write_final_workbook(concentrated: pd.DataFrame, summary: pd.DataFrame) -> None:
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    with pd.ExcelWriter(OUTPUT, engine="openpyxl") as writer:
-        concentrated.to_excel(writer, index=False, sheet_name="Concentrado")
-        summary.to_excel(writer, index=False, sheet_name="Resumen")
-        wb = writer.book
-        for sheet_name in ("Concentrado", "Resumen"):
-            ws = wb[sheet_name]
-            ws.freeze_panes = "A2"
-            ws.auto_filter.ref = ws.dimensions
-            for cell in ws[1]:
-                cell.font = Font(bold=True)
-            for cells in ws.columns:
-                sample = [str(c.value) if c.value is not None else "" for c in cells[:250]]
-                width = min(max(max((len(v) for v in sample), default=0) + 2, 10), 42)
-                ws.column_dimensions[cells[0].column_letter].width = width
+    with atomic_output_path(OUTPUT) as temporary_output:
+        with pd.ExcelWriter(temporary_output, engine="openpyxl") as writer:
+            concentrated.to_excel(
+                writer,
+                index=False,
+                sheet_name="Concentrado",
+            )
+            summary.to_excel(
+                writer,
+                index=False,
+                sheet_name="Resumen",
+            )
+            wb = writer.book
+            for sheet_name in ("Concentrado", "Resumen"):
+                ws = wb[sheet_name]
+                ws.freeze_panes = "A2"
+                ws.auto_filter.ref = ws.dimensions
+                for cell in ws[1]:
+                    cell.font = Font(bold=True)
+                for cells in ws.columns:
+                    sample = [
+                        str(cell.value)
+                        if cell.value is not None
+                        else ""
+                        for cell in cells[:250]
+                    ]
+                    width = min(
+                        max(
+                            max(
+                                (len(value) for value in sample),
+                                default=0,
+                            )
+                            + 2,
+                            10,
+                        ),
+                        42,
+                    )
+                    ws.column_dimensions[
+                        cells[0].column_letter
+                    ].width = width
 
 
 def main() -> int:
