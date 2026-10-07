@@ -222,11 +222,13 @@ def run_case(
         store = "La Comer online (succId 287)"
     elif retailer == "ibarra-mayoreo":
         cmd = [
-            sys.executable, "main.py", "--retailer", "ibarra-mayoreo",
-            "--category", category_id, "--location", "ibarra-online",
+            sys.executable,
+            "scripts/run_scrapy.py",
+            "--retailer", "ibarra-mayoreo",
+            "--category", category_id,
+            "--location", "ibarra-online",
+            "--update-consolidated",
         ]
-        if local_browser:
-            cmd.extend(["--headed", "--browser-channel", "chrome"])
         location = "ibarra-online"
         store = "Ibarra Mayoreo online"
     elif retailer == "bodega-aurrera":
