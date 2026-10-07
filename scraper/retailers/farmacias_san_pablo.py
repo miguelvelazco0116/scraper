@@ -50,18 +50,36 @@ class FarmaciasSanPabloScraper:
         "Sterimar", "Trojan", "Vantal", "Xerolacer",
     ]
 
-    def __init__(self, headless: bool = True, max_pages: int = 100) -> None:
+    def __init__(
+        self,
+        headless: bool = True,
+        max_pages: int = 100,
+        profile_dir: str | Path | None = None,
+    ) -> None:
         self.headless = headless
         self.max_pages = max_pages
+        self.profile_dir = (
+            Path(profile_dir).expanduser().resolve()
+            if profile_dir
+            else None
+        )
         self.last_meta: dict = {}
 
     @staticmethod
-    def _build_driver(headless: bool):
+    def _build_driver(
+        headless: bool,
+        profile_dir: Path | None = None,
+    ):
         options = webdriver.ChromeOptions()
         options.add_argument("--lang=es-MX")
         options.add_argument("--window-size=1440,1000")
         if headless:
             options.add_argument("--headless=new")
+        if profile_dir is not None:
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            options.add_argument(
+                f"--user-data-dir={profile_dir}"
+            )
 
         driver = webdriver.Chrome(options=options)
         driver.set_page_load_timeout(60)
@@ -1194,7 +1212,10 @@ class FarmaciasSanPabloScraper:
     ) -> list[dict]:
         DIAGNOSTICS.mkdir(parents=True, exist_ok=True)
         now = datetime.now().astimezone().isoformat(timespec="seconds")
-        driver = self._build_driver(self.headless)
+        driver = self._build_driver(
+            self.headless,
+            profile_dir=self.profile_dir,
+        )
 
         try:
             occ = self._discover_occ_products(
