@@ -34,6 +34,7 @@ class IbarraMayoreoSpider(scrapy.Spider):
         category: str = "dentifricos-abarrotes",
         location: str = "ibarra-online",
         max_pages: int | str = 30,
+        rows_per_page: int | str = 50,
         update_consolidated: bool | str = False,
         *args,
         **kwargs,
@@ -354,6 +355,6 @@ class IbarraMayoreoSpider(scrapy.Spider):
             "pickup_available": None,
             "store_context_verified": False,
             "store_context_method": "ibarra_scrapy_product_detail_box",
-            "url": urljoin(BASE_URL, response.url),
+            "url": response.url,
             "price_raw": price_raw,
         }
