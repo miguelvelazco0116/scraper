@@ -346,15 +346,16 @@ EXTRACT_JS = r"""
 
   function findAddCard(seed) {
     let node = seed.parentElement;
-    let fallback = null;
+    let structuralFallback = null;
 
-    for (let i = 0; i < 12 && node; i++, node = node.parentElement) {
+    // Start at the button and move upward. The first compact ancestor that
+    // already contains a price is normally the individual product tile.
+    // Do not require a specific number of "Agregar" descendants because
+    // San Pablo can duplicate controls inside the same visual tile.
+    for (let i = 0; i < 14 && node; i++, node = node.parentElement) {
       const text = normalize(node.innerText || node.textContent);
-      if (!text || text.length < 12 || text.length > 2600) continue;
-
-      const adds = addCount(node);
-      if (adds > 1) break;
-      if (adds !== 1) continue;
+      if (!text || text.length < 8) continue;
+      if (text.length > 1400) break;
 
       const images = node.querySelectorAll('img').length;
       const links = usefulLinks(node).length;
@@ -365,22 +366,24 @@ EXTRACT_JS = r"""
 
       if (
         hasMoney
-        && images <= 6
-        && links <= 8
+        && images <= 8
+        && links <= 10
       ) {
         return node;
       }
 
       if (
-        !fallback
-        && images <= 6
-        && links <= 8
+        !structuralFallback
+        && structural
+        && text.length <= 900
+        && images <= 8
+        && links <= 10
       ) {
-        fallback = node;
+        structuralFallback = node;
       }
     }
 
-    return fallback;
+    return structuralFallback;
   }
 
   function commonAncestor(nodes) {
@@ -468,6 +471,7 @@ EXTRACT_JS = r"""
 
   const addCards = [];
   const cardSet = new Set();
+  let rejectedAddControls = 0;
 
   for (const control of addControls) {
     if (
@@ -478,7 +482,11 @@ EXTRACT_JS = r"""
     }
 
     const card = findAddCard(control);
-    if (!card || cardSet.has(card)) continue;
+    if (!card) {
+      rejectedAddControls += 1;
+      continue;
+    }
+    if (cardSet.has(card)) continue;
     cardSet.add(card);
     addCards.push(card);
   }
@@ -613,7 +621,12 @@ EXTRACT_JS = r"""
     });
   }
 
-  return out;
+  return out.map(item => ({
+    ...item,
+    addControlsDetected: addControls.length,
+    uniqueAddCards: addCards.length,
+    rejectedAddControls
+  }));
 })()
 """
 
@@ -798,6 +811,27 @@ def collect_page_cards(
         1 for card in collected.values()
         if card.get("anchor") == "add"
     )
+    add_controls_detected = max(
+        [
+            int(card.get("addControlsDetected") or 0)
+            for card in collected.values()
+        ]
+        or [0]
+    )
+    unique_add_cards = max(
+        [
+            int(card.get("uniqueAddCards") or 0)
+            for card in collected.values()
+        ]
+        or [0]
+    )
+    rejected_add_controls = max(
+        [
+            int(card.get("rejectedAddControls") or 0)
+            for card in collected.values()
+        ]
+        or [0]
+    )
     anchor_no_add = sum(
         1 for card in collected.values()
         if card.get("anchor") == "no-add"
@@ -809,6 +843,9 @@ def collect_page_cards(
         "cards_collected": len(collected),
         "anchor_add": anchor_add,
         "anchor_no_add": anchor_no_add,
+        "add_controls_detected": add_controls_detected,
+        "unique_add_cards": unique_add_cards,
+        "rejected_add_controls": rejected_add_controls,
         "candidate_counts": candidates,
         "scroll_samples": samples,
     }
@@ -940,6 +977,8 @@ def scrape_category(
             f"cumulative={after} | target={target} | "
             f"anchor_add={hydration.get('anchor_add')} | "
             f"anchor_no_add={hydration.get('anchor_no_add')} | "
+            f"unique_add_cards={hydration.get('unique_add_cards')} | "
+            f"rejected_add={hydration.get('rejected_add_controls')} | "
             f"links={candidate_info.get('product_links')} | "
             f"containers={candidate_info.get('productish_containers')} | "
             f"add={candidate_info.get('add_controls')} | "
