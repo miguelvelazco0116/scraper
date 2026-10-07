@@ -299,6 +299,38 @@ def run_case(
             flags=re.IGNORECASE | re.MULTILINE,
         )
     reported_products = int(match.group(1)) if match else 0
+
+    scrapy_quality_match = re.search(
+        r"^Status\s*:\s*([A-Z_]+)\s*$",
+        text,
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    scrapy_quality_status = (
+        scrapy_quality_match.group(1).upper()
+        if scrapy_quality_match
+        else None
+    )
+    target_match = re.search(
+        r"^Target\s*:\s*(\d+)\s*$",
+        text,
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    target_products = (
+        int(target_match.group(1))
+        if target_match
+        else None
+    )
+    coverage_match = re.search(
+        r"^Cobertura\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*$",
+        text,
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    coverage = (
+        float(coverage_match.group(1))
+        if coverage_match
+        else None
+    )
+
     display_names = {
         "soriana": "Soriana",
         "chedraui": "Chedraui",
@@ -324,6 +356,9 @@ def run_case(
         "status": status,
         "exit_code": proc.returncode,
         "reported_products": reported_products,
+        "target_products": target_products,
+        "coverage": coverage,
+        "scrapy_quality_status": scrapy_quality_status,
         "products": 0,
         "sku_complete": 0,
         "price_current_complete": 0,
@@ -493,10 +528,22 @@ def apply_quality(results: list[dict]) -> tuple[pd.DataFrame, pd.DataFrame]:
                 notes.append(f"duplicados {result['duplicates_sku_url']}")
 
         if result["data_status"] == "STALE_RETAINED":
-            notes.insert(0, f"última muestra retenida; intento={result['status']}")
+            notes.insert(
+                0,
+                f"última muestra retenida; intento={result['status']}",
+            )
             result["quality_status"] = "STALE"
+        elif notes:
+            result["quality_status"] = "REVIEW"
+        elif result.get("scrapy_quality_status") in {
+            "COMPLETE",
+            "SAMPLE_ACCEPTED",
+        }:
+            result["quality_status"] = result[
+                "scrapy_quality_status"
+            ]
         else:
-            result["quality_status"] = "COMPLETE" if not notes else "REVIEW"
+            result["quality_status"] = "COMPLETE"
         result["quality_notes"] = "; ".join(notes)
 
     return concentrated, pd.DataFrame(results)
@@ -812,7 +859,8 @@ def main() -> int:
 
     print("\nRESUMEN FINAL")
     columns = [
-        "retailer", "category_id", "status", "data_status", "quality_status", "products",
+        "retailer", "category_id", "status", "data_status",
+        "quality_status", "products", "target_products", "coverage",
         "sku_complete", "price_current_complete", "url_complete",
         "available_products", "unavailable_products", "availability_unknown",
         "duplicates_sku_url", "store_context_verified", "quality_notes",
