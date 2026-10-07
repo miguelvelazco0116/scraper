@@ -186,8 +186,12 @@ def run_case(
         store = None
     elif retailer == "farmacias-del-ahorro":
         cmd = [
-            sys.executable, "main.py", "--retailer", "farmacias-del-ahorro", "--category", category_id,
+            sys.executable,
+            "scripts/run_scrapy.py",
+            "--retailer", "farmacias-del-ahorro",
+            "--category", category_id,
             "--location", "fahorro-online",
+            "--update-consolidated",
         ]
         location = "fahorro-online"
         store = None
@@ -279,6 +283,18 @@ def run_case(
     log_path.write_text("\n".join(parts), encoding="utf-8")
 
     match = re.search(r"Productos únicos:\s*(\d+)", text)
+    if match is None:
+        match = re.search(
+            r"SCRAPY_RESULT\s+products=(\d+)",
+            text,
+            flags=re.IGNORECASE,
+        )
+    if match is None:
+        match = re.search(
+            r"^Productos\s*:\s*(\d+)\s*$",
+            text,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
     reported_products = int(match.group(1)) if match else 0
     display_names = {
         "soriana": "Soriana",
