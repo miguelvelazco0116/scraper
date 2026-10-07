@@ -588,9 +588,10 @@ La implementación activa usa **Chrome/Selenium para abrir el storefront y descu
 
 Se implementó además un spider Scrapy/OCC candidato. La validación live del
 7 de octubre de 2026 confirmó que el endpoint directo requiere el contexto de
-sesión que hoy obtiene Chrome. Por robustez, **San Pablo permanece en
-Selenium + OCC con perfil persistente `.san_pablo_profile`**; el navegador
-hace el bootstrap de sesión y después se consume OCC estructurado.
+sesión del navegador. Por robustez, **San Pablo permanece en modo
+manual-asistido**: el usuario abre Chrome manualmente y el scraper se conecta
+a esa sesión en `127.0.0.1:9223`. Después consume OCC estructurado. El
+scraper no abre ni cierra el Chrome manual.
 
 Fuente detectada:
 
@@ -631,11 +632,20 @@ URL             232 / 232
 missing_id        0
 ```
 
-Para probar sólo San Pablo:
+Para probar sólo San Pablo, primero abre el Chrome manual dedicado:
+
+```powershell
+& .\scripts\open_san_pablo_manual_chrome.ps1
+```
+
+En ese Chrome, navega manualmente a Farmacias San Pablo y confirma que el sitio
+carga. Déjalo abierto. En otra consola ejecuta:
 
 ```powershell
 & .\scripts\run_san_pablo_full.ps1
 ```
+
+El scraper se adjunta a `127.0.0.1:9223` y no cierra el navegador al terminar.
 
 Una categoría específica:
 
