@@ -85,12 +85,18 @@ class BodegaAurreraScraper:
         max_pages: int = 30,
         wait_ms: int = 1200,
         manual_verification_timeout_ms: int = 180_000,
+        profile_dir: str | Path | None = None,
     ) -> None:
         self.headless = headless
         self.browser_channel = browser_channel
         self.max_pages = max_pages
         self.wait_ms = wait_ms
         self.manual_verification_timeout_ms = manual_verification_timeout_ms
+        self.profile_dir = (
+            Path(profile_dir).expanduser().resolve()
+            if profile_dir
+            else None
+        )
         self.run_meta: dict[str, Any] = {}
 
     @staticmethod
@@ -831,12 +837,31 @@ class BodegaAurreraScraper:
             if self.browser_channel:
                 launch_kwargs["channel"] = self.browser_channel
 
-            browser = p.chromium.launch(**launch_kwargs)
-            context = browser.new_context(
-                locale="es-MX",
-                viewport={"width": 1440, "height": 1000},
-            )
-            page = context.new_page()
+            browser = None
+            if self.profile_dir is not None:
+                self.profile_dir.mkdir(parents=True, exist_ok=True)
+                context = p.chromium.launch_persistent_context(
+                    user_data_dir=str(self.profile_dir),
+                    locale="es-MX",
+                    viewport={"width": 1440, "height": 1000},
+                    **launch_kwargs,
+                )
+                page = (
+                    context.pages[0]
+                    if context.pages
+                    else context.new_page()
+                )
+                self.run_meta["profile_dir"] = str(self.profile_dir)
+                self.run_meta["persistent_context"] = True
+            else:
+                browser = p.chromium.launch(**launch_kwargs)
+                context = browser.new_context(
+                    locale="es-MX",
+                    viewport={"width": 1440, "height": 1000},
+                )
+                page = context.new_page()
+                self.run_meta["profile_dir"] = None
+                self.run_meta["persistent_context"] = False
 
             try:
                 return self.scrape_category_on_page(
@@ -847,7 +872,8 @@ class BodegaAurreraScraper:
                 )
             finally:
                 context.close()
-                browser.close()
+                if browser is not None:
+                    browser.close()
 
 
 __all__ = [
