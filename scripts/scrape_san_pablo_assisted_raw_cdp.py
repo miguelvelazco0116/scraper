@@ -662,6 +662,30 @@ def collect_page_cards(
 
         previous_total = total
 
+    # One final hydration pass after the page has stabilized at the bottom.
+    # San Pablo can append the last product tile just after the final scroll.
+    time.sleep(1.0)
+    final_cards = extract_cards(cdp, session_id)
+    final_added = 0
+    for card in final_cards:
+        code = FarmaciasSanPabloScraper._code_from_card(card) or ""
+        href = clean_text(card.get("href")) or ""
+        title = clean_text(card.get("title")) or ""
+        text = clean_text(card.get("text")) or ""
+        key = code or href or f"{title}|{text[:180]}"
+        if key and key not in collected:
+            collected[key] = card
+            final_added += 1
+
+    samples.append(
+        {
+            "step": "final-hydration",
+            "visible_cards": len(final_cards),
+            "final_added": final_added,
+            "cumulative_cards": len(collected),
+        }
+    )
+
     candidates = candidate_counts(cdp, session_id)
     structural_candidates = max(
         [
