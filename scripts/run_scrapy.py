@@ -108,8 +108,9 @@ def main() -> int:
     print(f"Cobertura    : {coverage}")
     print(f"Finish reason: {finish_reason}")
     print(f"Descubiertos : {result.get('discovered_products')}")
+    print(f"Fuente       : {result.get('discovery_source')}")
     print(
-        f"Con PDP       : "
+        f"Con enlace    : "
         f"{result.get('discovered_link_products')}"
     )
     print(
