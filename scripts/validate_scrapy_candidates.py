@@ -89,26 +89,34 @@ def run_case(retailer: str, category: str) -> dict:
     failed_pdp = _as_int(_field(text, "PDP fallidos"))
     parse_errors = _as_int(_field(text, "Parse errors"))
 
+    accepted = (
+        proc.returncode == 0
+        and status in {"COMPLETE", "SAMPLE_ACCEPTED"}
+    )
+    if accepted:
+        decision = "SCRAPY_READY"
+    elif status == "BLOCKED" or proc.returncode == 2:
+        decision = "BROWSER_REQUIRED"
+    else:
+        decision = "INVESTIGATE"
+
     return {
         "retailer": retailer,
         "category_id": category,
         "exit_code": proc.returncode,
         "status": status,
         "finish_reason": finish_reason,
-        "engine_classification": (
-            "BROWSER_REQUIRED"
-            if status == "BLOCKED" or proc.returncode == 2
-            else "HTTP_OK"
-        ),
+        "engine_classification": decision,
         "products": products,
         "target_products": target,
         "coverage": coverage,
         "failed_product_requests": failed_pdp,
         "parse_errors": parse_errors,
-        "accepted": (
-            proc.returncode == 0
-            and status in {"COMPLETE", "SAMPLE_ACCEPTED"}
-        ),
+        "accepted": accepted,
+        "resolved_engine": decision in {
+            "SCRAPY_READY",
+            "BROWSER_REQUIRED",
+        },
         "log": str(log_path.relative_to(ROOT)),
     }
 
@@ -179,12 +187,15 @@ def main() -> int:
                     "target_products",
                     "coverage",
                     "accepted",
+                    "resolved_engine",
                 ]
             ].to_string(index=False)
         )
     print(f"\nResumen CSV: {SUMMARY_PATH}")
 
-    return 0 if bool(frame["accepted"].all()) else 1
+    if args.group == "regression":
+        return 0 if bool(frame["accepted"].all()) else 1
+    return 0 if bool(frame["resolved_engine"].all()) else 1
 
 
 if __name__ == "__main__":
