@@ -15,17 +15,23 @@ def _as_bool(value) -> bool:
 class CanonicalExcelPipeline:
     """Collect Scrapy items and write the project's canonical Excel schema."""
 
-    def __init__(self) -> None:
+    def __init__(self, crawler) -> None:
+        self.crawler = crawler
         self.rows: list[dict] = []
 
-    def process_item(self, item, spider):
+    @classmethod
+    def from_crawler(cls, crawler):
+        return cls(crawler)
+
+    def process_item(self, item):
         row = dict(item)
         for column in COLUMNS:
             row.setdefault(column, None)
         self.rows.append({column: row.get(column) for column in COLUMNS})
         return item
 
-    def close_spider(self, spider) -> None:
+    def close_spider(self) -> None:
+        spider = self.crawler.spider
         frame = pd.DataFrame(self.rows)
         for column in COLUMNS:
             if column not in frame.columns:
