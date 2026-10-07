@@ -99,6 +99,14 @@ def main() -> int:
     print(f"Cobertura    : {coverage}")
     print(f"Finish reason: {finish_reason}")
     print(f"Descubiertos : {result.get('discovered_products')}")
+    print(
+        f"Con PDP       : "
+        f"{result.get('discovered_link_products')}"
+    )
+    print(
+        f"Solo catalogo : "
+        f"{result.get('catalog_orphan_products')}"
+    )
     print(f"PDP recibidos: {result.get('parsed_product_pages')}")
     print(f"Sin CAJA     : {result.get('no_box_products')}")
     print(f"PDP fallidos : {result.get('failed_product_requests')}")
