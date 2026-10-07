@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -22,7 +23,7 @@ from scraper.retailers.farmacias_similares import (
 OUTPUT_PATH = ROOT / "output" / "farmacias_similares_test.xlsx"
 
 
-def run_category(category, location):
+def run_category(category, location, profile_dir: str | None = None):
     print("")
     print("-" * 72)
     print(f"FARMACIAS SIMILARES | {category.id}")
@@ -39,6 +40,7 @@ def run_category(category, location):
         max_pages=20,
         wait_ms=900,
         manual_verification_timeout_ms=180_000,
+        profile_dir=profile_dir,
     )
 
     rows = []
@@ -190,6 +192,15 @@ def run_category(category, location):
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Valida Farmacias Similares con Chrome persistente."
+    )
+    parser.add_argument(
+        "--profile-dir",
+        default=".similares_profile",
+    )
+    args = parser.parse_args()
+
     categories = load_categories(
         ROOT / "config" / "farmacias-similares" / "categories.yaml"
     )
@@ -230,7 +241,11 @@ def main() -> int:
             category_pages,
             category_no_price,
             category_errors,
-        ) = run_category(category, location)
+        ) = run_category(
+            category,
+            location,
+            profile_dir=args.profile_dir,
+        )
 
         frames.append(df)
         summaries.append(summary)
