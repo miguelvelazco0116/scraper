@@ -63,12 +63,35 @@ class CanonicalExcelPipeline:
             else 0
         )
 
+        minimum_coverage = float(
+            getattr(spider, "minimum_coverage", 1.0) or 1.0
+        )
+        no_box_products = list(
+            getattr(spider, "no_box_products", []) or []
+        )
+        failed_product_requests = list(
+            getattr(spider, "failed_product_requests", []) or []
+        )
+        parse_errors = int(getattr(spider, "parse_errors", 0) or 0)
+        clean_run = (
+            price_complete == products
+            and not no_box_products
+            and not failed_product_requests
+            and parse_errors == 0
+        )
+
         if products <= 0:
             quality_status = "EMPTY"
         elif target is None:
             quality_status = "TARGET_UNKNOWN"
-        elif products >= int(target) and price_complete == products:
+        elif products >= int(target) and clean_run:
             quality_status = "COMPLETE"
+        elif (
+            coverage is not None
+            and coverage >= minimum_coverage
+            and clean_run
+        ):
+            quality_status = "SAMPLE_ACCEPTED"
         else:
             quality_status = "PARTIAL"
 
@@ -96,14 +119,6 @@ class CanonicalExcelPipeline:
         yielded_product_pages = len(
             getattr(spider, "yielded_product_urls", set()) or set()
         )
-        no_box_products = list(
-            getattr(spider, "no_box_products", []) or []
-        )
-        failed_product_requests = list(
-            getattr(spider, "failed_product_requests", []) or []
-        )
-        parse_errors = int(getattr(spider, "parse_errors", 0) or 0)
-
         summary = pd.DataFrame(
             [
                 {
@@ -117,6 +132,7 @@ class CanonicalExcelPipeline:
                     "target_products": target,
                     "coverage": coverage,
                     "quality_status": quality_status,
+                    "minimum_coverage": minimum_coverage,
                     "sku_complete": sku_complete,
                     "price_complete": price_complete,
                     "url_complete": url_complete,
@@ -199,6 +215,7 @@ class CanonicalExcelPipeline:
             "products": products,
             "coverage": coverage,
             "quality_status": quality_status,
+            "minimum_coverage": minimum_coverage,
             "discovered_products": discovered_products,
             "discovered_link_products": discovered_link_products,
             "catalog_orphan_products": catalog_orphan_rows,
@@ -231,7 +248,10 @@ class CanonicalExcelPipeline:
             getattr(spider, "update_consolidated", False)
         )
         consolidated_updated = False
-        if update_requested and quality_status == "COMPLETE":
+        if update_requested and quality_status in {
+            "COMPLETE",
+            "SAMPLE_ACCEPTED",
+        }:
             update_consolidated_output(frame, CONSOLIDATED_PATH)
             consolidated_updated = True
 
@@ -241,6 +261,7 @@ class CanonicalExcelPipeline:
             "target_products": target,
             "coverage": coverage,
             "quality_status": quality_status,
+            "minimum_coverage": minimum_coverage,
             "sku_complete": sku_complete,
             "price_complete": price_complete,
             "url_complete": url_complete,
