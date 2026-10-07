@@ -50,6 +50,67 @@ Farmacias Guadalajara
 
 La Comer está implementado pero sigue fuera del runner principal hasta completar validación live.
 
+## Integración Scrapy
+
+El proyecto incorpora ahora Scrapy como capa de crawling para retailers que pueden
+consultarse de forma estable por HTTP/API. Scrapy no sustituye los flujos asistidos
+de Chrome/CDP, Playwright o Selenium cuando el retailer requiere sesión visible o
+protecciones que no deben evadirse.
+
+Arquitectura híbrida:
+
+```text
+Scrapy              -> HTTP/API, paginación, retries, throttling, pipelines
+Playwright/Selenium -> browser cuando el retailer realmente lo requiere
+Raw CDP             -> sesiones manual-asistidas ya validadas
+scraper/*           -> parsers, normalización, disponibilidad y esquema canónico
+```
+
+Versión integrada:
+
+```text
+Scrapy 2.19.0
+Python 3.10+
+```
+
+El primer spider migrado es **Farmacias del Ahorro**. Reutiliza el parser y las
+reglas existentes de Empathy Search, precio, promoción y disponibilidad.
+
+Instalación/actualización del ambiente:
+
+```powershell
+cd C:\Proyectos\scraper
+C:\Proyectos\venvs\scraper\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+```
+
+Prueba Scrapy sin modificar el consolidado:
+
+```powershell
+& .\scripts\run_scrapy.ps1 `
+    -Retailer farmacias-del-ahorro `
+    -Category congestion-nasal
+```
+
+Salida dedicada:
+
+```text
+output\scrapy\farmacias_del_ahorro_congestion-nasal.xlsx
+```
+
+Sólo después de obtener estado `COMPLETE` puede actualizarse el consolidado:
+
+```powershell
+& .\scripts\run_scrapy.ps1 `
+    -Retailer farmacias-del-ahorro `
+    -Category congestion-nasal `
+    -UpdateConsolidated
+```
+
+El pipeline Scrapy escribe las mismas columnas canónicas que `main.py` y sólo
+actualiza `output\concentrado_scraper.xlsx` cuando la cobertura del catálogo y
+los precios son completos.
+
 ## Ejecución local
 
 Desde PowerShell:
