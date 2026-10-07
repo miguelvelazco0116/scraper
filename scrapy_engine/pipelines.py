@@ -87,6 +87,48 @@ class CanonicalExcelPipeline:
             if not frame.empty
             else 0
         )
+        numeric_current = pd.to_numeric(
+            frame["price_current"],
+            errors="coerce",
+        )
+        numeric_regular = pd.to_numeric(
+            frame["price_regular"],
+            errors="coerce",
+        )
+        price_required_valid = (
+            int(
+                (
+                    price_required_mask
+                    & numeric_current.notna()
+                    & numeric_current.gt(0)
+                ).sum()
+            )
+            if not frame.empty
+            else 0
+        )
+        price_order_errors = (
+            int(
+                (
+                    numeric_current.notna()
+                    & numeric_regular.notna()
+                    & numeric_regular.lt(numeric_current)
+                ).sum()
+            )
+            if not frame.empty
+            else 0
+        )
+        product_complete = (
+            int(
+                frame["product"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .ne("")
+                .sum()
+            )
+            if not frame.empty
+            else 0
+        )
 
         identifier_required_mask = ~availability.eq("UNAVAILABLE")
         identifier_required_products = int(
@@ -149,6 +191,9 @@ class CanonicalExcelPipeline:
         parse_errors = int(getattr(spider, "parse_errors", 0) or 0)
         clean_run = (
             price_required_complete == price_required_products
+            and price_required_valid == price_required_products
+            and price_order_errors == 0
+            and product_complete == products
             and identifier_clean
             and not missing_price_products
             and not failed_product_requests
@@ -227,6 +272,9 @@ class CanonicalExcelPipeline:
                     "price_complete": price_complete,
                     "price_required_products": price_required_products,
                     "price_required_complete": price_required_complete,
+                    "price_required_valid": price_required_valid,
+                    "price_order_errors": price_order_errors,
+                    "product_complete": product_complete,
                     "identifier_required_products": (
                         identifier_required_products
                     ),
@@ -382,6 +430,9 @@ class CanonicalExcelPipeline:
             "price_complete": price_complete,
             "price_required_products": price_required_products,
             "price_required_complete": price_required_complete,
+            "price_required_valid": price_required_valid,
+            "price_order_errors": price_order_errors,
+            "product_complete": product_complete,
             "identifier_required_products": (
                 identifier_required_products
             ),
