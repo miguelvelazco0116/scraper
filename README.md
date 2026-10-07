@@ -147,6 +147,25 @@ Actualiza `output\concentrado_scraper.xlsx` cuando la muestra termina
 `SAMPLE_ACCEPTED`. Los productos explícitamente `UNAVAILABLE` pueden carecer
 de precio sin degradar por sí solos la calidad de la muestra.
 
+### Guardas de robustez
+
+La capa común aplica las siguientes protecciones:
+
+```text
+escritura de Excel/JSON -> temporal + reemplazo atómico
+HTTP 401/403/429        -> clasificación explícita de bloqueo
+target + coverage       -> se conservan también en el resumen maestro
+AVAILABLE/UNKNOWN       -> precio obligatorio
+UNAVAILABLE             -> puede conservarse sin precio
+SKU/URL                 -> obligatorios para productos no agotados,
+                           salvo excepciones declaradas por retailer
+diagnostics/scrapy      -> target, páginas, gaps, errores y faltantes
+```
+
+Una interrupción durante la escritura no reemplaza el último archivo válido.
+El runner principal tampoco convierte un `SAMPLE_ACCEPTED` en `COMPLETE`;
+conserva el target y la cobertura exacta.
+
 ## Ejecución local
 
 Desde PowerShell:
@@ -502,7 +521,12 @@ enjuagues-bucales
 pastas-dentales
 ```
 
-La implementación actual usa **Chrome/Selenium para abrir el storefront y descubrir la llamada OCC** que utiliza Farmacias San Pablo. Después consulta desde Python el endpoint público de búsqueda de SAP Commerce para evitar restricciones CORS del navegador.
+La implementación activa usa **Chrome/Selenium para abrir el storefront y descubrir la llamada OCC** que utiliza Farmacias San Pablo. Después consulta desde Python el endpoint público de búsqueda de SAP Commerce para evitar restricciones CORS del navegador.
+
+Existe además un spider Scrapy en validación que construye directamente la consulta
+OCC desde el código de categoría y elimina Selenium de la ruta normal si la API
+responde de forma estable. El motor activo no cambia hasta reproducir las cuatro
+categorías live.
 
 Fuente detectada:
 
@@ -560,6 +584,18 @@ Output dedicado:
 ```text
 output\farmacias_san_pablo_test.xlsx
 ```
+
+Prueba del candidato Scrapy/OCC sin modificar el consolidado:
+
+```powershell
+& .\scripts\run_scrapy.ps1 `
+    -Retailer farmacias-san-pablo `
+    -Category enjuagues-bucales
+```
+
+El candidato usa `search-sponsored`, paginación OCC y reutiliza el parser
+canónico de precio, promoción, stock y SKU. SKU/URL continúan siendo métricas
+informativas para el criterio de San Pablo.
 
 ## Ibarra Mayoreo
 
@@ -665,17 +701,42 @@ condones                9
 Total                  30
 ```
 
-El scraper visita las fichas de producto, obtiene SKU desde `Referencia:`, precio actual, precio regular y promociones.
+El motor activo visita las fichas de producto, obtiene SKU desde
+`Referencia:`, precio actual, precio regular y promociones.
 
-Última validación: 30/30 productos con SKU, precio y URL.
+Existe un spider Scrapy en validación que combina dos fuentes públicas del mismo
+storefront: **precio/promoción/disponibilidad desde la tarjeta de categoría** y
+**SKU/nombre desde el PDP**. Esto evita depender de la hidratación JavaScript del
+precio promocional. Los productos explícitamente agotados sin PDP se conservan
+sin inventar SKU ni URL.
 
+En la validación del 2 de octubre de 2026, la categoría
+`aparato-respiratorio` declaró 21 productos pero sólo expuso 13 productos
+observables (8 en la primera página y 5 en la segunda). El scraper no inventa
+las filas faltantes ni las clasifica automáticamente como agotadas; registra el
+**gap de catálogo** mediante target, observados y faltantes. El motor activo no
+se sustituirá hasta que el candidato Scrapy sea validado live.
 
-En la validación del 2 de octubre de 2026, la categoría `aparato-respiratorio` volvió a declarar 21 productos pero sólo expuso 13 productos observables (8 en la primera página y 5 en la segunda). El scraper no inventa 8 filas faltantes ni las clasifica automáticamente como agotadas; registra el **gap de catálogo** mediante `observed_products` y `unobserved_products`. Un probe separado inspecciona red/VTEX/DOM para intentar recuperar esos productos y su stock.
-
-Test dedicado:
+Test dedicado del motor actual:
 
 ```powershell
 & .\scripts\test_farmacias_similares.ps1
+```
+
+Prueba del candidato Scrapy sin modificar el consolidado:
+
+```powershell
+& .\scripts\run_scrapy.ps1 `
+    -Retailer farmacias-similares `
+    -Category condones
+```
+
+Después se prueba:
+
+```powershell
+& .\scripts\run_scrapy.ps1 `
+    -Retailer farmacias-similares `
+    -Category aparato-respiratorio
 ```
 
 ## La Comer
