@@ -1,6 +1,7 @@
 param(
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
-    [string]$PythonExe = ""
+    [string]$PythonExe = "",
+    [string]$ProfileDir = ".similares_profile"
 )
 
 $ErrorActionPreference = "Stop"
