@@ -17,14 +17,17 @@ from scrapy.utils.project import get_project_settings
 from scrapy_engine.spiders.farmacias_del_ahorro import (
     FarmaciasDelAhorroSpider,
 )
+from scrapy_engine.spiders.ibarra_mayoreo import IbarraMayoreoSpider
 
 
 SPIDER_BY_RETAILER = {
     "farmacias-del-ahorro": FarmaciasDelAhorroSpider,
+    "ibarra-mayoreo": IbarraMayoreoSpider,
 }
 
 DEFAULT_LOCATION = {
     "farmacias-del-ahorro": "fahorro-online",
+    "ibarra-mayoreo": "ibarra-online",
 }
 
 
