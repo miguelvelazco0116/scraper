@@ -55,6 +55,7 @@ class FarmaciasSanPabloScraper:
         headless: bool = True,
         max_pages: int = 100,
         profile_dir: str | Path | None = None,
+        debugger_address: str | None = None,
     ) -> None:
         self.headless = headless
         self.max_pages = max_pages
@@ -63,23 +64,34 @@ class FarmaciasSanPabloScraper:
             if profile_dir
             else None
         )
+        self.debugger_address = (
+            str(debugger_address).strip()
+            if debugger_address
+            else None
+        )
+        self.attached_browser = False
         self.last_meta: dict = {}
 
     @staticmethod
     def _build_driver(
         headless: bool,
         profile_dir: Path | None = None,
+        debugger_address: str | None = None,
     ):
         options = webdriver.ChromeOptions()
         options.add_argument("--lang=es-MX")
         options.add_argument("--window-size=1440,1000")
-        if headless:
-            options.add_argument("--headless=new")
-        if profile_dir is not None:
-            profile_dir.mkdir(parents=True, exist_ok=True)
-            options.add_argument(
-                f"--user-data-dir={profile_dir}"
-            )
+
+        if debugger_address:
+            options.debugger_address = debugger_address
+        else:
+            if headless:
+                options.add_argument("--headless=new")
+            if profile_dir is not None:
+                profile_dir.mkdir(parents=True, exist_ok=True)
+                options.add_argument(
+                    f"--user-data-dir={profile_dir}"
+                )
 
         driver = webdriver.Chrome(options=options)
         driver.set_page_load_timeout(60)
@@ -1215,7 +1227,9 @@ class FarmaciasSanPabloScraper:
         driver = self._build_driver(
             self.headless,
             profile_dir=self.profile_dir,
+            debugger_address=self.debugger_address,
         )
+        self.attached_browser = bool(self.debugger_address)
 
         try:
             occ = self._discover_occ_products(
@@ -1366,7 +1380,13 @@ class FarmaciasSanPabloScraper:
             self._write_diagnostics(driver, category, meta)
             return rows
         finally:
-            driver.quit()
+            if self.attached_browser:
+                try:
+                    driver.service.stop()
+                except Exception:
+                    pass
+            else:
+                driver.quit()
 
 
 __all__ = [
