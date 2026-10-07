@@ -13,6 +13,7 @@ import pandas as pd
 
 from main import COLUMNS, CONSOLIDATED_PATH, update_consolidated_output
 from scraper.config import load_categories, load_locations
+from scraper.io_utils import atomic_output_path
 from scraper.retailers.farmacias_san_pablo import (
     FarmaciasSanPabloBlocked,
     FarmaciasSanPabloNetworkUnavailable,
@@ -33,30 +34,40 @@ def _write_test_output(
     df = pd.DataFrame(rows, columns=COLUMNS)
     summary = pd.DataFrame(summaries)
 
-    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Concentrado")
-        summary.to_excel(writer, index=False, sheet_name="Resumen")
+    with atomic_output_path(output_path) as temporary_output:
+        with pd.ExcelWriter(temporary_output, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="Concentrado")
+            summary.to_excel(writer, index=False, sheet_name="Resumen")
 
-        workbook = writer.book
-        for sheet_name in ("Concentrado", "Resumen"):
-            ws = workbook[sheet_name]
-            ws.freeze_panes = "A2"
-            ws.auto_filter.ref = ws.dimensions
-            for cell in ws[1]:
-                font = copy(cell.font)
-                font.bold = True
-                cell.font = font
+            workbook = writer.book
+            for sheet_name in ("Concentrado", "Resumen"):
+                ws = workbook[sheet_name]
+                ws.freeze_panes = "A2"
+                ws.auto_filter.ref = ws.dimensions
+                for cell in ws[1]:
+                    font = copy(cell.font)
+                    font.bold = True
+                    cell.font = font
 
-            for col_cells in ws.columns:
-                values = [
-                    str(cell.value) if cell.value is not None else ""
-                    for cell in col_cells[:200]
-                ]
-                width = min(
-                    max(max((len(value) for value in values), default=0) + 2, 10),
-                    42,
-                )
-                ws.column_dimensions[col_cells[0].column_letter].width = width
+                for col_cells in ws.columns:
+                    values = [
+                        str(cell.value) if cell.value is not None else ""
+                        for cell in col_cells[:200]
+                    ]
+                    width = min(
+                        max(
+                            max(
+                                (len(value) for value in values),
+                                default=0,
+                            )
+                            + 2,
+                            10,
+                        ),
+                        42,
+                    )
+                    ws.column_dimensions[
+                        col_cells[0].column_letter
+                    ].width = width
 
 
 def _safe_for_global(df: pd.DataFrame) -> pd.DataFrame:
