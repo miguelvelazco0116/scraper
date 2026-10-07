@@ -42,3 +42,8 @@ ITEM_PIPELINES = {
 
 FEED_EXPORT_ENCODING = "utf-8"
 LOG_LEVEL = "INFO"
+
+
+# Entrega respuestas de bloqueo al spider para clasificarlas explícitamente
+# en lugar de convertirlas silenciosamente en respuestas ignoradas.
+HTTPERROR_ALLOWED_CODES = [401, 403, 429]
