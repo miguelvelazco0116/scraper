@@ -378,6 +378,18 @@ class CanonicalExcelPipeline:
             "coverage": coverage,
             "quality_status": quality_status,
             "minimum_coverage": minimum_coverage,
+            "product_complete": product_complete,
+            "price_required_products": price_required_products,
+            "price_required_complete": price_required_complete,
+            "price_required_valid": price_required_valid,
+            "price_order_errors": price_order_errors,
+            "identifier_required_products": (
+                identifier_required_products
+            ),
+            "sku_required_complete": sku_required_complete,
+            "url_required_complete": url_required_complete,
+            "require_sku": require_sku,
+            "require_url": require_url,
             "discovered_products": discovered_products,
             "discovery_source": discovery_source,
             "discovered_link_products": discovered_link_products,
