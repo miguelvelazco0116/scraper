@@ -103,6 +103,11 @@ def main() -> int:
     print(f"Sin CAJA     : {result.get('no_box_products')}")
     print(f"PDP fallidos : {result.get('failed_product_requests')}")
     print(f"Parse errors : {result.get('parse_errors')}")
+    print(f"PDP faltantes: {result.get('missing_pdp_count')}")
+    print(
+        f"Sin fila final: "
+        f"{result.get('parsed_without_row_count')}"
+    )
     print(f"Diagnostico  : {result.get('diagnostics')}")
     print(f"Output       : {result.get('output')}")
     print(
