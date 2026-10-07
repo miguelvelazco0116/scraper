@@ -107,7 +107,12 @@ def main() -> int:
     print("-" * 78)
     print("RESULTADO SCRAPY")
     print("-" * 78)
-    print(f"Status       : {quality or finish_reason or 'UNKNOWN'}")
+    display_status = (
+        "BLOCKED"
+        if finish_reason == "blocked"
+        else (quality or finish_reason or "UNKNOWN")
+    )
+    print(f"Status       : {display_status}")
     print(f"Productos    : {products}")
     print(f"Target       : {target}")
     print(f"Cobertura    : {coverage}")
