@@ -160,6 +160,7 @@ def run_case(
     chedraui_profile_dir: Path | None = None,
     similares_profile_dir: Path | None = None,
     san_pablo_profile_dir: Path | None = None,
+    san_pablo_debugger_address: str | None = None,
     bodega_profile_dir: Path | None = None,
     local_browser: bool = False,
 ) -> dict:
@@ -214,9 +215,15 @@ def run_case(
             category_id,
             "--location",
             "san-pablo-online",
-            "--headed",
         ]
-        if san_pablo_profile_dir is not None:
+        if san_pablo_debugger_address:
+            cmd.extend(
+                [
+                    "--debugger-address",
+                    san_pablo_debugger_address,
+                ]
+            )
+        elif san_pablo_profile_dir is not None:
             cmd.extend(
                 ["--profile-dir", str(san_pablo_profile_dir)]
             )
@@ -659,7 +666,12 @@ def main() -> int:
     parser.add_argument(
         "--san-pablo-profile-dir",
         default=".san_pablo_profile",
-        help="Perfil persistente local de Farmacias San Pablo.",
+        help="Fallback de perfil si no se usa Chrome manual.",
+    )
+    parser.add_argument(
+        "--san-pablo-debugger-address",
+        default="127.0.0.1:9223",
+        help="Chrome de San Pablo abierto manualmente.",
     )
     parser.add_argument(
         "--bodega-profile-dir",
@@ -846,6 +858,9 @@ def main() -> int:
             chedraui_profile_dir=chedraui_profile,
             similares_profile_dir=similares_profile,
             san_pablo_profile_dir=san_pablo_profile,
+            san_pablo_debugger_address=(
+                args.san_pablo_debugger_address
+            ),
             bodega_profile_dir=bodega_profile,
             local_browser=args.local_browser,
         )
@@ -908,6 +923,9 @@ def main() -> int:
                 chedraui_profile_dir=chedraui_profile,
                 similares_profile_dir=similares_profile,
                 san_pablo_profile_dir=san_pablo_profile,
+                san_pablo_debugger_address=(
+                    args.san_pablo_debugger_address
+                ),
                 bodega_profile_dir=bodega_profile,
                 local_browser=args.local_browser,
             )
