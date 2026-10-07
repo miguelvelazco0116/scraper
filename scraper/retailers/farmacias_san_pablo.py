@@ -1224,11 +1224,23 @@ class FarmaciasSanPabloScraper:
     ) -> list[dict]:
         DIAGNOSTICS.mkdir(parents=True, exist_ok=True)
         now = datetime.now().astimezone().isoformat(timespec="seconds")
-        driver = self._build_driver(
-            self.headless,
-            profile_dir=self.profile_dir,
-            debugger_address=self.debugger_address,
-        )
+        try:
+            driver = self._build_driver(
+                self.headless,
+                profile_dir=self.profile_dir,
+                debugger_address=self.debugger_address,
+            )
+        except WebDriverException as exc:
+            if self.debugger_address:
+                raise FarmaciasSanPabloNetworkUnavailable(
+                    "No se pudo conectar al Chrome manual en "
+                    f"{self.debugger_address}. Abre primero el navegador "
+                    "dedicado y déjalo abierto."
+                ) from exc
+            raise FarmaciasSanPabloNetworkUnavailable(
+                f"No se pudo iniciar Chrome: {exc}"
+            ) from exc
+
         self.attached_browser = bool(self.debugger_address)
 
         try:
