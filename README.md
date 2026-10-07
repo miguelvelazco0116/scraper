@@ -60,11 +60,18 @@ protecciones que no deben evadirse.
 Arquitectura híbrida:
 
 ```text
-Scrapy              -> HTTP/API, paginación, retries, throttling, pipelines
-Playwright/Selenium -> browser cuando el retailer realmente lo requiere
+Scrapy              -> HTTP/API cuando el acceso directo es estable
+Playwright/Selenium -> browser persistente cuando el retailer exige sesión
 Raw CDP             -> sesiones manual-asistidas ya validadas
+quality gate        -> impide reemplazar una muestra buena con una parcial
+atomic + lock       -> protege Excel/JSON y serializa el master
 scraper/*           -> parsers, normalización, disponibilidad y esquema canónico
 ```
+
+La política es **capability-first**: un retailer no se migra a Scrapy por
+uniformidad. Si el acceso HTTP directo devuelve bloqueos pero el storefront
+normal funciona con una sesión legítima de navegador, se mantiene el motor de
+browser y se persiste el perfil local.
 
 Versión integrada:
 
@@ -166,6 +173,11 @@ diagnostics/scrapy      -> target, páginas, gaps, errores y faltantes
 Una interrupción durante la escritura no reemplaza el último archivo válido.
 El runner principal tampoco convierte un `SAMPLE_ACCEPTED` en `COMPLETE`;
 conserva el target y la cobertura exacta.
+
+Los motores legacy pasan por un **quality gate** antes de actualizar el master.
+Una corrida con `PARTIAL`, cobertura menor al target, precio requerido faltante,
+nombre vacío, `price_regular < price_current` o contexto de tienda inválido
+termina con código controlado y conserva la última muestra válida.
 
 Validación secuencial de regresiones y candidatos Scrapy, sin modificar el
 consolidado:
@@ -542,10 +554,11 @@ pastas-dentales
 
 La implementación activa usa **Chrome/Selenium para abrir el storefront y descubrir la llamada OCC** que utiliza Farmacias San Pablo. Después consulta desde Python el endpoint público de búsqueda de SAP Commerce para evitar restricciones CORS del navegador.
 
-Existe además un spider Scrapy en validación que construye directamente la consulta
-OCC desde el código de categoría y elimina Selenium de la ruta normal si la API
-responde de forma estable. El motor activo no cambia hasta reproducir las cuatro
-categorías live.
+Se implementó además un spider Scrapy/OCC candidato. La validación live del
+7 de octubre de 2026 confirmó que el endpoint directo requiere el contexto de
+sesión que hoy obtiene Chrome. Por robustez, **San Pablo permanece en
+Selenium + OCC con perfil persistente `.san_pablo_profile`**; el navegador
+hace el bootstrap de sesión y después se consume OCC estructurado.
 
 Fuente detectada:
 
@@ -693,7 +706,10 @@ Total                  555
 
 Cobertura completa de SKU, precio y URL.
 
-Bodega Aurrera puede solicitar verificación manual durante la navegación. Si aparece, debe completarse manualmente en Chrome y dejar la ventana abierta. El scraper no intenta resolver ni evadir la verificación.
+Bodega Aurrera puede solicitar verificación manual durante la navegación. Si aparece,
+debe completarse manualmente en Chrome. El motor activo usa el perfil persistente
+`.bodega_aurrera_profile`, por lo que cookies/estado pueden reutilizarse en
+corridas posteriores. El scraper no intenta resolver ni evadir la verificación.
 
 Test dedicado:
 
@@ -723,11 +739,14 @@ Total                  30
 El motor activo visita las fichas de producto, obtiene SKU desde
 `Referencia:`, precio actual, precio regular y promociones.
 
-Existe un spider Scrapy en validación que combina dos fuentes públicas del mismo
-storefront: **precio/promoción/disponibilidad desde la tarjeta de categoría** y
-**SKU/nombre desde el PDP**. Esto evita depender de la hidratación JavaScript del
-precio promocional. Los productos explícitamente agotados sin PDP se conservan
-sin inventar SKU ni URL.
+Se implementó un spider Scrapy candidato que combina tarjeta de categoría y PDP.
+La validación live del 7 de octubre de 2026 mostró que el storefront público sí
+expone el catálogo, pero la sesión HTTP directa de Scrapy desde el servidor es
+bloqueada antes de descubrir productos. Por robustez, **Farmacias Similares se
+mantiene en Playwright con perfil persistente `.similares_profile`**.
+
+El perfil conserva cookies y una verificación manual legítimamente resuelta entre
+corridas. El scraper no automatiza ni evade CAPTCHAs.
 
 En la validación del 2 de octubre de 2026, la categoría
 `aparato-respiratorio` declaró 21 productos pero sólo expuso 13 productos
@@ -760,7 +779,9 @@ Después se prueba:
 
 ## La Comer
 
-Implementado pero no activado en el runner principal.
+Implementado pero no activado en el runner principal. La implementación ya soporta
+perfil persistente `.la_comer_profile` para que la validación live futura
+reutilice el contexto de sesión.
 
 Categorías configuradas:
 
