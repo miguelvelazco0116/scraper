@@ -20,6 +20,7 @@ def test_ibarra_scrapy_resolves_project_config():
     )
     assert spider.category.id == "dentifricos-abarrotes"
     assert spider.location.id == "ibarra-online"
+    assert spider.minimum_coverage == 0.99
     assert spider.output_path.endswith(
         "ibarra_mayoreo_dentifricos-abarrotes.xlsx"
     )
