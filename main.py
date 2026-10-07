@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from scraper.config import load_categories, load_locations
-from scraper.io_utils import atomic_output_path
+from scraper.io_utils import atomic_output_path, exclusive_file_lock
 from scraper.retailers.chedraui_polanco_api import ChedrauiBlocked, ChedrauiScraper, ChedrauiStoreContextError
 from scraper.retailers.farmacias_del_ahorro import (
     FarmaciasDelAhorroBlocked,
@@ -92,8 +92,11 @@ def deduplicate_catalog(df: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([with_id, without_id], ignore_index=True)
 
 
-def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATED_PATH) -> Path:
-    """Actualiza un único Excel consolidado con la extracción actual."""
+def _update_consolidated_output_unlocked(
+    df: pd.DataFrame,
+    output_path: Path = CONSOLIDATED_PATH,
+) -> Path:
+    """Actualiza el consolidado; el caller debe poseer el lock."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     incoming = df.copy()
@@ -116,16 +119,40 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
     existing = existing[COLUMNS]
 
     if not incoming.empty:
-        retailer = str(incoming.iloc[0]["retailer"])
-        category_id = str(incoming.iloc[0]["category_id"])
-        city = incoming.iloc[0]["city"]
-        store_id = incoming.iloc[0]["store_id"]
+        key_columns = [
+            "retailer",
+            "category_id",
+            "city",
+            "store_id",
+        ]
 
-        same_retailer = existing["retailer"].astype(str).eq(retailer)
-        same_category = existing["category_id"].astype(str).eq(category_id)
-        same_city = existing["city"].fillna("").astype(str).eq("" if pd.isna(city) else str(city))
-        same_store = existing["store_id"].fillna("").astype(str).eq("" if pd.isna(store_id) else str(store_id))
-        existing = existing.loc[~(same_retailer & same_category & same_city & same_store)].copy()
+        def normalize_key_value(value) -> str:
+            if pd.isna(value):
+                return ""
+            if isinstance(value, float) and value.is_integer():
+                return str(int(value))
+            return str(value).strip()
+
+        incoming_keys = {
+            tuple(normalize_key_value(value) for value in row)
+            for row in incoming[key_columns].itertuples(
+                index=False,
+                name=None,
+            )
+        }
+        existing_keys = [
+            tuple(normalize_key_value(value) for value in row)
+            for row in existing[key_columns].itertuples(
+                index=False,
+                name=None,
+            )
+        ]
+        replace_mask = pd.Series(
+            [key in incoming_keys for key in existing_keys],
+            index=existing.index,
+            dtype=bool,
+        )
+        existing = existing.loc[~replace_mask].copy()
 
     if existing.empty:
         combined = incoming.copy()
@@ -231,6 +258,20 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
                     cell.number_format = '$#,##0.00'
 
     return output_path
+
+
+def update_consolidated_output(
+    df: pd.DataFrame,
+    output_path: Path = CONSOLIDATED_PATH,
+) -> Path:
+    """Actualiza el Excel maestro de forma serializada y atómica.
+
+    El lock cubre todo el ciclo read-modify-write para evitar pérdida de
+    actualizaciones cuando dos procesos intentan consolidar al mismo tiempo.
+    """
+    output_path = Path(output_path)
+    with exclusive_file_lock(output_path):
+        return _update_consolidated_output_unlocked(df, output_path)
 
 
 def main() -> int:
