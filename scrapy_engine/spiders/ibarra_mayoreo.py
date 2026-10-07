@@ -28,6 +28,7 @@ class IbarraMayoreoSpider(scrapy.Spider):
     name = "ibarra_mayoreo"
     retailer_label = "Ibarra Mayoreo"
     allowed_domains = ["ibarramayoreo.com"]
+    minimum_coverage = 0.99
 
     custom_settings = {
         "CONCURRENT_REQUESTS_PER_DOMAIN": 4,
