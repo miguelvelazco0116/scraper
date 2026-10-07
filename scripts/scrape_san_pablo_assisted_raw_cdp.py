@@ -373,10 +373,8 @@ EXTRACT_JS = r"""
 
       if (
         !fallback
-        && images >= 1
         && images <= 6
         && links <= 8
-        && structural
       ) {
         fallback = node;
       }
@@ -494,7 +492,7 @@ EXTRACT_JS = r"""
     ...Array.from(
       catalogRoot.querySelectorAll('img[alt][src], img[title][src]')
     ),
-    ...Array.from(catalogRoot.querySelectorAll('body *')).filter(el => {
+    ...Array.from(catalogRoot.querySelectorAll('*')).filter(el => {
       const text = normalize(el.innerText || el.textContent);
       if (!text || text.length > 180 || !moneyRe.test(text)) return false;
       return !Array.from(el.children || []).some(child =>
