@@ -90,8 +90,13 @@ class CanonicalExcelPipeline:
         minimum_coverage = float(
             getattr(spider, "minimum_coverage", 1.0) or 1.0
         )
-        no_box_products = list(
-            getattr(spider, "no_box_products", []) or []
+        missing_price_products = list(
+            getattr(
+                spider,
+                "missing_price_products",
+                getattr(spider, "no_box_products", []),
+            )
+            or []
         )
         failed_product_requests = list(
             getattr(spider, "failed_product_requests", []) or []
@@ -99,7 +104,7 @@ class CanonicalExcelPipeline:
         parse_errors = int(getattr(spider, "parse_errors", 0) or 0)
         clean_run = (
             price_required_complete == price_required_products
-            and not no_box_products
+            and not missing_price_products
             and not failed_product_requests
             and parse_errors == 0
         )
@@ -170,7 +175,9 @@ class CanonicalExcelPipeline:
                     "catalog_orphan_products": len(catalog_orphan_rows),
                     "parsed_product_pages": parsed_product_pages or None,
                     "yielded_product_pages": yielded_product_pages or None,
-                    "no_box_products": len(no_box_products),
+                    "missing_price_products": len(
+                        missing_price_products
+                    ),
                     "failed_product_requests": len(
                         failed_product_requests
                     ),
@@ -248,7 +255,7 @@ class CanonicalExcelPipeline:
             "missing_from_discovery": missing_discovery,
             "parsed_product_pages": parsed_product_pages,
             "yielded_product_pages": yielded_product_pages,
-            "no_box_products": no_box_products,
+            "missing_price_products": missing_price_products,
             "failed_product_requests": failed_product_requests,
             "parse_errors": parse_errors,
             "catalog_pages": catalog_pages,
@@ -298,7 +305,9 @@ class CanonicalExcelPipeline:
             "catalog_orphan_products": len(catalog_orphan_rows),
             "parsed_product_pages": parsed_product_pages,
             "yielded_product_pages": yielded_product_pages,
-            "no_box_products": len(no_box_products),
+            "missing_price_products": len(
+                missing_price_products
+            ),
             "failed_product_requests": len(
                 failed_product_requests
             ),
@@ -317,7 +326,7 @@ class CanonicalExcelPipeline:
         spider.logger.info(
             "SCRAPY_RESULT products=%s target=%s coverage=%s "
             "quality=%s price_required=%s/%s discovered=%s parsed=%s "
-            "no_box=%s failed=%s output=%s consolidated=%s",
+            "missing_price=%s failed=%s output=%s consolidated=%s",
             products,
             target,
             coverage,
@@ -326,7 +335,7 @@ class CanonicalExcelPipeline:
             price_required_products,
             discovered_products,
             parsed_product_pages,
-            len(no_box_products),
+            len(missing_price_products),
             len(failed_product_requests),
             output_path,
             consolidated_updated,
