@@ -155,3 +155,15 @@ def test_san_pablo_occ_unavailable_without_price_is_retained():
     assert row["price_current"] is None
     assert row["availability_status"] == "UNAVAILABLE"
     assert row["is_available"] is False
+
+
+
+def test_san_pablo_manual_attach_configuration():
+    scraper = FarmaciasSanPabloScraper(
+        headless=False,
+        debugger_address="127.0.0.1:9223",
+    )
+
+    assert scraper.debugger_address == "127.0.0.1:9223"
+    assert scraper.profile_dir is None
+    assert scraper.attached_browser is False
