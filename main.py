@@ -92,6 +92,160 @@ def deduplicate_catalog(df: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([with_id, without_id], ignore_index=True)
 
 
+def evaluate_legacy_output_quality(
+    df: pd.DataFrame,
+    scraper,
+    retailer: str,
+) -> tuple[bool, list[str], dict]:
+    """Valida una extracción legacy antes de reemplazar el master.
+
+    La última muestra válida se conserva cuando el scraper declara una corrida
+    parcial, no alcanza el target publicado o genera filas semánticamente
+    incompletas.
+    """
+    notes: list[str] = []
+    meta = (
+        getattr(scraper, "run_meta", None)
+        or getattr(scraper, "last_meta", None)
+        or {}
+    )
+    meta = dict(meta) if isinstance(meta, dict) else {}
+
+    if df.empty:
+        notes.append("sin productos")
+        return False, notes, meta
+
+    products = len(df)
+    product_complete = int(
+        df["product"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .ne("")
+        .sum()
+    )
+    if product_complete < products:
+        notes.append(
+            f"nombre producto {product_complete}/{products}"
+        )
+
+    availability = (
+        df["availability_status"]
+        .fillna("UNKNOWN")
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .replace("", "UNKNOWN")
+    )
+    price_required = ~availability.eq("UNAVAILABLE")
+    required_count = int(price_required.sum())
+    current = pd.to_numeric(
+        df["price_current"],
+        errors="coerce",
+    )
+    regular = pd.to_numeric(
+        df["price_regular"],
+        errors="coerce",
+    )
+    valid_price = int(
+        (
+            price_required
+            & current.notna()
+            & current.gt(0)
+        ).sum()
+    )
+    if valid_price < required_count:
+        notes.append(
+            f"precio requerido {valid_price}/{required_count}"
+        )
+
+    price_order_errors = int(
+        (
+            current.notna()
+            & regular.notna()
+            & regular.lt(current)
+        ).sum()
+    )
+    if price_order_errors:
+        notes.append(
+            f"regular<actual {price_order_errors}"
+        )
+
+    identifier_required = ~availability.eq("UNAVAILABLE")
+    identifier_required_count = int(identifier_required.sum())
+    sku_complete = int(
+        df.loc[identifier_required, "sku"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .ne("")
+        .sum()
+    )
+    url_complete = int(
+        df.loc[identifier_required, "url"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .ne("")
+        .sum()
+    )
+
+    if retailer not in {
+        "farmacias-san-pablo",
+        "ibarra-mayoreo",
+    }:
+        if sku_complete < identifier_required_count:
+            notes.append(
+                f"sku requeridos "
+                f"{sku_complete}/{identifier_required_count}"
+            )
+    if retailer != "farmacias-san-pablo":
+        if url_complete < identifier_required_count:
+            notes.append(
+                f"url requeridas "
+                f"{url_complete}/{identifier_required_count}"
+            )
+
+    raw_status = str(meta.get("status") or "").strip().upper()
+    if raw_status in {
+        "PARTIAL",
+        "EMPTY",
+        "BLOCKED",
+        "NETWORK_UNAVAILABLE",
+        "ERROR",
+        "DEFERRED",
+    }:
+        notes.append(f"scraper status={raw_status}")
+
+    target = meta.get("target_products")
+    if target is None:
+        target = meta.get("displayed_category_products")
+    try:
+        target_int = int(target) if target is not None else None
+    except (TypeError, ValueError):
+        target_int = None
+
+    if target_int is not None and products < target_int:
+        notes.append(
+            f"cobertura {products}/{target_int}"
+        )
+
+    if retailer in {"chedraui", "walmart"}:
+        if "store_context_verified" in df.columns:
+            verified = df["store_context_verified"].map(
+                lambda value: False
+                if pd.isna(value)
+                else bool(value)
+            )
+            verified_count = int(verified.sum())
+            if verified_count < products:
+                notes.append(
+                    f"contexto tienda {verified_count}/{products}"
+                )
+
+    return not notes, notes, meta
+
+
 def _update_consolidated_output_unlocked(
     df: pd.DataFrame,
     output_path: Path = CONSOLIDATED_PATH,
@@ -501,7 +655,26 @@ def main() -> int:
         df = deduplicate_catalog(df)
         df = df.sort_values(["brand", "product"], na_position="last").reset_index(drop=True)
 
-    consolidated_path = update_consolidated_output(df)
+    quality_pass, quality_notes, quality_meta = (
+        evaluate_legacy_output_quality(
+            df,
+            scraper,
+            args.retailer,
+        )
+    )
+
+    if quality_pass:
+        consolidated_path = update_consolidated_output(df)
+        print("QUALITY_GATE: PASS")
+    else:
+        consolidated_path = CONSOLIDATED_PATH
+        print(
+            "QUALITY_GATE: FAIL | "
+            + "; ".join(quality_notes)
+        )
+        print(
+            "Consolidado protegido: se conserva la última muestra válida."
+        )
 
     if args.retailer == "chedraui":
         displayed = getattr(scraper, "run_meta", {}).get("displayed_category_products")
@@ -518,6 +691,8 @@ def main() -> int:
     if df.empty:
         print("No se encontraron productos. Revisa diagnostics/.")
         return 3
+    if not quality_pass:
+        return 7
     return 0
 
 
