@@ -1,6 +1,7 @@
 import pandas as pd
 
 import scripts.run_all_retailers as runner
+from main import COLUMNS, update_consolidated_output
 from scripts.run_all_retailers import (
     classify_result,
     deferred_result,
@@ -173,3 +174,56 @@ def test_apply_quality_preserves_scrapy_sample_accepted(
     assert row["quality_status"] == "SAMPLE_ACCEPTED"
     assert row["target_products"] == 331
     assert row["coverage"] == 330 / 331
+
+
+
+def test_consolidated_update_replaces_multiple_blocks_atomically(
+    tmp_path,
+):
+    output = tmp_path / "concentrado_scraper.xlsx"
+
+    def row(retailer, category, sku, price):
+        data = {column: None for column in COLUMNS}
+        data.update(
+            {
+                "retailer": retailer,
+                "category_id": category,
+                "city": "Catálogo online",
+                "store_id": None,
+                "sku": sku,
+                "product": f"Producto {sku}",
+                "price_current": price,
+                "price_regular": price,
+                "availability_status": "AVAILABLE",
+                "url": f"https://example.test/{sku}",
+            }
+        )
+        return data
+
+    initial = pd.DataFrame(
+        [
+            row("Retailer A", "cat-1", "old-a", 10.0),
+            row("Retailer A", "cat-2", "old-b", 20.0),
+            row("Retailer B", "cat-3", "keep-c", 30.0),
+        ],
+        columns=COLUMNS,
+    )
+    update_consolidated_output(initial, output)
+
+    replacement = pd.DataFrame(
+        [
+            row("Retailer A", "cat-1", "new-a", 11.0),
+            row("Retailer A", "cat-2", "new-b", 22.0),
+        ],
+        columns=COLUMNS,
+    )
+    update_consolidated_output(replacement, output)
+
+    final = pd.read_excel(output, sheet_name="Concentrado")
+
+    assert set(final["sku"].astype(str)) == {
+        "new-a",
+        "new-b",
+        "keep-c",
+    }
+    assert len(final) == 3
