@@ -11,6 +11,7 @@ import pandas as pd
 
 from main import COLUMNS
 from scraper.config import load_categories, load_locations
+from scraper.io_utils import atomic_output_path
 from scraper.retailers.farmacias_similares import (
     FarmaciasSimilaresBlocked,
     FarmaciasSimilaresNetworkUnavailable,
@@ -245,24 +246,33 @@ def main() -> int:
     summary_df = pd.DataFrame(summaries)
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with pd.ExcelWriter(OUTPUT_PATH, engine="openpyxl") as writer:
-        concentrated.to_excel(writer, index=False, sheet_name="Concentrado")
-        summary_df.to_excel(writer, index=False, sheet_name="Resumen")
-        pd.DataFrame(pages).to_excel(
-            writer,
-            index=False,
-            sheet_name="Paginas",
-        )
-        pd.DataFrame(no_price_rows).to_excel(
-            writer,
-            index=False,
-            sheet_name="SinPrecio",
-        )
-        pd.DataFrame(error_rows).to_excel(
-            writer,
-            index=False,
-            sheet_name="Errores",
-        )
+    with atomic_output_path(OUTPUT_PATH) as temporary_output:
+        with pd.ExcelWriter(temporary_output, engine="openpyxl") as writer:
+            concentrated.to_excel(
+                writer,
+                index=False,
+                sheet_name="Concentrado",
+            )
+            summary_df.to_excel(
+                writer,
+                index=False,
+                sheet_name="Resumen",
+            )
+            pd.DataFrame(pages).to_excel(
+                writer,
+                index=False,
+                sheet_name="Paginas",
+            )
+            pd.DataFrame(no_price_rows).to_excel(
+                writer,
+                index=False,
+                sheet_name="SinPrecio",
+            )
+            pd.DataFrame(error_rows).to_excel(
+                writer,
+                index=False,
+                sheet_name="Errores",
+            )
 
     print("")
     print("=" * 72)
