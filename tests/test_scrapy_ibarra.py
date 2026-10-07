@@ -171,3 +171,21 @@ def test_ibarra_scrapy_recovers_catalog_card_without_pdp_link():
     assert rows[0]["title"] == "Producto Visible Sin PDP"
     assert rows[0]["box_units"] == 12
     assert rows[0]["box_price"] == 480.0
+
+
+def test_ibarra_scrapy_uses_stable_36_item_pagination():
+    spider = IbarraMayoreoSpider(
+        category="perfumeria-abarrotes",
+        location="ibarra-online",
+    )
+
+    page1 = spider._catalog_page_url(spider.category.url, 1)
+    page2 = spider._catalog_page_url(spider.category.url, 2)
+
+    assert "n=36" in page1
+    assert "marca=TODAS" in page1
+    assert "o=3" in page1
+    assert "p=" not in page1
+
+    assert "n=36" in page2
+    assert "p=2" in page2
