@@ -40,6 +40,8 @@ def classify_result(code: int, text: str) -> str:
         return "DEFERRED"
     if code == 3:
         return "EMPTY"
+    if code == 7 or "quality_gate: fail" in lower:
+        return "PARTIAL"
     return "ERROR"
 
 
