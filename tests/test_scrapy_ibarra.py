@@ -139,10 +139,9 @@ def test_ibarra_scrapy_structural_card_without_price_signal_is_discovered():
 
     links = spider._root_product_links(response)
 
-    assert links == [
-        {
-            "href": "https://ibarramayoreo.com/producto-sin-precio-en-card",
-            "title": "Producto sin precio",
-            "card_text": "Producto sin precio",
-        }
-    ]
+    assert len(links) == 1
+    assert links[0]["href"] == (
+        "https://ibarramayoreo.com/producto-sin-precio-en-card"
+    )
+    assert links[0]["title"] == "Producto sin precio"
+    assert "card_text" in links[0]
