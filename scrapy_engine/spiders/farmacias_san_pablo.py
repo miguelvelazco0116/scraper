@@ -70,7 +70,7 @@ class FarmaciasSanPabloSpider(scrapy.Spider):
         self.category_id = self.category.id
         self.location_id = self.location.id
         self.max_pages = int(max_pages)
-        self.rows_per_page = max(1, int(rows_per_page))
+        self.rows_per_page = min(48, max(1, int(rows_per_page)))
         self.update_consolidated = update_consolidated
 
         self.category_code = self._category_code(self.category.url)
