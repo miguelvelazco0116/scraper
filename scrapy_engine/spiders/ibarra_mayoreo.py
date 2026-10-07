@@ -70,6 +70,11 @@ class IbarraMayoreoSpider(scrapy.Spider):
         self.last_page: int | None = None
         self.api_pages = 0
         self.discovery_links: set[str] = set()
+        self.product_candidates: dict[str, dict] = {}
+        self.parsed_product_urls: set[str] = set()
+        self.yielded_product_urls: set[str] = set()
+        self.failed_product_requests: list[dict] = []
+        self.no_box_products: list[dict] = []
         self.parse_errors = 0
         self.no_box_available = 0
 
@@ -241,13 +246,21 @@ class IbarraMayoreoSpider(scrapy.Spider):
 
         for item in links:
             href = item["href"]
-            if href not in self.discovery_links:
-                self.discovery_links.add(href)
-                new_links += 1
+            if href in self.discovery_links:
+                continue
+
+            self.discovery_links.add(href)
+            self.product_candidates[href] = {
+                "url": href,
+                "title": item.get("title"),
+                "catalog_page": page_number,
+            }
+            new_links += 1
 
             yield scrapy.Request(
                 href,
                 callback=self.parse_product,
+                errback=self.errback_product,
                 cb_kwargs={"fallback_title": item.get("title")},
             )
 
@@ -285,7 +298,26 @@ class IbarraMayoreoSpider(scrapy.Spider):
             cb_kwargs={"page_number": next_page},
         )
 
+    def errback_product(self, failure):
+        request = failure.request
+        info = {
+            "url": request.url,
+            "title": (
+                (request.cb_kwargs or {}).get("fallback_title")
+                if hasattr(request, "cb_kwargs")
+                else None
+            ),
+            "error": str(failure.value),
+        }
+        self.failed_product_requests.append(info)
+        self.logger.error(
+            "IBARRA_PDP_FAILED url=%s error=%s",
+            request.url,
+            failure.value,
+        )
+
     def parse_product(self, response, fallback_title: str | None = None):
+        self.parsed_product_urls.add(response.url.rstrip("/"))
         if self._looks_blocked(response):
             raise CloseSpider("blocked")
 
@@ -308,6 +340,16 @@ class IbarraMayoreoSpider(scrapy.Spider):
             and detail.get("availability_status") != UNAVAILABLE
         ):
             self.no_box_available += 1
+            self.no_box_products.append(
+                {
+                    "url": response.url,
+                    "title": detail.get("product") or fallback_title,
+                    "sku": detail.get("sku"),
+                    "availability_status": detail.get(
+                        "availability_status"
+                    ),
+                }
+            )
             self.logger.warning(
                 "IBARRA_NO_BOX_PRICE sku=%s product=%s url=%s",
                 detail.get("sku"),
@@ -329,6 +371,8 @@ class IbarraMayoreoSpider(scrapy.Spider):
             price_raw = f"CAJA | ${box_price:.2f} MXN"
 
         now = datetime.now().astimezone().isoformat(timespec="seconds")
+
+        self.yielded_product_urls.add(response.url.rstrip("/"))
 
         yield {
             "scrape_timestamp": now,
