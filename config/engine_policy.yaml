@@ -24,8 +24,9 @@ retailers:
 
   farmacias-san-pablo:
     active: true
-    engine: selenium_occ_persistent
-    profile_dir: .san_pablo_profile
+    engine: selenium_occ_manual_attach
+    debugger_address: 127.0.0.1:9223
+    profile_dir: .san_pablo_manual_profile
     minimum_coverage: 1.0
     require_sku: false
     require_url: false
