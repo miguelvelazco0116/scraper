@@ -33,10 +33,13 @@ Write-Host "Pausa   : Walmart, Farmacias Guadalajara"
 Write-Host "Aviso   : Bodega Aurrera puede solicitar verificacion manual en Chrome."
 Write-Host "          Si aparece, completala y deja la ventana abierta para continuar."
 Write-Host "Sesiones: Soriana=.soriana_profile | Chedraui=.chedraui_profile"
+Write-Host "          Similares=.similares_profile | SanPablo=.san_pablo_profile"
 Write-Host "Soriana : tandas de 2; BLOCKED difiere el resto de la tanda; retry final con cooldown."
 Write-Host "Python  : $PythonExe"
 Write-Host "Soriana : perfil persistente .soriana_profile"
 Write-Host "Chedraui: perfil persistente .chedraui_profile + VTEX session"
+Write-Host "Similares: perfil persistente para cookies/verificacion manual legitima"
+Write-Host "San Pablo: perfil persistente + bootstrap navegador para OCC"
 Write-Host ""
 
 & $PythonExe .\scripts\run_all_retailers.py --local-browser
