@@ -7,6 +7,7 @@ import pandas as pd
 from openpyxl.styles import Font
 
 from main import COLUMNS, CONSOLIDATED_PATH, deduplicate_catalog, update_consolidated_output
+from scraper.io_utils import atomic_output_path
 
 
 def _as_bool(value) -> bool:
@@ -187,16 +188,28 @@ class CanonicalExcelPipeline:
             ]
         )
 
-        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-            frame.to_excel(writer, index=False, sheet_name="Concentrado")
-            summary.to_excel(writer, index=False, sheet_name="Resumen")
+        with atomic_output_path(output_path) as temporary_output:
+            with pd.ExcelWriter(
+                temporary_output,
+                engine="openpyxl",
+            ) as writer:
+                frame.to_excel(
+                    writer,
+                    index=False,
+                    sheet_name="Concentrado",
+                )
+                summary.to_excel(
+                    writer,
+                    index=False,
+                    sheet_name="Resumen",
+                )
 
-            for sheet_name in ("Concentrado", "Resumen"):
-                ws = writer.book[sheet_name]
-                ws.freeze_panes = "A2"
-                ws.auto_filter.ref = ws.dimensions
-                for cell in ws[1]:
-                    cell.font = Font(bold=True)
+                for sheet_name in ("Concentrado", "Resumen"):
+                    ws = writer.book[sheet_name]
+                    ws.freeze_panes = "A2"
+                    ws.auto_filter.ref = ws.dimensions
+                    for cell in ws[1]:
+                        cell.font = Font(bold=True)
 
         diagnostics_dir = Path("diagnostics") / "scrapy"
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
@@ -268,14 +281,15 @@ class CanonicalExcelPipeline:
                 for url in parsed_without_row
             ],
         }
-        diagnostics_path.write_text(
-            json.dumps(
-                diagnostics,
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
+        with atomic_output_path(diagnostics_path) as temporary_json:
+            temporary_json.write_text(
+                json.dumps(
+                    diagnostics,
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
 
         update_requested = _as_bool(
             getattr(spider, "update_consolidated", False)
