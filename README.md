@@ -197,6 +197,38 @@ all         -> ambos grupos, en secuencia
 Los logs quedan en `diagnostics\scrapy_validation\` y el resumen en
 `diagnostics\scrapy_validation\summary.csv`.
 
+Health check estructural sin scraping:
+
+```powershell
+& .\scripts\project_healthcheck.ps1
+```
+
+Valida master, esquema canónico, disponibilidad, precios, duplicados, política
+de motores, perfiles persistentes y configuración de categorías. El resultado
+también se guarda en `diagnostics\project_healthcheck.json`.
+
+Validación integral del proyecto sin tocar el consolidado:
+
+```powershell
+& .\scripts\validate_project.ps1
+```
+
+Incluyendo los retailers que requieren navegador:
+
+```powershell
+& .\scripts\validate_project.ps1 -IncludeBrowser
+```
+
+La validación integral ejecuta `pytest`, healthcheck, regresión Scrapy y, con
+`-IncludeBrowser`, Farmacias Similares + Farmacias San Pablo usando perfiles
+persistentes.
+
+La política central de motores vive en:
+
+```text
+config/engine_policy.yaml
+```
+
 ## Ejecución local
 
 Desde PowerShell:
