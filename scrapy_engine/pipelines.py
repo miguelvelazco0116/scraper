@@ -333,7 +333,7 @@ class CanonicalExcelPipeline:
             f"{spider.name}_{getattr(spider, 'category_id', 'unknown')}.json"
         )
         missing_discovery = None
-        if target not in (None, 0) and discovered_products:
+        if target not in (None, 0):
             missing_discovery = max(
                 int(target) - discovered_products,
                 0,
