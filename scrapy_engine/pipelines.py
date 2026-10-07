@@ -140,8 +140,23 @@ class CanonicalExcelPipeline:
         catalog_orphan_rows = list(
             getattr(spider, "catalog_orphan_rows", []) or []
         )
-        discovered_products = (
+        discovered_from_rows = (
             discovered_link_products + len(catalog_orphan_rows)
+        )
+        discovered_override = getattr(
+            spider,
+            "discovered_products",
+            None,
+        )
+        discovered_products = (
+            max(discovered_from_rows, int(discovered_override))
+            if discovered_override is not None
+            else discovered_from_rows
+        )
+        discovery_source = getattr(
+            spider,
+            "discovery_source",
+            None,
         )
         parsed_product_pages = len(
             getattr(spider, "parsed_product_urls", set()) or set()
@@ -170,6 +185,7 @@ class CanonicalExcelPipeline:
                     "url_complete": url_complete,
                     "requests": getattr(spider, "api_pages", None),
                     "discovered_products": discovered_products or None,
+                    "discovery_source": discovery_source,
                     "discovered_link_products": (
                         discovered_link_products or None
                     ),
@@ -263,6 +279,7 @@ class CanonicalExcelPipeline:
             "quality_status": quality_status,
             "minimum_coverage": minimum_coverage,
             "discovered_products": discovered_products,
+            "discovery_source": discovery_source,
             "discovered_link_products": discovered_link_products,
             "catalog_orphan_products": catalog_orphan_rows,
             "missing_from_discovery": missing_discovery,
@@ -315,6 +332,7 @@ class CanonicalExcelPipeline:
             "price_required_complete": price_required_complete,
             "url_complete": url_complete,
             "discovered_products": discovered_products,
+            "discovery_source": discovery_source,
             "discovered_link_products": discovered_link_products,
             "catalog_orphan_products": len(catalog_orphan_rows),
             "parsed_product_pages": parsed_product_pages,
