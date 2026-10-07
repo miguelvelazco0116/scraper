@@ -124,6 +124,25 @@ def main() -> int:
     )
     print(f"PDP recibidos: {result.get('parsed_product_pages')}")
     print(
+        f"Precio valido : "
+        f"{result.get('price_required_valid')}/"
+        f"{result.get('price_required_products')}"
+    )
+    print(
+        f"SKU requeridos: "
+        f"{result.get('sku_required_complete')}/"
+        f"{result.get('identifier_required_products')}"
+    )
+    print(
+        f"URL requeridas: "
+        f"{result.get('url_required_complete')}/"
+        f"{result.get('identifier_required_products')}"
+    )
+    print(
+        f"Orden precios : "
+        f"{result.get('price_order_errors')} error(es)"
+    )
+    print(
         f"Sin precio req: "
         f"{result.get('missing_price_products')}"
     )
