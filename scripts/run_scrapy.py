@@ -65,7 +65,11 @@ def main() -> int:
     print(f"Rows/page  : {args.rows_per_page}")
     print(
         "Consolidado: "
-        + ("si, solo si COMPLETE" if args.update_consolidated else "no")
+        + (
+            "si, solo si COMPLETE o SAMPLE_ACCEPTED"
+            if args.update_consolidated
+            else "no"
+        )
     )
     print("")
 
