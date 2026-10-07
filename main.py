@@ -454,6 +454,14 @@ def main() -> int:
         default=None,
         help="Canal de navegador Playwright, por ejemplo: chrome",
     )
+    parser.add_argument(
+        "--debugger-address",
+        default=None,
+        help=(
+            "Chrome abierto manualmente para attach, "
+            "por ejemplo 127.0.0.1:9223."
+        ),
+    )
     parser.add_argument("--max-load-more", type=int, default=100)
     args = parser.parse_args()
 
@@ -573,7 +581,10 @@ def main() -> int:
         scraper = FarmaciasSanPabloScraper(
             headless=not args.headed,
             max_pages=args.max_load_more,
-            profile_dir=args.profile_dir,
+            profile_dir=(
+                None if args.debugger_address else args.profile_dir
+            ),
+            debugger_address=args.debugger_address,
         )
         try:
             rows = scraper.scrape_category(category, location)
