@@ -160,6 +160,7 @@ def run_case(
     chedraui_profile_dir: Path | None = None,
     similares_profile_dir: Path | None = None,
     san_pablo_profile_dir: Path | None = None,
+    bodega_profile_dir: Path | None = None,
     local_browser: bool = False,
 ) -> dict:
     category_id = category["id"]
@@ -262,11 +263,21 @@ def run_case(
         store = "Ibarra Mayoreo online"
     elif retailer == "bodega-aurrera":
         cmd = [
-            sys.executable, "main.py", "--retailer", "bodega-aurrera",
-            "--category", category_id, "--location", "bodega-aurrera-online",
+            sys.executable,
+            "main.py",
+            "--retailer",
+            "bodega-aurrera",
+            "--category",
+            category_id,
+            "--location",
+            "bodega-aurrera-online",
         ]
         if local_browser:
             cmd.extend(["--headed", "--browser-channel", "chrome"])
+        if bodega_profile_dir is not None:
+            cmd.extend(
+                ["--profile-dir", str(bodega_profile_dir)]
+            )
         location = "bodega-aurrera-online"
         store = "Bodega Aurrera online"
     else:
@@ -651,6 +662,11 @@ def main() -> int:
         help="Perfil persistente local de Farmacias San Pablo.",
     )
     parser.add_argument(
+        "--bodega-profile-dir",
+        default=".bodega_aurrera_profile",
+        help="Perfil persistente local de Bodega Aurrera.",
+    )
+    parser.add_argument(
         "--local-browser",
         action="store_true",
         help="Usa Google Chrome visible para retailers que requieren navegador local.",
@@ -692,10 +708,14 @@ def main() -> int:
     san_pablo_profile = Path(
         args.san_pablo_profile_dir
     ).expanduser().resolve()
+    bodega_profile = Path(
+        args.bodega_profile_dir
+    ).expanduser().resolve()
     soriana_profile.mkdir(parents=True, exist_ok=True)
     chedraui_profile.mkdir(parents=True, exist_ok=True)
     similares_profile.mkdir(parents=True, exist_ok=True)
     san_pablo_profile.mkdir(parents=True, exist_ok=True)
+    bodega_profile.mkdir(parents=True, exist_ok=True)
     if walmart_state is not None and not walmart_state.exists():
         raise SystemExit(f"Storage state Walmart no encontrado: {walmart_state}")
     if walmart_profile is not None and not walmart_profile.exists():
@@ -826,6 +846,7 @@ def main() -> int:
             chedraui_profile_dir=chedraui_profile,
             similares_profile_dir=similares_profile,
             san_pablo_profile_dir=san_pablo_profile,
+            bodega_profile_dir=bodega_profile,
             local_browser=args.local_browser,
         )
         results.append(result)
@@ -887,6 +908,7 @@ def main() -> int:
                 chedraui_profile_dir=chedraui_profile,
                 similares_profile_dir=similares_profile,
                 san_pablo_profile_dir=san_pablo_profile,
+                bodega_profile_dir=bodega_profile,
                 local_browser=args.local_browser,
             )
             results[result_index] = retry_result
