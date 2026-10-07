@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -80,6 +81,23 @@ class CanonicalExcelPipeline:
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
+        discovered_products = len(
+            getattr(spider, "discovery_links", set()) or set()
+        )
+        parsed_product_pages = len(
+            getattr(spider, "parsed_product_urls", set()) or set()
+        )
+        yielded_product_pages = len(
+            getattr(spider, "yielded_product_urls", set()) or set()
+        )
+        no_box_products = list(
+            getattr(spider, "no_box_products", []) or []
+        )
+        failed_product_requests = list(
+            getattr(spider, "failed_product_requests", []) or []
+        )
+        parse_errors = int(getattr(spider, "parse_errors", 0) or 0)
+
         summary = pd.DataFrame(
             [
                 {
@@ -97,6 +115,14 @@ class CanonicalExcelPipeline:
                     "price_complete": price_complete,
                     "url_complete": url_complete,
                     "requests": getattr(spider, "api_pages", None),
+                    "discovered_products": discovered_products or None,
+                    "parsed_product_pages": parsed_product_pages or None,
+                    "yielded_product_pages": yielded_product_pages or None,
+                    "no_box_products": len(no_box_products),
+                    "failed_product_requests": len(
+                        failed_product_requests
+                    ),
+                    "parse_errors": parse_errors,
                     "engine": "Scrapy",
                 }
             ]
@@ -112,6 +138,41 @@ class CanonicalExcelPipeline:
                 ws.auto_filter.ref = ws.dimensions
                 for cell in ws[1]:
                     cell.font = Font(bold=True)
+
+        diagnostics_dir = Path("diagnostics") / "scrapy"
+        diagnostics_dir.mkdir(parents=True, exist_ok=True)
+        diagnostics_path = diagnostics_dir / (
+            f"{spider.name}_{getattr(spider, 'category_id', 'unknown')}.json"
+        )
+        missing_discovery = None
+        if target not in (None, 0) and discovered_products:
+            missing_discovery = max(
+                int(target) - discovered_products,
+                0,
+            )
+        diagnostics = {
+            "spider": spider.name,
+            "category_id": getattr(spider, "category_id", None),
+            "target_products": target,
+            "products": products,
+            "coverage": coverage,
+            "quality_status": quality_status,
+            "discovered_products": discovered_products,
+            "missing_from_discovery": missing_discovery,
+            "parsed_product_pages": parsed_product_pages,
+            "yielded_product_pages": yielded_product_pages,
+            "no_box_products": no_box_products,
+            "failed_product_requests": failed_product_requests,
+            "parse_errors": parse_errors,
+        }
+        diagnostics_path.write_text(
+            json.dumps(
+                diagnostics,
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
 
         update_requested = _as_bool(
             getattr(spider, "update_consolidated", False)
@@ -130,18 +191,32 @@ class CanonicalExcelPipeline:
             "sku_complete": sku_complete,
             "price_complete": price_complete,
             "url_complete": url_complete,
+            "discovered_products": discovered_products,
+            "parsed_product_pages": parsed_product_pages,
+            "yielded_product_pages": yielded_product_pages,
+            "no_box_products": len(no_box_products),
+            "failed_product_requests": len(
+                failed_product_requests
+            ),
+            "parse_errors": parse_errors,
+            "diagnostics": str(diagnostics_path),
             "consolidated_updated": consolidated_updated,
         }
 
         spider.logger.info(
             "SCRAPY_RESULT products=%s target=%s coverage=%s "
-            "quality=%s price=%s/%s output=%s consolidated=%s",
+            "quality=%s price=%s/%s discovered=%s parsed=%s "
+            "no_box=%s failed=%s output=%s consolidated=%s",
             products,
             target,
             coverage,
             quality_status,
             price_complete,
             products,
+            discovered_products,
+            parsed_product_pages,
+            len(no_box_products),
+            len(failed_product_requests),
             output_path,
             consolidated_updated,
         )
