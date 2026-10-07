@@ -94,7 +94,15 @@ def main() -> int:
     parser.add_argument(
         "--profile-dir",
         default=".san_pablo_profile",
-        help="Perfil persistente de Chrome para la prueba.",
+        help="Perfil persistente de Chrome cuando el script abre navegador.",
+    )
+    parser.add_argument(
+        "--debugger-address",
+        default=None,
+        help=(
+            "Chrome abierto manualmente con remote debugging, "
+            "por ejemplo 127.0.0.1:9223."
+        ),
     )
     parser.add_argument(
         "--update-consolidated",
@@ -123,6 +131,14 @@ def main() -> int:
     print("FARMACIAS SAN PABLO - TEST COMPLETO")
     print("=" * 68)
     print(f"Categorías : {len(categories)}")
+    print(
+        "Browser    : "
+        + (
+            f"manual attach {args.debugger_address}"
+            if args.debugger_address
+            else "script-managed Chrome"
+        )
+    )
     print(f"Salida     : {OUTPUT_PATH}")
     print(
         "Consolidado: "
@@ -143,7 +159,10 @@ def main() -> int:
         scraper = FarmaciasSanPabloScraper(
             headless=args.headless,
             max_pages=args.max_pages,
-            profile_dir=args.profile_dir,
+            profile_dir=(
+                None if args.debugger_address else args.profile_dir
+            ),
+            debugger_address=args.debugger_address,
         )
 
         status = "SUCCESS"
