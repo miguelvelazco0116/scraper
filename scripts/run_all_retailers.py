@@ -156,6 +156,8 @@ def run_case(
     walmart_storage_state: Path | None = None,
     soriana_profile_dir: Path | None = None,
     chedraui_profile_dir: Path | None = None,
+    similares_profile_dir: Path | None = None,
+    san_pablo_profile_dir: Path | None = None,
     local_browser: bool = False,
 ) -> dict:
     category_id = category["id"]
@@ -201,18 +203,39 @@ def run_case(
         store = None
     elif retailer == "farmacias-san-pablo":
         cmd = [
-            sys.executable, "main.py", "--retailer", "farmacias-san-pablo", "--category", category_id,
-            "--location", "san-pablo-online", "--headed",
+            sys.executable,
+            "main.py",
+            "--retailer",
+            "farmacias-san-pablo",
+            "--category",
+            category_id,
+            "--location",
+            "san-pablo-online",
+            "--headed",
         ]
+        if san_pablo_profile_dir is not None:
+            cmd.extend(
+                ["--profile-dir", str(san_pablo_profile_dir)]
+            )
         location = "san-pablo-online"
         store = None
     elif retailer == "farmacias-similares":
         cmd = [
-            sys.executable, "main.py", "--retailer", "farmacias-similares",
-            "--category", category_id, "--location", "similares-online",
+            sys.executable,
+            "main.py",
+            "--retailer",
+            "farmacias-similares",
+            "--category",
+            category_id,
+            "--location",
+            "similares-online",
         ]
         if local_browser:
             cmd.extend(["--headed", "--browser-channel", "chrome"])
+        if similares_profile_dir is not None:
+            cmd.extend(
+                ["--profile-dir", str(similares_profile_dir)]
+            )
         location = "similares-online"
         store = "Farmacias Similares online"
     elif retailer == "la-comer":
@@ -616,6 +639,16 @@ def main() -> int:
         help="Perfil persistente local de Chedraui.",
     )
     parser.add_argument(
+        "--similares-profile-dir",
+        default=".similares_profile",
+        help="Perfil persistente local de Farmacias Similares.",
+    )
+    parser.add_argument(
+        "--san-pablo-profile-dir",
+        default=".san_pablo_profile",
+        help="Perfil persistente local de Farmacias San Pablo.",
+    )
+    parser.add_argument(
         "--local-browser",
         action="store_true",
         help="Usa Google Chrome visible para retailers que requieren navegador local.",
@@ -648,9 +681,19 @@ def main() -> int:
         if args.walmart_storage_state else None
     )
     soriana_profile = Path(args.soriana_profile_dir).expanduser().resolve()
-    chedraui_profile = Path(args.chedraui_profile_dir).expanduser().resolve()
+    chedraui_profile = Path(
+        args.chedraui_profile_dir
+    ).expanduser().resolve()
+    similares_profile = Path(
+        args.similares_profile_dir
+    ).expanduser().resolve()
+    san_pablo_profile = Path(
+        args.san_pablo_profile_dir
+    ).expanduser().resolve()
     soriana_profile.mkdir(parents=True, exist_ok=True)
     chedraui_profile.mkdir(parents=True, exist_ok=True)
+    similares_profile.mkdir(parents=True, exist_ok=True)
+    san_pablo_profile.mkdir(parents=True, exist_ok=True)
     if walmart_state is not None and not walmart_state.exists():
         raise SystemExit(f"Storage state Walmart no encontrado: {walmart_state}")
     if walmart_profile is not None and not walmart_profile.exists():
@@ -779,6 +822,8 @@ def main() -> int:
             walmart_storage_state=walmart_state,
             soriana_profile_dir=soriana_profile,
             chedraui_profile_dir=chedraui_profile,
+            similares_profile_dir=similares_profile,
+            san_pablo_profile_dir=san_pablo_profile,
             local_browser=args.local_browser,
         )
         results.append(result)
@@ -838,6 +883,8 @@ def main() -> int:
                 walmart_storage_state=walmart_state,
                 soriana_profile_dir=soriana_profile,
                 chedraui_profile_dir=chedraui_profile,
+                similares_profile_dir=similares_profile,
+                san_pablo_profile_dir=san_pablo_profile,
                 local_browser=args.local_browser,
             )
             results[result_index] = retry_result
