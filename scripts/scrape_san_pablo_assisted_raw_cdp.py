@@ -319,68 +319,127 @@ EXTRACT_JS = r"""
     String(value || '').replace(/\s+/g, ' ').trim();
   const moneyRe = /\$\s*[0-9][0-9,]*(?:\.\d{1,2})?/;
 
-  function addCount(root) {
-    return Array.from(
-      root.querySelectorAll('button, a, [role="button"]')
-    ).filter(el =>
-      /Agregar|Anadir|Añadir/i.test(
-        normalize(el.innerText || el.textContent)
+  const isAdd = el =>
+    /Agregar|Anadir|Añadir/i.test(
+      normalize(
+        (el && (
+          el.innerText
+          || el.textContent
+          || el.getAttribute?.('aria-label')
+        )) || ''
       )
-    ).length;
-  }
+    );
 
-  function findCard(seed) {
-    let node = seed;
-    let moneyFallback = null;
-    let structuralFallback = null;
+  const addCount = root =>
+    Array.from(
+      root.querySelectorAll('button, a, [role="button"]')
+    ).filter(isAdd).length;
+
+  const usefulLinks = root =>
+    Array.from(root.querySelectorAll('a[href]'))
+      .map(a => a.href || a.getAttribute('href') || '')
+      .filter(h =>
+        h
+        && !/javascript:|#$/i.test(h)
+        && !/login|registro|carrito|sucursales|facturacion/i.test(h)
+      );
+
+  function findAddCard(seed) {
+    let node = seed.parentElement;
+    let fallback = null;
 
     for (let i = 0; i < 12 && node; i++, node = node.parentElement) {
       const text = normalize(node.innerText || node.textContent);
-      if (!text || text.length < 8 || text.length > 3200) continue;
+      if (!text || text.length < 12 || text.length > 2600) continue;
 
       const adds = addCount(node);
+      if (adds > 1) break;
+      if (adds !== 1) continue;
+
       const images = node.querySelectorAll('img').length;
-      const productLinks = new Set(
-        Array.from(node.querySelectorAll('a[href]'))
-          .map(a => a.href || a.getAttribute('href') || '')
-          .filter(h => h && !/javascript:|#$/i.test(h))
-      );
+      const links = usefulLinks(node).length;
+      const hasMoney = moneyRe.test(text);
       const classBlob = String(node.className || '').toLowerCase();
-      const looksStructural =
+      const structural =
         /product|item|card|tile|plp|listing/.test(classBlob);
 
-      if (moneyRe.test(text)) {
-        if (
-          adds === 1
-          || (
-            images >= 1
-            && images <= 4
-            && productLinks.size <= 4
-          )
-          || looksStructural
-        ) {
-          return node;
-        }
-        if (!moneyFallback) moneyFallback = node;
+      if (
+        hasMoney
+        && images <= 6
+        && links <= 8
+      ) {
+        return node;
       }
 
       if (
-        !structuralFallback
-        && looksStructural
+        !fallback
         && images >= 1
-        && images <= 4
-        && productLinks.size <= 4
+        && images <= 6
+        && links <= 8
+        && structural
       ) {
-        structuralFallback = node;
+        fallback = node;
       }
     }
 
-    return (
-      moneyFallback
-      || structuralFallback
-      || seed.parentElement
-      || seed
-    );
+    return fallback;
+  }
+
+  function commonAncestor(nodes) {
+    if (!nodes.length) return document.body;
+    let root = nodes[0];
+
+    while (root && root !== document.body) {
+      if (nodes.every(node => root.contains(node))) {
+        return root;
+      }
+      root = root.parentElement;
+    }
+
+    return document.body;
+  }
+
+  function findNoAddCard(seed, catalogRoot) {
+    let node = seed.parentElement;
+    let fallback = null;
+
+    for (
+      let i = 0;
+      i < 12 && node && catalogRoot.contains(node);
+      i++, node = node.parentElement
+    ) {
+      const text = normalize(node.innerText || node.textContent);
+      if (!text || text.length < 12 || text.length > 2600) continue;
+      if (addCount(node) !== 0) continue;
+
+      const images = node.querySelectorAll('img').length;
+      const links = usefulLinks(node).length;
+      const hasMoney = moneyRe.test(text);
+      const classBlob = String(node.className || '').toLowerCase();
+      const structural =
+        /product|item|card|tile|plp|listing/.test(classBlob);
+
+      if (
+        hasMoney
+        && images >= 1
+        && images <= 6
+        && links <= 8
+      ) {
+        return node;
+      }
+
+      if (
+        !fallback
+        && structural
+        && images >= 1
+        && images <= 6
+        && links <= 8
+      ) {
+        fallback = node;
+      }
+    }
+
+    return fallback;
   }
 
   function readData(root) {
@@ -405,105 +464,79 @@ EXTRACT_JS = r"""
     return result;
   }
 
-  const seeds = [];
-
-  // Product-detail links and explicit product metadata.
-  seeds.push(...Array.from(document.querySelectorAll('a[href*="/p/"]')));
-  seeds.push(...Array.from(document.querySelectorAll(
-    '[data-product-code], [data-product-id], [data-code], ' +
-    '[data-sku], [data-ean], [data-upc], [data-item-id]'
-  )));
-
-  // Add-to-cart controls cover purchasable items.
-  seeds.push(...Array.from(
+  const addControls = Array.from(
     document.querySelectorAll('button, a, [role="button"]')
-  ).filter(el =>
-    /Agregar|Anadir|Añadir/i.test(
-      normalize(el.innerText || el.textContent)
-    )
-  ));
+  ).filter(isAdd);
 
-  // Product images catch visible items that have no add-to-cart control,
-  // e.g. temporarily unavailable products.
-  seeds.push(...Array.from(document.querySelectorAll(
-    'img[alt][src], img[title][src]'
-  )).filter(img => {
-    const label = normalize(
-      img.getAttribute('alt') || img.getAttribute('title')
-    );
-    return label.length >= 5;
-  }));
+  const addCards = [];
+  const cardSet = new Set();
 
-  // Price-bearing leaf nodes catch cards whose product link or metadata is
-  // rendered outside the price subtree.
-  seeds.push(...Array.from(document.querySelectorAll('body *')).filter(el => {
-    const text = normalize(el.innerText || el.textContent);
-    if (!text || text.length > 180 || !moneyRe.test(text)) return false;
-    const childHasMoney = Array.from(el.children || []).some(child =>
-      moneyRe.test(normalize(child.innerText || child.textContent))
-    );
-    return !childHasMoney;
-  }));
-
-  // Last-resort structural product containers.
-  seeds.push(...Array.from(document.querySelectorAll(
-    '[class*="product-card"], [class*="productCard"], ' +
-    '[class*="product-item"], [class*="productItem"], ' +
-    'article[class*="product"], li[class*="product"]'
-  )).filter(el => {
-    const text = normalize(el.innerText || el.textContent);
-    return text && moneyRe.test(text) && text.length <= 3200;
-  }));
-
-  const out = [];
-  const seen = new Set();
-
-  for (const seed of seeds) {
+  for (const control of addControls) {
     if (
-      seed.closest &&
-      seed.closest('header, nav, footer')
+      control.closest
+      && control.closest('header, nav, footer')
     ) {
       continue;
     }
 
-    const card = findCard(seed);
-    if (!card) continue;
+    const card = findAddCard(control);
+    if (!card || cardSet.has(card)) continue;
+    cardSet.add(card);
+    addCards.push(card);
+  }
 
+  const catalogRoot = commonAncestor(addCards);
+
+  // Look only inside the same catalog region for items that do not expose an
+  // Add button (typically unavailable/temporarily unavailable products).
+  const noAddCards = [];
+  const noAddSeeds = [
+    ...Array.from(
+      catalogRoot.querySelectorAll('img[alt][src], img[title][src]')
+    ),
+    ...Array.from(catalogRoot.querySelectorAll('body *')).filter(el => {
+      const text = normalize(el.innerText || el.textContent);
+      if (!text || text.length > 180 || !moneyRe.test(text)) return false;
+      return !Array.from(el.children || []).some(child =>
+        moneyRe.test(normalize(child.innerText || child.textContent))
+      );
+    })
+  ];
+
+  for (const seed of noAddSeeds) {
+    if (
+      seed.closest
+      && seed.closest('header, nav, footer')
+    ) {
+      continue;
+    }
+    if (addCards.some(card => card.contains(seed))) continue;
+
+    const card = findNoAddCard(seed, catalogRoot);
+    if (!card || cardSet.has(card)) continue;
+
+    // Never treat a wrapper around purchasable products as the missing item.
+    if (addCount(card) !== 0) continue;
+
+    cardSet.add(card);
+    noAddCards.push(card);
+  }
+
+  const cards = [
+    ...addCards.map(card => ({card, anchor: 'add'})),
+    ...noAddCards.map(card => ({card, anchor: 'no-add'}))
+  ];
+
+  const out = [];
+
+  for (const entry of cards) {
+    const card = entry.card;
     const rawText = String(card.innerText || card.textContent || '').trim();
     const text = normalize(rawText);
     if (!text) continue;
 
-    const classBlob = String(card.className || '').toLowerCase();
-    const hasMoney = moneyRe.test(text);
-    const hasImage = card.querySelectorAll('img').length > 0;
-    const hasProductishClass =
-      /product|item|card|tile|plp|listing/.test(classBlob);
-    const hasUsefulLink = Array.from(
-      card.querySelectorAll('a[href]')
-    ).some(a => {
-      const h = a.href || a.getAttribute('href') || '';
-      return h && !/javascript:|#$/i.test(h);
-    });
-
-    if (
-      !hasMoney
-      && !(hasImage && (hasProductishClass || hasUsefulLink))
-    ) {
-      continue;
-    }
-
     const data = readData(card);
-
-    const hrefs = [];
-    if (seed.matches && seed.matches('a[href]')) {
-      hrefs.push(seed.href || seed.getAttribute('href') || '');
-    }
-    hrefs.push(
-      ...Array.from(card.querySelectorAll('a[href]'))
-        .map(a => a.href || a.getAttribute('href') || '')
-        .filter(Boolean)
-    );
-
+    const hrefs = usefulLinks(card);
     const href =
       hrefs.find(h => /\/p\/[^/?#]+(?:[/?#]|$)/i.test(h))
       || hrefs.find(h => /\/p\//i.test(h))
@@ -514,19 +547,13 @@ EXTRACT_JS = r"""
       '[class*="product"][class*="title"]',
       '[class*="name"]',
       '[class*="title"]',
+      '[class*="description"]',
       'h2', 'h3', 'h4', 'h5'
     ];
 
-    let title = normalize(
-      (seed.getAttribute && (
-        seed.getAttribute('title')
-        || seed.getAttribute('aria-label')
-        || seed.getAttribute('alt')
-      )) || ''
-    );
+    let title = '';
 
     for (const selector of titleSelectors) {
-      if (title) break;
       const el = card.querySelector(selector);
       if (!el) continue;
       const candidate = normalize(el.innerText || el.textContent);
@@ -538,15 +565,23 @@ EXTRACT_JS = r"""
         && !/Agregar|Anadir|Añadir|Descuento|GRATIS/i.test(candidate)
       ) {
         title = candidate;
+        break;
       }
     }
 
     if (!title) {
       const img = card.querySelector('img[alt], img[title]');
       if (img) {
-        title = normalize(
+        const candidate = normalize(
           img.getAttribute('alt') || img.getAttribute('title')
         );
+        if (
+          candidate
+          && candidate.length >= 5
+          && candidate.length <= 220
+        ) {
+          title = candidate;
+        }
       }
     }
 
@@ -556,31 +591,15 @@ EXTRACT_JS = r"""
         .map(normalize)
         .filter(Boolean);
 
-      const candidates = lines.filter(line =>
+      title = lines.find(line =>
         line.length >= 5
         && line.length <= 220
         && !moneyRe.test(line)
-        && !/MXN|Agregar|Anadir|Añadir|Descuento|GRATIS|Ordenar por|Articulos por pagina|Artículos por página/i.test(line)
-      );
-
-      title = candidates[0] || '';
+        && !/Agregar|Anadir|Añadir|Descuento|GRATIS|Ordenar por|Articulos por pagina|Artículos por página/i.test(line)
+      ) || '';
     }
 
     if (!title) continue;
-
-    const key = [
-      data['data-product-code'] || '',
-      data['data-product-id'] || '',
-      data['data-code'] || '',
-      data['data-sku'] || '',
-      data['data-ean'] || '',
-      data['data-upc'] || '',
-      href,
-      title
-    ].join('|');
-
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
 
     out.push({
       productCode: data['data-product-code'] || '',
@@ -591,14 +610,14 @@ EXTRACT_JS = r"""
       upc: data['data-upc'] || '',
       href,
       title,
-      text: rawText
+      text: rawText,
+      anchor: entry.anchor
     });
   }
 
   return out;
 })()
 """
-
 
 def extract_cards(cdp: RawCDP, session_id: str) -> list[dict]:
     return cdp.evaluate(session_id, EXTRACT_JS) or []
@@ -777,11 +796,21 @@ def collect_page_cards(
         previous_total = total
 
     candidates = candidate_counts(cdp, session_id)
+    anchor_add = sum(
+        1 for card in collected.values()
+        if card.get("anchor") == "add"
+    )
+    anchor_no_add = sum(
+        1 for card in collected.values()
+        if card.get("anchor") == "no-add"
+    )
     cdp.evaluate(session_id, "window.scrollTo(0, 0)")
 
     return list(collected.values()), {
         "expected_on_page": expected_on_page,
         "cards_collected": len(collected),
+        "anchor_add": anchor_add,
+        "anchor_no_add": anchor_no_add,
         "candidate_counts": candidates,
         "scroll_samples": samples,
     }
@@ -911,6 +940,8 @@ def scrape_category(
             f"  page={page_number}/{len(visible_urls)} | "
             f"cards={len(cards)} | new={new_count} | "
             f"cumulative={after} | target={target} | "
+            f"anchor_add={hydration.get('anchor_add')} | "
+            f"anchor_no_add={hydration.get('anchor_no_add')} | "
             f"links={candidate_info.get('product_links')} | "
             f"containers={candidate_info.get('productish_containers')} | "
             f"add={candidate_info.get('add_controls')} | "
