@@ -448,3 +448,66 @@ def test_chedraui_zero_stock_without_price_is_retained():
     assert row["availability_status"] == "UNAVAILABLE"
     assert row["is_available"] is False
     assert row["pickup_available"] is False
+
+
+def test_chedraui_retries_structured_page_until_target_is_complete():
+    scraper = ChedrauiAPIScraper()
+    scraper._product_search_template_url = "https://example.test/?extensions=eyJ2YXJpYWJsZXMiOiAiZTMwPSJ9"
+
+    class FakeResponse:
+        def __init__(self, status, payload):
+            self.status = status
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    class FakeRequest:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, url, timeout, headers):
+            self.calls += 1
+            if self.calls < 3:
+                products = [{"productId": str(i)} for i in range(10)]
+            else:
+                products = [{"productId": str(i)} for i in range(20)]
+            return FakeResponse(
+                200,
+                {"data": {"productSearch": {"products": products, "recordsFiltered": 303}}},
+            )
+
+    class FakeContext:
+        def __init__(self):
+            self.request = FakeRequest()
+
+    class FakePage:
+        def __init__(self):
+            self.context = FakeContext()
+
+        def wait_for_timeout(self, _ms):
+            return None
+
+    rows10 = [{"sku": str(i)} for i in range(10)]
+    rows20 = [{"sku": str(i)} for i in range(20)]
+    calls = {"n": 0}
+
+    def fake_rows(payload, category, location):
+        calls["n"] += 1
+        return (rows10, 303) if calls["n"] < 3 else (rows20, 303)
+
+    scraper._rewrite_product_search_range = lambda url, start, end: url
+    scraper._rows_from_product_search_payload = fake_rows
+
+    rows, info = scraper._recover_page_from_product_search(
+        FakePage(),
+        LAUNDRY,
+        POLANCO,
+        page_number=1,
+        target_rows=20,
+    )
+
+    assert len(rows) == 20
+    assert info["rows"] == 20
+    assert len(info["attempts"]) == 3
+    assert info["attempts"][-1]["accepted"] is True
