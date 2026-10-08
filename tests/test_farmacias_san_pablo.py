@@ -111,6 +111,7 @@ def test_san_pablo_occ_row_parser():
         "basePrice": {"value": 319.0, "formattedValue": "$319.00 MXN"},
         "potentialPromotions": [{"description": "30% de descuento"}],
         "gtmProperties": {"brand": "Stérimar"},
+        "stock": {"stockLevelStatus": "inStock", "stockLevel": 7},
     }
 
     row = FarmaciasSanPabloScraper._row_from_occ_product(
@@ -128,4 +129,41 @@ def test_san_pablo_occ_row_parser():
     assert row["price_regular"] == 319.0
     assert row["url"].endswith("/p/000000000000700142")
     assert "30% de descuento" in row["promotion"]
+    assert row["availability_status"] == "AVAILABLE"
+    assert row["is_available"] is True
     assert row["store_context_method"] == "san_pablo_occ_search_sponsored"
+
+
+
+def test_san_pablo_occ_unavailable_without_price_is_retained():
+    categories = {x.id: x for x in load_categories("config/farmacias-san-pablo/categories.yaml")}
+    locations = {x.id: x for x in load_locations()}
+    row = FarmaciasSanPabloScraper._row_from_occ_product(
+        {
+            "code": "000000000000999999",
+            "name": "Producto agotado",
+            "url": "/producto-agotado/p/000000000000999999",
+            "price": None,
+            "basePrice": None,
+            "stock": {"stockLevelStatus": "outOfStock", "stockLevel": 0},
+        },
+        categories["enjuagues-bucales"],
+        locations["san-pablo-online"],
+        "2026-10-02T12:00:00-06:00",
+    )
+    assert row is not None
+    assert row["price_current"] is None
+    assert row["availability_status"] == "UNAVAILABLE"
+    assert row["is_available"] is False
+
+
+
+def test_san_pablo_manual_attach_configuration():
+    scraper = FarmaciasSanPabloScraper(
+        headless=False,
+        debugger_address="127.0.0.1:9223",
+    )
+
+    assert scraper.debugger_address == "127.0.0.1:9223"
+    assert scraper.profile_dir is None
+    assert scraper.attached_browser is False

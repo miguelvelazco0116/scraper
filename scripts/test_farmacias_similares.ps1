@@ -1,6 +1,7 @@
 param(
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
-    [string]$PythonExe = ""
+    [string]$PythonExe = "",
+    [string]$ProfileDir = ".similares_profile"
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,17 +22,19 @@ if ([string]::IsNullOrWhiteSpace($PythonExe)) {
     if ($cmd) { $PythonExe = $cmd.Source }
 }
 
-if ([string]::IsNullOrWhiteSpace($PythonExe) -or -not (Test-Path $PythonExe)) {
+if ([string]::IsNullOrWhiteSpace($PythonExe)) {
     throw "No se encontro Python valido."
 }
 
 Write-Host "============================================================"
 Write-Host "Farmacias Similares - test categorias activas"
 Write-Host "============================================================"
-Write-Host "Python: $PythonExe"
+Write-Host "Python : $PythonExe"
+Write-Host "Profile: $ProfileDir"
+Write-Host "Consolidado: sin cambios"
 Write-Host ""
 
-& $PythonExe .\scripts\test_farmacias_similares.py
+& $PythonExe .\scripts\test_farmacias_similares.py --profile-dir $ProfileDir
 $code = $LASTEXITCODE
 
 Write-Host ""
@@ -41,3 +44,5 @@ Write-Host "Diagnosticos: $ProjectDir\diagnostics\farmacias_similares_*"
 if ($code -ne 0) {
     Write-Warning "El test termino con observaciones (exit_code=$code)."
 }
+
+exit $code

@@ -1,0 +1,75 @@
+version: 1
+
+retailers:
+  soriana:
+    active: true
+    engine: playwright_persistent
+    profile_dir: .soriana_profile
+    minimum_coverage: 1.0
+    on_failure: retain_last_valid
+
+  chedraui:
+    active: true
+    engine: playwright_vtex_api_persistent
+    profile_dir: .chedraui_profile
+    minimum_coverage: 1.0
+    require_store_context: true
+    on_failure: retain_last_valid
+
+  farmacias-del-ahorro:
+    active: true
+    engine: scrapy
+    minimum_coverage: 1.0
+    on_failure: retain_last_valid
+
+  farmacias-san-pablo:
+    active: true
+    engine: selenium_occ_manual_attach
+    debugger_address: 127.0.0.1:9223
+    profile_dir: .san_pablo_manual_profile
+    minimum_coverage: 1.0
+    require_sku: false
+    require_url: false
+    on_failure: retain_last_valid
+
+  ibarra-mayoreo:
+    active: true
+    engine: scrapy
+    minimum_coverage: 0.99
+    require_sku: false
+    require_url: true
+    on_failure: retain_last_valid
+
+  bodega-aurrera:
+    active: true
+    engine: playwright_persistent
+    profile_dir: .bodega_aurrera_profile
+    minimum_coverage: 1.0
+    on_failure: retain_last_valid
+
+  farmacias-similares:
+    active: true
+    engine: playwright_persistent
+    profile_dir: .similares_profile
+    minimum_coverage: 1.0
+    on_failure: retain_last_valid
+
+  la-comer:
+    active: false
+    engine: playwright_persistent
+    profile_dir: .la_comer_profile
+    minimum_coverage: 1.0
+    on_failure: retain_last_valid
+
+  walmart:
+    active: false
+    engine: playwright_persistent_or_storage_state
+    profile_dir: .walmart_profile
+    require_store_context: true
+    on_failure: retain_last_valid
+
+  farmacias-guadalajara:
+    active: false
+    engine: browser_manual_assisted
+    profile_dir: .farmacias_guadalajara_manual_profile
+    on_failure: retain_last_valid

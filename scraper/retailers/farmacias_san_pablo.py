@@ -15,6 +15,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
+from ..availability import availability_fields
 from ..config import Category, Location
 from ..parsers import clean_text
 
@@ -49,18 +50,48 @@ class FarmaciasSanPabloScraper:
         "Sterimar", "Trojan", "Vantal", "Xerolacer",
     ]
 
-    def __init__(self, headless: bool = True, max_pages: int = 100) -> None:
+    def __init__(
+        self,
+        headless: bool = True,
+        max_pages: int = 100,
+        profile_dir: str | Path | None = None,
+        debugger_address: str | None = None,
+    ) -> None:
         self.headless = headless
         self.max_pages = max_pages
+        self.profile_dir = (
+            Path(profile_dir).expanduser().resolve()
+            if profile_dir
+            else None
+        )
+        self.debugger_address = (
+            str(debugger_address).strip()
+            if debugger_address
+            else None
+        )
+        self.attached_browser = False
         self.last_meta: dict = {}
 
     @staticmethod
-    def _build_driver(headless: bool):
+    def _build_driver(
+        headless: bool,
+        profile_dir: Path | None = None,
+        debugger_address: str | None = None,
+    ):
         options = webdriver.ChromeOptions()
         options.add_argument("--lang=es-MX")
         options.add_argument("--window-size=1440,1000")
-        if headless:
-            options.add_argument("--headless=new")
+
+        if debugger_address:
+            options.debugger_address = debugger_address
+        else:
+            if headless:
+                options.add_argument("--headless=new")
+            if profile_dir is not None:
+                profile_dir.mkdir(parents=True, exist_ok=True)
+                options.add_argument(
+                    f"--user-data-dir={profile_dir}"
+                )
 
         driver = webdriver.Chrome(options=options)
         driver.set_page_load_timeout(60)
@@ -294,6 +325,64 @@ class FarmaciasSanPabloScraper:
         )
         return urlunparse(parsed._replace(query=encoded))
 
+    @classmethod
+    def _fetch_occ_json_browser(cls, driver, url: str) -> dict:
+        """Consulta OCC usando la misma sesión real de Chrome.
+
+        Se usa sólo como fallback cuando el request HTTP directo recibe un
+        bloqueo del CDN. No intenta resolver ni evadir verificaciones: si el
+        navegador también queda bloqueado, la corrida se detiene normalmente.
+        """
+
+        original_handle = driver.current_window_handle
+        opened_handle = None
+
+        try:
+            driver.switch_to.new_window("tab")
+            opened_handle = driver.current_window_handle
+            driver.get(url)
+
+            WebDriverWait(driver, 30).until(
+                EC.presence_of_element_located((By.TAG_NAME, "body"))
+            )
+            time.sleep(0.5)
+
+            title = driver.title or ""
+            body = cls._body_text(driver)
+
+            if cls._is_blocked(title, body):
+                raise FarmaciasSanPabloNetworkUnavailable(
+                    "OCC search-sponsored también fue bloqueado dentro "
+                    "de la sesión visible de Chrome."
+                )
+
+            text = (body or "").strip()
+            if not text:
+                raise FarmaciasSanPabloNetworkUnavailable(
+                    "OCC search-sponsored devolvió una respuesta vacía "
+                    "dentro de Chrome."
+                )
+
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise FarmaciasSanPabloNetworkUnavailable(
+                    "OCC devolvió JSON inválido dentro de Chrome: "
+                    f"{text[:300]}"
+                ) from exc
+
+            return payload if isinstance(payload, dict) else {}
+        finally:
+            if opened_handle is not None:
+                try:
+                    driver.close()
+                except Exception:
+                    pass
+            try:
+                driver.switch_to.window(original_handle)
+            except Exception:
+                pass
+
     @staticmethod
     def _fetch_occ_json(driver, url: str) -> dict:
         """Consulta OCC desde Python para evitar restricciones CORS del navegador."""
@@ -345,6 +434,19 @@ class FarmaciasSanPabloScraper:
                 detail = exc.read().decode("utf-8", errors="replace")
             except Exception:
                 detail = str(exc)
+
+            if int(exc.code or 0) in {401, 403, 429}:
+                print(
+                    "OCC_BROWSER_FALLBACK: el request directo recibió "
+                    f"HTTP {exc.code}; reintentando desde la sesión visible "
+                    "de Chrome.",
+                    flush=True,
+                )
+                return FarmaciasSanPabloScraper._fetch_occ_json_browser(
+                    driver,
+                    url,
+                )
+
             raise FarmaciasSanPabloNetworkUnavailable(
                 f"OCC search-sponsored falló HTTP {exc.code}: {detail[:500]}"
             ) from exc
@@ -549,6 +651,7 @@ class FarmaciasSanPabloScraper:
                     brand = value
                     break
         brand = brand or cls._infer_brand(name)
+        availability = availability_fields(payload=product.get("stock"))
 
         return {
             "scrape_timestamp": now,
@@ -569,6 +672,7 @@ class FarmaciasSanPabloScraper:
             "price_current": current,
             "price_regular": regular,
             "promotion": " | ".join(promotion_parts) if promotion_parts else None,
+            **availability,
             "pickup_available": None,
             "store_context_verified": False,
             "store_context_method": "san_pablo_occ_search_sponsored",
@@ -578,6 +682,7 @@ class FarmaciasSanPabloScraper:
                     "price": product.get("price"),
                     "basePrice": product.get("basePrice"),
                     "potentialPromotions": product.get("potentialPromotions"),
+                    "stock": product.get("stock"),
                 },
                 ensure_ascii=False,
                 separators=(",", ":"),
@@ -1119,7 +1224,24 @@ class FarmaciasSanPabloScraper:
     ) -> list[dict]:
         DIAGNOSTICS.mkdir(parents=True, exist_ok=True)
         now = datetime.now().astimezone().isoformat(timespec="seconds")
-        driver = self._build_driver(self.headless)
+        try:
+            driver = self._build_driver(
+                self.headless,
+                profile_dir=self.profile_dir,
+                debugger_address=self.debugger_address,
+            )
+        except WebDriverException as exc:
+            if self.debugger_address:
+                raise FarmaciasSanPabloNetworkUnavailable(
+                    "No se pudo conectar al Chrome manual en "
+                    f"{self.debugger_address}. Abre primero el navegador "
+                    "dedicado y déjalo abierto."
+                ) from exc
+            raise FarmaciasSanPabloNetworkUnavailable(
+                f"No se pudo iniciar Chrome: {exc}"
+            ) from exc
+
+        self.attached_browser = bool(self.debugger_address)
 
         try:
             occ = self._discover_occ_products(
@@ -1270,7 +1392,13 @@ class FarmaciasSanPabloScraper:
             self._write_diagnostics(driver, category, meta)
             return rows
         finally:
-            driver.quit()
+            if self.attached_browser:
+                try:
+                    driver.service.stop()
+                except Exception:
+                    pass
+            else:
+                driver.quit()
 
 
 __all__ = [

@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from scraper.config import load_categories, load_locations
+from scraper.io_utils import atomic_output_path, exclusive_file_lock
 from scraper.retailers.chedraui_polanco_api import ChedrauiBlocked, ChedrauiScraper, ChedrauiStoreContextError
 from scraper.retailers.farmacias_del_ahorro import (
     FarmaciasDelAhorroBlocked,
@@ -44,7 +45,7 @@ from scraper.retailers.bodega_aurrera import (
     BodegaAurreraNetworkUnavailable,
     BodegaAurreraScraper,
 )
-from scraper.retailers.soriana import SorianaBlocked, SorianaScraper
+from scraper.retailers.soriana import SorianaBlocked, SorianaDeferred, SorianaScraper
 from scraper.retailers.walmart import WalmartBlocked, WalmartScraper, WalmartStoreContextError
 from scraper.retailers.walmart_persistent import WalmartPersistentScraper
 from scraper.retailers.walmart_storage_state import WalmartStorageStateScraper
@@ -52,7 +53,8 @@ from scraper.retailers.walmart_storage_state import WalmartStorageStateScraper
 COLUMNS = [
     "scrape_timestamp", "retailer", "city", "state", "postal_code", "store", "store_id",
     "department", "category", "subcategory", "sub_subcategory", "category_id", "sku", "brand",
-    "product", "price_current", "price_regular", "promotion", "pickup_available",
+    "product", "price_current", "price_regular", "promotion",
+    "availability_status", "is_available", "availability_raw", "pickup_available",
     "store_context_verified", "store_context_method", "url", "price_raw",
 ]
 
@@ -90,8 +92,165 @@ def deduplicate_catalog(df: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([with_id, without_id], ignore_index=True)
 
 
-def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATED_PATH) -> Path:
-    """Actualiza un único Excel consolidado con la extracción actual."""
+def evaluate_legacy_output_quality(
+    df: pd.DataFrame,
+    scraper,
+    retailer: str,
+) -> tuple[bool, list[str], dict]:
+    """Valida una extracción legacy antes de reemplazar el master.
+
+    La última muestra válida se conserva cuando el scraper declara una corrida
+    parcial, no alcanza el target publicado o genera filas semánticamente
+    incompletas.
+    """
+    notes: list[str] = []
+    meta = (
+        getattr(scraper, "run_meta", None)
+        or getattr(scraper, "last_meta", None)
+        or {}
+    )
+    meta = dict(meta) if isinstance(meta, dict) else {}
+
+    if df.empty:
+        notes.append("sin productos")
+        return False, notes, meta
+
+    products = len(df)
+    product_complete = int(
+        df["product"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .ne("")
+        .sum()
+    )
+    if product_complete < products:
+        notes.append(
+            f"nombre producto {product_complete}/{products}"
+        )
+
+    availability = (
+        df["availability_status"]
+        .fillna("UNKNOWN")
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .replace("", "UNKNOWN")
+    )
+    price_required = ~availability.eq("UNAVAILABLE")
+    required_count = int(price_required.sum())
+    current = pd.to_numeric(
+        df["price_current"],
+        errors="coerce",
+    )
+    regular = pd.to_numeric(
+        df["price_regular"],
+        errors="coerce",
+    )
+    valid_price = int(
+        (
+            price_required
+            & current.notna()
+            & current.gt(0)
+        ).sum()
+    )
+    if valid_price < required_count:
+        notes.append(
+            f"precio requerido {valid_price}/{required_count}"
+        )
+
+    price_order_errors = int(
+        (
+            current.notna()
+            & regular.notna()
+            & regular.lt(current)
+        ).sum()
+    )
+    if price_order_errors:
+        notes.append(
+            f"regular<actual {price_order_errors}"
+        )
+
+    identifier_required = ~availability.eq("UNAVAILABLE")
+    identifier_required_count = int(identifier_required.sum())
+    sku_complete = int(
+        df.loc[identifier_required, "sku"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .ne("")
+        .sum()
+    )
+    url_complete = int(
+        df.loc[identifier_required, "url"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .ne("")
+        .sum()
+    )
+
+    if retailer not in {
+        "farmacias-san-pablo",
+        "ibarra-mayoreo",
+    }:
+        if sku_complete < identifier_required_count:
+            notes.append(
+                f"sku requeridos "
+                f"{sku_complete}/{identifier_required_count}"
+            )
+    if retailer != "farmacias-san-pablo":
+        if url_complete < identifier_required_count:
+            notes.append(
+                f"url requeridas "
+                f"{url_complete}/{identifier_required_count}"
+            )
+
+    raw_status = str(meta.get("status") or "").strip().upper()
+    if raw_status in {
+        "PARTIAL",
+        "EMPTY",
+        "BLOCKED",
+        "NETWORK_UNAVAILABLE",
+        "ERROR",
+        "DEFERRED",
+    }:
+        notes.append(f"scraper status={raw_status}")
+
+    target = meta.get("target_products")
+    if target is None:
+        target = meta.get("displayed_category_products")
+    try:
+        target_int = int(target) if target is not None else None
+    except (TypeError, ValueError):
+        target_int = None
+
+    if target_int is not None and products < target_int:
+        notes.append(
+            f"cobertura {products}/{target_int}"
+        )
+
+    if retailer in {"chedraui", "walmart"}:
+        if "store_context_verified" in df.columns:
+            verified = df["store_context_verified"].map(
+                lambda value: False
+                if pd.isna(value)
+                else bool(value)
+            )
+            verified_count = int(verified.sum())
+            if verified_count < products:
+                notes.append(
+                    f"contexto tienda {verified_count}/{products}"
+                )
+
+    return not notes, notes, meta
+
+
+def _update_consolidated_output_unlocked(
+    df: pd.DataFrame,
+    output_path: Path = CONSOLIDATED_PATH,
+) -> Path:
+    """Actualiza el consolidado; el caller debe poseer el lock."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     incoming = df.copy()
@@ -114,16 +273,40 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
     existing = existing[COLUMNS]
 
     if not incoming.empty:
-        retailer = str(incoming.iloc[0]["retailer"])
-        category_id = str(incoming.iloc[0]["category_id"])
-        city = incoming.iloc[0]["city"]
-        store_id = incoming.iloc[0]["store_id"]
+        key_columns = [
+            "retailer",
+            "category_id",
+            "city",
+            "store_id",
+        ]
 
-        same_retailer = existing["retailer"].astype(str).eq(retailer)
-        same_category = existing["category_id"].astype(str).eq(category_id)
-        same_city = existing["city"].fillna("").astype(str).eq("" if pd.isna(city) else str(city))
-        same_store = existing["store_id"].fillna("").astype(str).eq("" if pd.isna(store_id) else str(store_id))
-        existing = existing.loc[~(same_retailer & same_category & same_city & same_store)].copy()
+        def normalize_key_value(value) -> str:
+            if pd.isna(value):
+                return ""
+            if isinstance(value, float) and value.is_integer():
+                return str(int(value))
+            return str(value).strip()
+
+        incoming_keys = {
+            tuple(normalize_key_value(value) for value in row)
+            for row in incoming[key_columns].itertuples(
+                index=False,
+                name=None,
+            )
+        }
+        existing_keys = [
+            tuple(normalize_key_value(value) for value in row)
+            for row in existing[key_columns].itertuples(
+                index=False,
+                name=None,
+            )
+        ]
+        replace_mask = pd.Series(
+            [key in incoming_keys for key in existing_keys],
+            index=existing.index,
+            dtype=bool,
+        )
+        existing = existing.loc[~replace_mask].copy()
 
     if existing.empty:
         combined = incoming.copy()
@@ -166,7 +349,11 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
 
     if combined.empty:
         summary = pd.DataFrame(
-            columns=["retailer", "category_id", "city", "store", "store_id", "products", "sku_complete", "price_complete", "url_complete"]
+            columns=[
+                "retailer", "category_id", "city", "store", "store_id",
+                "products", "sku_complete", "price_complete", "url_complete",
+                "available_products", "unavailable_products", "availability_unknown",
+            ]
         )
     else:
         summary = (
@@ -176,36 +363,69 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
                 sku_complete=("sku", lambda s: int(s.notna().sum())),
                 price_complete=("price_current", lambda s: int(s.notna().sum())),
                 url_complete=("url", lambda s: int(s.notna().sum())),
+                available_products=("availability_status", lambda s: int(s.fillna("UNKNOWN").astype(str).str.upper().eq("AVAILABLE").sum())),
+                unavailable_products=("availability_status", lambda s: int(s.fillna("UNKNOWN").astype(str).str.upper().eq("UNAVAILABLE").sum())),
+                availability_unknown=("availability_status", lambda s: int(s.fillna("UNKNOWN").astype(str).str.upper().eq("UNKNOWN").sum())),
             )
             .reset_index()
         )
 
-    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        combined.to_excel(writer, index=False, sheet_name="Concentrado")
-        summary.to_excel(writer, index=False, sheet_name="Resumen")
+    with atomic_output_path(output_path) as temporary_output:
+        with pd.ExcelWriter(temporary_output, engine="openpyxl") as writer:
+            combined.to_excel(writer, index=False, sheet_name="Concentrado")
+            summary.to_excel(writer, index=False, sheet_name="Resumen")
 
-        workbook = writer.book
-        for sheet_name in ("Concentrado", "Resumen"):
-            ws = workbook[sheet_name]
-            ws.freeze_panes = "A2"
-            ws.auto_filter.ref = ws.dimensions
-            for cell in ws[1]:
-                header_font = copy(cell.font)
-                header_font.bold = True
-                cell.font = header_font
-            for col_cells in ws.columns:
-                values = [str(c.value) if c.value is not None else "" for c in col_cells[:200]]
-                width = min(max(max((len(v) for v in values), default=0) + 2, 10), 42)
-                ws.column_dimensions[col_cells[0].column_letter].width = width
+            workbook = writer.book
+            for sheet_name in ("Concentrado", "Resumen"):
+                ws = workbook[sheet_name]
+                ws.freeze_panes = "A2"
+                ws.auto_filter.ref = ws.dimensions
+                for cell in ws[1]:
+                    header_font = copy(cell.font)
+                    header_font.bold = True
+                    cell.font = header_font
+                for col_cells in ws.columns:
+                    values = [
+                        str(cell.value) if cell.value is not None else ""
+                        for cell in col_cells[:200]
+                    ]
+                    width = min(
+                        max(
+                            max(
+                                (len(value) for value in values),
+                                default=0,
+                            )
+                            + 2,
+                            10,
+                        ),
+                        42,
+                    )
+                    ws.column_dimensions[
+                        col_cells[0].column_letter
+                    ].width = width
 
-        for cell in workbook["Concentrado"]["P"]:
-            if cell.row > 1:
-                cell.number_format = '$#,##0.00'
-        for cell in workbook["Concentrado"]["Q"]:
-            if cell.row > 1:
-                cell.number_format = '$#,##0.00'
+            for cell in workbook["Concentrado"]["P"]:
+                if cell.row > 1:
+                    cell.number_format = '$#,##0.00'
+            for cell in workbook["Concentrado"]["Q"]:
+                if cell.row > 1:
+                    cell.number_format = '$#,##0.00'
 
     return output_path
+
+
+def update_consolidated_output(
+    df: pd.DataFrame,
+    output_path: Path = CONSOLIDATED_PATH,
+) -> Path:
+    """Actualiza el Excel maestro de forma serializada y atómica.
+
+    El lock cubre todo el ciclo read-modify-write para evitar pérdida de
+    actualizaciones cuando dos procesos intentan consolidar al mismo tiempo.
+    """
+    output_path = Path(output_path)
+    with exclusive_file_lock(output_path):
+        return _update_consolidated_output_unlocked(df, output_path)
 
 
 def main() -> int:
@@ -222,13 +442,25 @@ def main() -> int:
     parser.add_argument("--category", default="cuidado-bucal")
     parser.add_argument("--location", default=None)
     parser.add_argument("--store", default=None, help="Alias de ubicación para una tienda configurada")
-    parser.add_argument("--profile-dir", default=None, help="Perfil persistente de Playwright para Walmart")
+    parser.add_argument(
+        "--profile-dir",
+        default=None,
+        help="Perfil persistente de Playwright/Chrome para retailers compatibles.",
+    )
     parser.add_argument("--storage-state", default=None, help="Sesión portable de Playwright para Walmart")
     parser.add_argument("--headed", action="store_true", help="Abrir navegador visible")
     parser.add_argument(
         "--browser-channel",
         default=None,
         help="Canal de navegador Playwright, por ejemplo: chrome",
+    )
+    parser.add_argument(
+        "--debugger-address",
+        default=None,
+        help=(
+            "Chrome abierto manualmente para attach, "
+            "por ejemplo 127.0.0.1:9223."
+        ),
     )
     parser.add_argument("--max-load-more", type=int, default=100)
     args = parser.parse_args()
@@ -263,13 +495,18 @@ def main() -> int:
         raise SystemExit(f"Ubicación/tienda no encontrada: {location_id}")
 
     if args.retailer == "soriana":
+        profile_dir = args.profile_dir or ".soriana_profile"
         scraper = SorianaScraper(
             headless=not args.headed,
             max_load_more=args.max_load_more,
             browser_channel=args.browser_channel,
+            profile_dir=profile_dir,
         )
         try:
             rows = scraper.scrape_category(category, location)
+        except SorianaDeferred as exc:
+            print(f"DEFERRED: {exc}")
+            return 6
         except SorianaBlocked as exc:
             print(f"BLOCKED: {exc}")
             return 2
@@ -299,10 +536,12 @@ def main() -> int:
             print(f"STORE_CONTEXT_ERROR: {exc}")
             return 4
     elif args.retailer == "chedraui":
+        profile_dir = args.profile_dir or ".chedraui_profile"
         scraper = ChedrauiScraper(
             headless=not args.headed,
             max_pages=args.max_load_more,
             browser_channel=args.browser_channel,
+            profile_dir=profile_dir,
         )
         try:
             rows = scraper.scrape_category(category, location)
@@ -342,6 +581,10 @@ def main() -> int:
         scraper = FarmaciasSanPabloScraper(
             headless=not args.headed,
             max_pages=args.max_load_more,
+            profile_dir=(
+                None if args.debugger_address else args.profile_dir
+            ),
+            debugger_address=args.debugger_address,
         )
         try:
             rows = scraper.scrape_category(category, location)
@@ -356,6 +599,7 @@ def main() -> int:
             headless=not args.headed,
             browser_channel=args.browser_channel or "chrome",
             max_pages=args.max_load_more,
+            profile_dir=args.profile_dir,
         )
         try:
             rows = scraper.scrape_category(category, location)
@@ -370,6 +614,7 @@ def main() -> int:
             headless=not args.headed,
             browser_channel=args.browser_channel or "chrome",
             max_scroll_rounds=args.max_load_more,
+            profile_dir=args.profile_dir,
         )
         try:
             rows = scraper.scrape_category(category, location)
@@ -398,6 +643,7 @@ def main() -> int:
             headless=not args.headed,
             browser_channel=args.browser_channel or "chrome",
             max_pages=args.max_load_more,
+            profile_dir=args.profile_dir,
         )
         try:
             rows = scraper.scrape_category(category, location)
@@ -422,7 +668,26 @@ def main() -> int:
         df = deduplicate_catalog(df)
         df = df.sort_values(["brand", "product"], na_position="last").reset_index(drop=True)
 
-    consolidated_path = update_consolidated_output(df)
+    quality_pass, quality_notes, quality_meta = (
+        evaluate_legacy_output_quality(
+            df,
+            scraper,
+            args.retailer,
+        )
+    )
+
+    if quality_pass:
+        consolidated_path = update_consolidated_output(df)
+        print("QUALITY_GATE: PASS")
+    else:
+        consolidated_path = CONSOLIDATED_PATH
+        print(
+            "QUALITY_GATE: FAIL | "
+            + "; ".join(quality_notes)
+        )
+        print(
+            "Consolidado protegido: se conserva la última muestra válida."
+        )
 
     if args.retailer == "chedraui":
         displayed = getattr(scraper, "run_meta", {}).get("displayed_category_products")
@@ -439,6 +704,8 @@ def main() -> int:
     if df.empty:
         print("No se encontraron productos. Revisa diagnostics/.")
         return 3
+    if not quality_pass:
+        return 7
     return 0
 
 

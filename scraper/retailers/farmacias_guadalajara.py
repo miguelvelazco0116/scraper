@@ -183,36 +183,282 @@ class FarmaciasGuadalajaraScraper:
             f"Detalle: {detail}"
         )
 
-    def _expand_all_products(self, page, target: int | None) -> None:
+    def _expand_all_products(
+        self,
+        page,
+        target: int | None,
+    ) -> list[dict]:
+        """Expande el catálogo hasta el total publicado o hasta estabilizarse."""
         stable_rounds = 0
         previous = self._product_link_count(page)
-        for _ in range(self.max_load_more):
+        trace: list[dict] = []
+
+        load_more_re = re.compile(
+            r"(Ver\s+m[aá]s\s+productos|Mostrar\s+los\s+siguientes.*productos)",
+            re.IGNORECASE,
+        )
+
+        for round_number in range(1, self.max_load_more + 1):
             if target and previous >= target:
                 break
 
-            button = page.get_by_text(
-                re.compile(
-                    r"^(Ver más productos|Mostrar los siguientes .*productos)$",
-                    re.IGNORECASE,
-                )
-            ).last
             try:
-                if button.count() == 0 or not button.is_visible(timeout=1_500):
-                    break
-                button.scroll_into_view_if_needed()
-                button.click(timeout=10_000)
-                page.wait_for_timeout(1_500)
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.wait_for_timeout(900)
             except Exception:
+                pass
+
+            clicked = False
+            click_method = None
+            clicked_frame_url = None
+            candidate_count = 0
+            frame_diagnostics: list[dict] = []
+
+            # Recorre la página principal y cualquier iframe que pueda alojar
+            # el control de "Ver más productos".
+            for frame in page.frames:
+                frame_url = frame.url or "about:blank"
+                frame_info = {
+                    "url": frame_url,
+                    "text_match": False,
+                    "candidate_count": 0,
+                }
+
+                try:
+                    body_text = frame.locator("body").inner_text(timeout=2_000)
+                    frame_info["text_match"] = bool(
+                        re.search(
+                            r"ver\s+m[aá]s\s+productos|mostrar\s+los\s+siguientes",
+                            body_text or "",
+                            flags=re.IGNORECASE,
+                        )
+                    )
+                except Exception:
+                    body_text = ""
+
+                locators = [
+                    frame.get_by_role("button", name=load_more_re),
+                    frame.locator("button").filter(has_text=load_more_re),
+                    frame.locator("a").filter(has_text=load_more_re),
+                    frame.locator('[role="button"]').filter(has_text=load_more_re),
+                    frame.get_by_text(load_more_re),
+                    frame.locator(
+                        '[aria-label*="producto" i], [title*="producto" i], '
+                        'input[value*="producto" i]'
+                    ).filter(has_text=load_more_re),
+                ]
+
+                button = None
+                for locator in locators:
+                    try:
+                        count = locator.count()
+                    except Exception:
+                        continue
+
+                    frame_info["candidate_count"] = max(
+                        frame_info["candidate_count"],
+                        count,
+                    )
+                    candidate_count = max(candidate_count, count)
+
+                    for index in range(count):
+                        item = locator.nth(index)
+                        try:
+                            if item.is_visible(timeout=800):
+                                button = item
+                                break
+                        except Exception:
+                            continue
+                    if button is not None:
+                        break
+
+                frame_diagnostics.append(frame_info)
+
+                if button is not None:
+                    try:
+                        button.scroll_into_view_if_needed(timeout=5_000)
+                    except Exception:
+                        pass
+                    try:
+                        button.click(timeout=10_000)
+                        clicked = True
+                        click_method = "playwright_frame"
+                        clicked_frame_url = frame_url
+                        break
+                    except Exception:
+                        try:
+                            button.evaluate("el => el.click()")
+                            clicked = True
+                            click_method = "dom_frame"
+                            clicked_frame_url = frame_url
+                            break
+                        except Exception:
+                            pass
+
+                # Fallback DOM: localiza cualquier nodo visible cuyo texto,
+                # aria-label, title o value corresponda al control y hace
+                # click sobre él o su ancestro interactivo más cercano.
+                try:
+                    result = frame.evaluate(
+                        """
+                        () => {
+                          const norm = value => (value || '')
+                            .replace(/\\s+/g, ' ')
+                            .trim()
+                            .toLowerCase();
+
+                          const matches = el => {
+                            const blob = [
+                              el.innerText,
+                              el.textContent,
+                              el.getAttribute && el.getAttribute('aria-label'),
+                              el.getAttribute && el.getAttribute('title'),
+                              el.value
+                            ].filter(Boolean).map(norm).join(' | ');
+                            return blob.includes('ver más productos')
+                              || blob.includes('ver mas productos')
+                              || blob.includes('mostrar los siguientes');
+                          };
+
+                          const visible = el => {
+                            if (!el || !el.getBoundingClientRect) return false;
+                            const style = getComputedStyle(el);
+                            const rect = el.getBoundingClientRect();
+                            return style.display !== 'none'
+                              && style.visibility !== 'hidden'
+                              && Number(style.opacity || 1) !== 0
+                              && rect.width > 0
+                              && rect.height > 0;
+                          };
+
+                          const nodes = Array.from(
+                            document.querySelectorAll(
+                              'button, a, [role="button"], input, div, span'
+                            )
+                          );
+
+                          for (const node of nodes) {
+                            if (!visible(node) || !matches(node)) continue;
+
+                            let clickable = node.closest(
+                              'button, a, [role="button"], input[type="button"], input[type="submit"]'
+                            );
+
+                            if (!clickable) {
+                              let parent = node;
+                              for (
+                                let i = 0;
+                                i < 8 && parent;
+                                i++, parent = parent.parentElement
+                              ) {
+                                if (
+                                  typeof parent.onclick === 'function'
+                                  || parent.hasAttribute('onclick')
+                                  || getComputedStyle(parent).cursor === 'pointer'
+                                ) {
+                                  clickable = parent;
+                                  break;
+                                }
+                              }
+                            }
+
+                            clickable = clickable || node;
+                            if (!visible(clickable)) continue;
+
+                            clickable.scrollIntoView({
+                              block: 'center',
+                              inline: 'center'
+                            });
+                            clickable.click();
+
+                            return {
+                              clicked: true,
+                              tag: clickable.tagName,
+                              text: norm(
+                                clickable.innerText
+                                || clickable.textContent
+                                || clickable.getAttribute('aria-label')
+                                || clickable.getAttribute('title')
+                                || clickable.value
+                              ).slice(0, 200)
+                            };
+                          }
+
+                          return {clicked: false};
+                        }
+                        """
+                    )
+                except Exception as exc:
+                    result = {
+                        "clicked": False,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+
+                if result and result.get("clicked"):
+                    clicked = True
+                    click_method = "dom_text_frame"
+                    clicked_frame_url = frame_url
+                    frame_info["dom_result"] = result
+                    break
+
+            if not clicked:
+                trace.append(
+                    {
+                        "round": round_number,
+                        "before": previous,
+                        "after": previous,
+                        "candidate_count": candidate_count,
+                        "clicked": False,
+                        "reason": "load_more_not_found_in_any_frame",
+                        "frames": frame_diagnostics,
+                    }
+                )
                 break
 
+            # Espera hasta que el catálogo principal incorpore nuevos enlaces.
+            try:
+                page.wait_for_function(
+                    """
+                    previous => {
+                      const re = /-\\d{5,14}\\.html(?:$|[?#])/i;
+                      const hrefs = Array.from(
+                        document.querySelectorAll('a[href*=".html"]')
+                      )
+                        .map(a => a.href || '')
+                        .filter(h => re.test(h));
+                      return new Set(hrefs).size > previous;
+                    }
+                    """,
+                    arg=previous,
+                    timeout=15_000,
+                )
+            except Exception:
+                page.wait_for_timeout(2_500)
+
             current = self._product_link_count(page)
+            trace.append(
+                {
+                    "round": round_number,
+                    "before": previous,
+                    "after": current,
+                    "candidate_count": candidate_count,
+                    "clicked": True,
+                    "click_method": click_method,
+                    "frame_url": clicked_frame_url,
+                    "frames": frame_diagnostics,
+                }
+            )
+
             if current <= previous:
                 stable_rounds += 1
             else:
                 stable_rounds = 0
+
             previous = current
             if stable_rounds >= 2:
                 break
+
+        return trace
 
     @staticmethod
     def _extract_cards(page) -> list[dict]:
@@ -261,6 +507,88 @@ class FarmaciasGuadalajaraScraper:
             """
         )
 
+    def extract_loaded_page(
+        self,
+        page,
+        category: Category,
+        location: Location,
+        *,
+        expand: bool = True,
+        context_method: str = "online_catalog_no_store_requested",
+    ) -> tuple[list[dict], dict]:
+        """Extrae una categoría ya cargada en el navegador.
+
+        Este método no navega a ninguna URL. Está pensado tanto para el flujo
+        normal después de page.goto() como para sesiones abiertas manualmente
+        y conectadas por CDP.
+        """
+        self._assert_not_blocked(page)
+        target = self._target_count(page)
+        expansion_trace: list[dict] = []
+        if expand:
+            expansion_trace = self._expand_all_products(page, target)
+        cards = self._extract_cards(page)
+
+        now = datetime.now().astimezone().isoformat(timespec="seconds")
+        rows: list[dict] = []
+        for card in cards:
+            url = urljoin(BASE_URL, card.get("href") or "")
+            sku = clean_text(card.get("dataPid")) or self.extract_sku(url)
+            product = clean_text(card.get("name"))
+            if not sku or not product:
+                continue
+
+            current, regular, promotion = self._prices_from_text(
+                card.get("text")
+            )
+            if current is None:
+                continue
+            brand = clean_text(card.get("brand")) or self._infer_brand(
+                product,
+                card.get("text"),
+            )
+
+            rows.append(
+                {
+                    "scrape_timestamp": now,
+                    "retailer": "Farmacias Guadalajara",
+                    "city": location.city,
+                    "state": location.state,
+                    "postal_code": location.postal_code,
+                    "store": location.store,
+                    "store_id": location.store_id,
+                    "department": category.department,
+                    "category": category.name,
+                    "subcategory": category.subcategory,
+                    "sub_subcategory": category.sub_subcategory,
+                    "category_id": category.id,
+                    "sku": sku,
+                    "brand": brand,
+                    "product": product,
+                    "price_current": current,
+                    "price_regular": regular,
+                    "promotion": promotion,
+                    "pickup_available": None,
+                    "store_context_verified": False,
+                    "store_context_method": context_method,
+                    "url": url,
+                    "price_raw": clean_text(card.get("text")),
+                }
+            )
+
+        unique = {(row["sku"], row["url"]): row for row in rows}
+        rows = list(unique.values())
+        meta = {
+            "category_id": category.id,
+            "url": page.url,
+            "target_products": target,
+            "product_links": self._product_link_count(page),
+            "rows": len(rows),
+            "store_context": context_method,
+            "expansion_trace": expansion_trace,
+        }
+        return rows, meta
+
     def _write_network_diagnostic(self, category: Category, exc: Exception) -> None:
         meta = {
             "retailer": "Farmacias Guadalajara",
@@ -305,66 +633,13 @@ class FarmaciasGuadalajaraScraper:
                     raise RuntimeError(f"HTTP {response.status} en {category.url}")
 
                 page.wait_for_timeout(3_000)
-                self._assert_not_blocked(page)
-                target = self._target_count(page)
-                self._expand_all_products(page, target)
-                cards = self._extract_cards(page)
-
-                now = datetime.now().astimezone().isoformat(timespec="seconds")
-                rows: list[dict] = []
-                for card in cards:
-                    url = urljoin(BASE_URL, card.get("href") or "")
-                    sku = clean_text(card.get("dataPid")) or self.extract_sku(url)
-                    product = clean_text(card.get("name"))
-                    if not sku or not product:
-                        continue
-
-                    current, regular, promotion = self._prices_from_text(card.get("text"))
-                    if current is None:
-                        continue
-                    brand = clean_text(card.get("brand")) or self._infer_brand(
-                        product,
-                        card.get("text"),
-                    )
-
-                    rows.append(
-                        {
-                            "scrape_timestamp": now,
-                            "retailer": "Farmacias Guadalajara",
-                            "city": location.city,
-                            "state": location.state,
-                            "postal_code": location.postal_code,
-                            "store": location.store,
-                            "store_id": location.store_id,
-                            "department": category.department,
-                            "category": category.name,
-                            "subcategory": category.subcategory,
-                            "sub_subcategory": category.sub_subcategory,
-                            "category_id": category.id,
-                            "sku": sku,
-                            "brand": brand,
-                            "product": product,
-                            "price_current": current,
-                            "price_regular": regular,
-                            "promotion": promotion,
-                            "pickup_available": None,
-                            "store_context_verified": False,
-                            "store_context_method": "online_catalog_no_store_requested",
-                            "url": url,
-                            "price_raw": clean_text(card.get("text")),
-                        }
-                    )
-
-                unique = {(row["sku"], row["url"]): row for row in rows}
-                rows = list(unique.values())
-                meta = {
-                    "category_id": category.id,
-                    "url": category.url,
-                    "target_products": target,
-                    "product_links": self._product_link_count(page),
-                    "rows": len(rows),
-                    "store_context": "online_catalog_no_store_requested",
-                }
+                rows, meta = self.extract_loaded_page(
+                    page,
+                    category,
+                    location,
+                    expand=True,
+                    context_method="online_catalog_no_store_requested",
+                )
                 (DIAGNOSTICS / f"farmacias_guadalajara_{slug}.json").write_text(
                     json.dumps(meta, ensure_ascii=False, indent=2),
                     encoding="utf-8",

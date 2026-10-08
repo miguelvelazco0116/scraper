@@ -12,6 +12,7 @@ import pandas as pd
 
 from main import COLUMNS
 from scraper.config import load_categories, load_locations
+from scraper.io_utils import atomic_output_path
 from scraper.retailers.la_comer import (
     LaComerBlocked,
     LaComerNetworkUnavailable,
@@ -23,8 +24,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Test de categorías La Comer")
     parser.add_argument(
         "--category",
-        default="detergentes-suavizantes",
+        default="cuidado-bucal",
         help="ID de categoría configurada para La Comer",
+    )
+    parser.add_argument(
+        "--profile-dir",
+        default=".la_comer_profile",
+        help="Perfil persistente local de La Comer.",
+    )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Ejecuta Chrome sin ventana.",
     )
     args = parser.parse_args()
 
@@ -60,9 +71,10 @@ def main() -> int:
     print("")
 
     scraper = LaComerScraper(
-        headless=False,
+        headless=args.headless,
         browser_channel="chrome",
         max_scroll_rounds=100,
+        profile_dir=args.profile_dir,
     )
 
     rows: list[dict] = []
@@ -103,6 +115,39 @@ def main() -> int:
     if status == "SUCCESS" and df.empty:
         status = "EMPTY"
 
+    current = pd.to_numeric(
+        df["price_current"],
+        errors="coerce",
+    ) if not df.empty else pd.Series(dtype=float)
+    regular = pd.to_numeric(
+        df["price_regular"],
+        errors="coerce",
+    ) if not df.empty else pd.Series(dtype=float)
+    price_order_errors = int(
+        (
+            current.notna()
+            & regular.notna()
+            & regular.lt(current)
+        ).sum()
+    ) if not df.empty else 0
+    store_context_verified = int(
+        df["store_context_verified"]
+        .fillna(False)
+        .astype(bool)
+        .sum()
+    ) if not df.empty else 0
+
+    if status == "SUCCESS":
+        price_complete = int(
+            (current.notna() & current.gt(0)).sum()
+        )
+        if (
+            price_complete < len(df)
+            or price_order_errors > 0
+            or store_context_verified < len(df)
+        ):
+            status = "PARTIAL"
+
     summary = pd.DataFrame(
         [
             {
@@ -117,8 +162,10 @@ def main() -> int:
                     df["sku"].fillna("").astype(str).str.strip().ne("").sum()
                 ) if not df.empty else 0,
                 "price_complete": int(
-                    df["price_current"].notna().sum()
+                    (current.notna() & current.gt(0)).sum()
                 ) if not df.empty else 0,
+                "price_order_errors": price_order_errors,
+                "store_context_verified": store_context_verified,
                 "url_complete": int(
                     df["url"].fillna("").astype(str).str.strip().ne("").sum()
                 ) if not df.empty else 0,
@@ -128,9 +175,21 @@ def main() -> int:
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Concentrado")
-        summary.to_excel(writer, index=False, sheet_name="Resumen")
+    with atomic_output_path(output_path) as temporary_output:
+        with pd.ExcelWriter(
+            temporary_output,
+            engine="openpyxl",
+        ) as writer:
+            df.to_excel(
+                writer,
+                index=False,
+                sheet_name="Concentrado",
+            )
+            summary.to_excel(
+                writer,
+                index=False,
+                sheet_name="Resumen",
+            )
 
     meta = scraper.run_meta or {}
     print("RESULTADO")
@@ -139,6 +198,14 @@ def main() -> int:
     print(f"sku_complete   : {summary.iloc[0]['sku_complete']}")
     print(f"price_complete : {summary.iloc[0]['price_complete']}")
     print(f"url_complete   : {summary.iloc[0]['url_complete']}")
+    print(
+        f"store_context  : "
+        f"{summary.iloc[0]['store_context_verified']}/{len(df)}"
+    )
+    print(
+        f"price_order_err: "
+        f"{summary.iloc[0]['price_order_errors']}"
+    )
     print("")
     for query, info in (meta.get("queries") or {}).items():
         print(

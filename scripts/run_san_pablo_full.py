@@ -13,6 +13,7 @@ import pandas as pd
 
 from main import COLUMNS, CONSOLIDATED_PATH, update_consolidated_output
 from scraper.config import load_categories, load_locations
+from scraper.io_utils import atomic_output_path
 from scraper.retailers.farmacias_san_pablo import (
     FarmaciasSanPabloBlocked,
     FarmaciasSanPabloNetworkUnavailable,
@@ -33,30 +34,40 @@ def _write_test_output(
     df = pd.DataFrame(rows, columns=COLUMNS)
     summary = pd.DataFrame(summaries)
 
-    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Concentrado")
-        summary.to_excel(writer, index=False, sheet_name="Resumen")
+    with atomic_output_path(output_path) as temporary_output:
+        with pd.ExcelWriter(temporary_output, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="Concentrado")
+            summary.to_excel(writer, index=False, sheet_name="Resumen")
 
-        workbook = writer.book
-        for sheet_name in ("Concentrado", "Resumen"):
-            ws = workbook[sheet_name]
-            ws.freeze_panes = "A2"
-            ws.auto_filter.ref = ws.dimensions
-            for cell in ws[1]:
-                font = copy(cell.font)
-                font.bold = True
-                cell.font = font
+            workbook = writer.book
+            for sheet_name in ("Concentrado", "Resumen"):
+                ws = workbook[sheet_name]
+                ws.freeze_panes = "A2"
+                ws.auto_filter.ref = ws.dimensions
+                for cell in ws[1]:
+                    font = copy(cell.font)
+                    font.bold = True
+                    cell.font = font
 
-            for col_cells in ws.columns:
-                values = [
-                    str(cell.value) if cell.value is not None else ""
-                    for cell in col_cells[:200]
-                ]
-                width = min(
-                    max(max((len(value) for value in values), default=0) + 2, 10),
-                    42,
-                )
-                ws.column_dimensions[col_cells[0].column_letter].width = width
+                for col_cells in ws.columns:
+                    values = [
+                        str(cell.value) if cell.value is not None else ""
+                        for cell in col_cells[:200]
+                    ]
+                    width = min(
+                        max(
+                            max(
+                                (len(value) for value in values),
+                                default=0,
+                            )
+                            + 2,
+                            10,
+                        ),
+                        42,
+                    )
+                    ws.column_dimensions[
+                        col_cells[0].column_letter
+                    ].width = width
 
 
 def _safe_for_global(df: pd.DataFrame) -> pd.DataFrame:
@@ -80,6 +91,24 @@ def main() -> int:
         action="store_true",
         help="Ejecuta Chrome sin ventana. Por defecto el test es visible.",
     )
+    parser.add_argument(
+        "--profile-dir",
+        default=".san_pablo_profile",
+        help="Perfil persistente de Chrome cuando el script abre navegador.",
+    )
+    parser.add_argument(
+        "--debugger-address",
+        default=None,
+        help=(
+            "Chrome abierto manualmente con remote debugging, "
+            "por ejemplo 127.0.0.1:9223."
+        ),
+    )
+    parser.add_argument(
+        "--update-consolidated",
+        action="store_true",
+        help="Actualiza el master sólo cuando se solicita explícitamente.",
+    )
     args = parser.parse_args()
 
     categories = load_categories(
@@ -102,8 +131,23 @@ def main() -> int:
     print("FARMACIAS SAN PABLO - TEST COMPLETO")
     print("=" * 68)
     print(f"Categorías : {len(categories)}")
+    print(
+        "Browser    : "
+        + (
+            f"manual attach {args.debugger_address}"
+            if args.debugger_address
+            else "script-managed Chrome"
+        )
+    )
     print(f"Salida     : {OUTPUT_PATH}")
-    print(f"Consolidado: {CONSOLIDATED_PATH}")
+    print(
+        "Consolidado: "
+        + (
+            str(CONSOLIDATED_PATH)
+            if args.update_consolidated
+            else "sin cambios"
+        )
+    )
     print("")
 
     for index, category in enumerate(categories, start=1):
@@ -115,6 +159,10 @@ def main() -> int:
         scraper = FarmaciasSanPabloScraper(
             headless=args.headless,
             max_pages=args.max_pages,
+            profile_dir=(
+                None if args.debugger_address else args.profile_dir
+            ),
+            debugger_address=args.debugger_address,
         )
 
         status = "SUCCESS"
@@ -156,9 +204,13 @@ def main() -> int:
             ).reset_index(drop=True)
             all_rows.extend(df.to_dict("records"))
 
-            safe = _safe_for_global(df)
-            if not safe.empty:
-                update_consolidated_output(safe, ROOT / CONSOLIDATED_PATH)
+            if args.update_consolidated:
+                safe = _safe_for_global(df)
+                if not safe.empty:
+                    update_consolidated_output(
+                        safe,
+                        ROOT / CONSOLIDATED_PATH,
+                    )
 
         target = meta.get("target_products")
         products = len(df)
@@ -183,6 +235,16 @@ def main() -> int:
         url_complete = int(
             df["url"].fillna("").astype(str).str.strip().ne("").sum()
         ) if not df.empty else 0
+        availability = (
+            df["availability_status"]
+            .fillna("UNKNOWN")
+            .astype(str)
+            .str.strip()
+            .str.upper()
+        ) if not df.empty else pd.Series(dtype=str)
+        available_products = int(availability.eq("AVAILABLE").sum())
+        unavailable_products = int(availability.eq("UNAVAILABLE").sum())
+        availability_unknown = int(availability.eq("UNKNOWN").sum())
 
         # Para San Pablo, el objetivo operativo es pricing/promoción.
         # SKU y URL se reportan como métricas informativas, no bloqueantes.
@@ -205,6 +267,9 @@ def main() -> int:
                 "sku_complete": sku_complete,
                 "url_complete": url_complete,
                 "price_complete": price_complete,
+                "available_products": available_products,
+                "unavailable_products": unavailable_products,
+                "availability_unknown": availability_unknown,
                 "missing_identifier": missing_identifier,
                 "status": status,
                 "error": error,
@@ -218,7 +283,8 @@ def main() -> int:
             f"target={target} products={products} "
             f"sku={sku_complete}/{products} url={url_complete}/{products} "
             f"price={price_complete}/{products} "
-            f"missing_id={missing_identifier}"
+            f"available={available_products} unavailable={unavailable_products} "
+            f"unknown={availability_unknown} missing_id={missing_identifier}"
         )
         print(f"Output actualizado: {OUTPUT_PATH}")
         print("")
@@ -234,7 +300,14 @@ def main() -> int:
 
     print("")
     print(f"Archivo de prueba : {OUTPUT_PATH}")
-    print(f"Consolidado global: {ROOT / CONSOLIDATED_PATH}")
+    print(
+        "Consolidado global: "
+        + (
+            str(ROOT / CONSOLIDATED_PATH)
+            if args.update_consolidated
+            else "sin cambios"
+        )
+    )
 
     successful = all(
         item["status"] == "SUCCESS"

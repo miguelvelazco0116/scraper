@@ -12,6 +12,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
+from ..availability import UNAVAILABLE, availability_fields
 from ..config import Category, Location
 from ..parsers import clean_text, extract_sku
 
@@ -84,12 +85,18 @@ class BodegaAurreraScraper:
         max_pages: int = 30,
         wait_ms: int = 1200,
         manual_verification_timeout_ms: int = 180_000,
+        profile_dir: str | Path | None = None,
     ) -> None:
         self.headless = headless
         self.browser_channel = browser_channel
         self.max_pages = max_pages
         self.wait_ms = wait_ms
         self.manual_verification_timeout_ms = manual_verification_timeout_ms
+        self.profile_dir = (
+            Path(profile_dir).expanduser().resolve()
+            if profile_dir
+            else None
+        )
         self.run_meta: dict[str, Any] = {}
 
     @staticmethod
@@ -228,6 +235,7 @@ class BodegaAurreraScraper:
 
               const out = [];
               const seen = new Set();
+              const unavailable = /Agotado|No disponible|Sin existencia|Sin stock|Out of stock/i;
 
               for (const a of Array.from(
                 document.querySelectorAll('a[href*="/ip/"]')
@@ -242,7 +250,7 @@ class BodegaAurreraScraper:
                   const text = normalize(card.innerText || card.textContent);
                   if (
                     text &&
-                    /\$\s*[0-9][0-9,]*(?:\.\d{1,2})?/.test(text) &&
+                    (/\$\s*[0-9][0-9,]*(?:\.\d{1,2})?/.test(text) || unavailable.test(text)) &&
                     text.length >= 10 &&
                     text.length <= 3500
                   ) {
@@ -406,7 +414,8 @@ class BodegaAurreraScraper:
                 continue
 
             current, regular = self._prices(text)
-            if current is None:
+            availability = availability_fields(text=text)
+            if current is None and availability["availability_status"] != UNAVAILABLE:
                 rejected_missing_price += 1
                 continue
 
@@ -433,6 +442,7 @@ class BodegaAurreraScraper:
                     "price_current": current,
                     "price_regular": regular,
                     "promotion": self._promotion(text),
+                    **availability,
                     "pickup_available": None,
                     "store_context_verified": False,
                     "store_context_method": (
@@ -727,11 +737,15 @@ class BodegaAurreraScraper:
         }
         return new_rows, source_meta
 
-    def scrape_category(
+    def scrape_category_on_page(
         self,
+        page,
         category: Category,
         location: Location,
+        *,
+        navigate_to_category: bool = True,
     ) -> list[dict]:
+        """Extrae una categoría usando una pestaña/sesión ya existente."""
         self.run_meta = {
             "retailer": "Bodega Aurrera",
             "category_id": category.id,
@@ -740,91 +754,126 @@ class BodegaAurreraScraper:
             "manual_verification_required": False,
             "manual_verification_resolved": False,
             "sources": [],
+            "attached_session": True,
         }
 
+        if navigate_to_category:
+            self._goto(page, category.url)
+        else:
+            self._assert_not_blocked(page)
+
+        child_urls = self._content_child_urls(page, category)
+        sources = [category.url] + [
+            url for url in child_urls if url != category.url
+        ]
+
+        self.run_meta["content_child_urls"] = child_urls
+        self.run_meta["sources_discovered"] = len(sources)
+
+        rows: list[dict] = []
+        seen_skus: set[str] = set()
+
+        for source_index, source_url in enumerate(sources, start=1):
+            source_rows, source_meta = self._collect_source(
+                page,
+                source_url,
+                category,
+                location,
+                seen_skus,
+            )
+            rows.extend(source_rows)
+            source_meta["source_index"] = source_index
+            self.run_meta["sources"].append(source_meta)
+
+            print(
+                f"Bodega Aurrera source={source_index}/{len(sources)}: "
+                f"rows={source_meta.get('rows')}, "
+                f"new={source_meta.get('new_rows')}, "
+                f"cumulative={len(rows)}, "
+                f"explicit_pages={source_meta.get('explicit_pages')}, "
+                f"stabilized={source_meta.get('stabilized')}",
+                flush=True,
+            )
+
+        self.run_meta["unique_products"] = len(rows)
+        self.run_meta["sku_complete"] = sum(
+            bool(row.get("sku")) for row in rows
+        )
+        self.run_meta["price_complete"] = sum(
+            row.get("price_current") is not None for row in rows
+        )
+        self.run_meta["url_complete"] = sum(
+            bool(row.get("url")) for row in rows
+        )
+
+        stabilized = all(
+            bool(item.get("stabilized"))
+            and bool(item.get("explicit_pages_stabilized", True))
+            for item in self.run_meta.get("sources", [])
+            if not item.get("no_product_links")
+        )
+        self.run_meta["pagination_verified"] = stabilized
+        self.run_meta["status"] = (
+            "SUCCESS"
+            if rows and stabilized
+            else "PARTIAL"
+            if rows
+            else "EMPTY"
+        )
+
+        self._save_diagnostics(
+            page,
+            f"success_{category.id}",
+        )
+        return rows
+
+    def scrape_category(
+        self,
+        category: Category,
+        location: Location,
+    ) -> list[dict]:
         with sync_playwright() as p:
             launch_kwargs = {"headless": self.headless}
             if self.browser_channel:
                 launch_kwargs["channel"] = self.browser_channel
 
-            browser = p.chromium.launch(**launch_kwargs)
-            context = browser.new_context(
-                locale="es-MX",
-                viewport={"width": 1440, "height": 1000},
-            )
-            page = context.new_page()
+            browser = None
+            if self.profile_dir is not None:
+                self.profile_dir.mkdir(parents=True, exist_ok=True)
+                context = p.chromium.launch_persistent_context(
+                    user_data_dir=str(self.profile_dir),
+                    locale="es-MX",
+                    viewport={"width": 1440, "height": 1000},
+                    **launch_kwargs,
+                )
+                page = (
+                    context.pages[0]
+                    if context.pages
+                    else context.new_page()
+                )
+                self.run_meta["profile_dir"] = str(self.profile_dir)
+                self.run_meta["persistent_context"] = True
+            else:
+                browser = p.chromium.launch(**launch_kwargs)
+                context = browser.new_context(
+                    locale="es-MX",
+                    viewport={"width": 1440, "height": 1000},
+                )
+                page = context.new_page()
+                self.run_meta["profile_dir"] = None
+                self.run_meta["persistent_context"] = False
 
             try:
-                # Open the configured category first so we can discover
-                # content subsections instead of inventing ?page=N URLs.
-                self._goto(page, category.url)
-                child_urls = self._content_child_urls(page, category)
-                sources = [category.url] + [
-                    url for url in child_urls if url != category.url
-                ]
-
-                self.run_meta["content_child_urls"] = child_urls
-                self.run_meta["sources_discovered"] = len(sources)
-
-                rows: list[dict] = []
-                seen_skus: set[str] = set()
-
-                for source_index, source_url in enumerate(sources, start=1):
-                    source_rows, source_meta = self._collect_source(
-                        page,
-                        source_url,
-                        category,
-                        location,
-                        seen_skus,
-                    )
-                    rows.extend(source_rows)
-                    source_meta["source_index"] = source_index
-                    self.run_meta["sources"].append(source_meta)
-
-                    print(
-                        f"Bodega Aurrera source={source_index}/{len(sources)}: "
-                        f"rows={source_meta.get('rows')}, "
-                        f"new={source_meta.get('new_rows')}, "
-                        f"cumulative={len(rows)}, "
-                        f"explicit_pages={source_meta.get('explicit_pages')}, "
-                        f"stabilized={source_meta.get('stabilized')}",
-                        flush=True,
-                    )
-
-                self.run_meta["unique_products"] = len(rows)
-                self.run_meta["sku_complete"] = sum(
-                    bool(row.get("sku")) for row in rows
-                )
-                self.run_meta["price_complete"] = sum(
-                    row.get("price_current") is not None for row in rows
-                )
-                self.run_meta["url_complete"] = sum(
-                    bool(row.get("url")) for row in rows
-                )
-
-                stabilized = all(
-                    bool(item.get("stabilized"))
-                    and bool(item.get("explicit_pages_stabilized", True))
-                    for item in self.run_meta.get("sources", [])
-                    if not item.get("no_product_links")
-                )
-                self.run_meta["pagination_verified"] = stabilized
-                self.run_meta["status"] = (
-                    "SUCCESS"
-                    if rows and stabilized
-                    else "PARTIAL"
-                    if rows
-                    else "EMPTY"
-                )
-
-                self._save_diagnostics(
+                return self.scrape_category_on_page(
                     page,
-                    f"success_{category.id}",
+                    category,
+                    location,
+                    navigate_to_category=True,
                 )
-                return rows
             finally:
                 context.close()
-                browser.close()
+                if browser is not None:
+                    browser.close()
 
 
 __all__ = [

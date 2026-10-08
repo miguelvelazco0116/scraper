@@ -2,7 +2,10 @@ param(
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = "",
     [string]$Category = "all",
-    [int]$MaxPages = 20
+    [int]$MaxPages = 20,
+    [string]$ProfileDir = ".san_pablo_profile",
+    [string]$DebuggerAddress = "127.0.0.1:9223",
+    [switch]$UpdateConsolidated
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,7 +26,7 @@ if ([string]::IsNullOrWhiteSpace($PythonExe)) {
     if ($cmd) { $PythonExe = $cmd.Source }
 }
 
-if ([string]::IsNullOrWhiteSpace($PythonExe) -or -not (Test-Path $PythonExe)) {
+if ([string]::IsNullOrWhiteSpace($PythonExe)) {
     throw "No se encontro Python valido."
 }
 
@@ -33,15 +36,33 @@ Write-Host "============================================================"
 Write-Host "Python   : $PythonExe"
 Write-Host "Category : $Category"
 Write-Host "MaxPages : $MaxPages"
+Write-Host "Browser  : manual attach $DebuggerAddress"
+Write-Host ("Consolidado: " + $(if ($UpdateConsolidated) { "actualizar" } else { "sin cambios" }))
 Write-Host ""
 
-& $PythonExe .\scripts\run_san_pablo_full.py --category $Category --max-pages $MaxPages
+$ArgsList = @(
+    ".\scripts\run_san_pablo_full.py",
+    "--category", $Category,
+    "--max-pages", $MaxPages,
+    "--debugger-address", $DebuggerAddress
+)
+if ($UpdateConsolidated) {
+    $ArgsList += "--update-consolidated"
+}
+
+& $PythonExe @ArgsList
 $code = $LASTEXITCODE
 
 Write-Host ""
 Write-Host "Salida: $ProjectDir\output\farmacias_san_pablo_test.xlsx"
-Write-Host "Consolidado: $ProjectDir\output\concentrado_scraper.xlsx"
+if ($UpdateConsolidated) {
+    Write-Host "Consolidado: $ProjectDir\output\concentrado_scraper.xlsx"
+} else {
+    Write-Host "Consolidado: sin cambios"
+}
 
 if ($code -ne 0) {
-    Write-Warning "El test termino con observaciones (exit_code=$code). Revisa la hoja Resumen; el archivo de salida se conserva."
+    Write-Warning "El test termino con observaciones (exit_code=$code). Revisa la hoja Resumen."
 }
+
+exit $code

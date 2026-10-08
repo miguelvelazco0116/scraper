@@ -1,11 +1,11 @@
 retailer: bodega-aurrera
 categories:
   - id: cuidado-bucal
-    department: Belleza y cuidado personal
-    name: Higiene y cuidado personal
-    subcategory: Cuidado bucal
+    department: Cuidado personal
+    name: Cuidado bucal
+    subcategory: null
     sub_subcategory: null
-    url: https://despensa.bodegaaurrera.com.mx/browse/higiene-personal-y-belleza/cuidado-bucal/10_1004
+    url: https://www.bodegaaurrera.com.mx/content/cuidado-personal/cuidado-bucal/264479_950014
     enabled: true
 
   - id: cuidado-de-la-ropa

@@ -15,3 +15,16 @@ walmart_profile/
 .walmart_export_profile/
 walmart_session.json
 walmart_session.secret.txt
+
+.soriana_profile/
+.chedraui_profile/
+
+.soriana_manual_profile/
+
+.farmacias_guadalajara_manual_profile/
+
+.similares_profile/
+.san_pablo_profile/
+.bodega_aurrera_profile/
+.la_comer_profile/
+.san_pablo_manual_profile/
