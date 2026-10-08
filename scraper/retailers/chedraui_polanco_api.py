@@ -224,6 +224,7 @@ class ChedrauiScraper(PolancoUIScraper):
         category: Category,
         location: Location,
         page_number: int,
+        target_rows: int | None = None,
     ) -> tuple[list[dict], dict]:
         info: dict = {"mode": "productSearchV3", "rows": 0}
         template = self._product_search_template_url
@@ -233,23 +234,89 @@ class ChedrauiScraper(PolancoUIScraper):
 
         start = (page_number - 1) * 20
         end = start + 19
-        try:
-            url = self._rewrite_product_search_range(template, start, end)
-            response = page.context.request.get(url, timeout=120_000)
-            info["status"] = response.status
-            if response.status != 200:
-                info["reason"] = f"http_{response.status}"
-                return [], info
-            payload = response.json()
-            rows, records_filtered = self._rows_from_product_search_payload(payload, category, location)
-            info["rows"] = len(rows)
-            info["records_filtered"] = records_filtered
-            info["from"] = start
-            info["to"] = end
-            return rows, info
-        except Exception as exc:
-            info["reason"] = f"api_error:{type(exc).__name__}"
-            return [], info
+        url = self._rewrite_product_search_range(template, start, end)
+
+        attempts: list[dict] = []
+        best_rows: list[dict] = []
+        best_records_filtered: int | None = None
+        last_reason = "no_structured_price_rows"
+
+        for attempt in range(1, 5):
+            detail: dict = {"attempt": attempt}
+            try:
+                response = page.context.request.get(
+                    url,
+                    timeout=120_000,
+                    headers={
+                        "cache-control": "no-cache",
+                        "pragma": "no-cache",
+                    },
+                )
+                detail["status"] = response.status
+                info["status"] = response.status
+
+                if response.status != 200:
+                    last_reason = f"http_{response.status}"
+                    detail["reason"] = last_reason
+                else:
+                    payload = response.json()
+                    rows, records_filtered = self._rows_from_product_search_payload(
+                        payload,
+                        category,
+                        location,
+                    )
+                    detail["rows"] = len(rows)
+                    detail["records_filtered"] = records_filtered
+
+                    if len(rows) > len(best_rows):
+                        best_rows = rows
+                        best_records_filtered = records_filtered
+
+                    complete = bool(rows) and (
+                        target_rows is None
+                        or len(rows) >= target_rows
+                    )
+                    if complete:
+                        detail["accepted"] = True
+                        attempts.append(detail)
+                        info.update(
+                            {
+                                "rows": len(rows),
+                                "records_filtered": records_filtered,
+                                "from": start,
+                                "to": end,
+                                "attempts": attempts,
+                            }
+                        )
+                        return rows, info
+
+                    if rows:
+                        last_reason = "structured_page_below_target"
+                    else:
+                        last_reason = "no_structured_price_rows"
+                    detail["reason"] = last_reason
+            except Exception as exc:
+                last_reason = f"api_error:{type(exc).__name__}"
+                detail["reason"] = last_reason
+
+            attempts.append(detail)
+            if attempt < 4:
+                try:
+                    page.wait_for_timeout(min(500 * attempt, 1_500))
+                except Exception:
+                    pass
+
+        info.update(
+            {
+                "rows": len(best_rows),
+                "records_filtered": best_records_filtered,
+                "from": start,
+                "to": end,
+                "attempts": attempts,
+                "reason": last_reason,
+            }
+        )
+        return [], info
 
     @staticmethod
     def _html_row_has_category_facet_contamination(row: dict) -> bool:
@@ -275,7 +342,11 @@ class ChedrauiScraper(PolancoUIScraper):
         # storefront has loaded. This keeps the verified store/session context
         # while making structured Price/ListPrice the authoritative source.
         api_rows, api_info = self._recover_page_from_product_search(
-            page, category, location, page_number
+            page,
+            category,
+            location,
+            page_number,
+            target_rows=target_rows,
         )
         attempts.append(api_info)
 
@@ -295,6 +366,8 @@ class ChedrauiScraper(PolancoUIScraper):
                     "html_rows_rejected": len(html_rows),
                     "api_reason": api_info.get("reason"),
                     "api_status": api_info.get("status"),
+                    "api_rows": api_info.get("rows"),
+                    "api_attempts": len(api_info.get("attempts") or []),
                 }
             )
             return url, [], attempts
