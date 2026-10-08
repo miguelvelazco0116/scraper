@@ -1,7 +1,10 @@
 param(
-    [string]$Category = "detergentes-suavizantes",
+    [ValidateSet("cuidado-bucal", "detergentes-suavizantes")]
+    [string]$Category = "cuidado-bucal",
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
-    [string]$PythonExe = ""
+    [string]$PythonExe = "",
+    [string]$ProfileDir = ".la_comer_profile",
+    [switch]$Headless
 )
 
 $ErrorActionPreference = "Stop"
