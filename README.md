@@ -8,14 +8,14 @@ No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadi
 
 ## Estado actual
 
-Última actualización: **2 de octubre de 2026**.
+Última actualización: **8 de octubre de 2026**.
 
 Última muestra completa validada localmente:
 
 | Retailer | Categorías activas | Productos validados | Precio actual | SKU/URL | Estado |
 |---|---:|---:|---:|---:|---|
 | Soriana | 6 | 2,152 | 100% | 100% | Activo |
-| Chedraui | 2 | 683 | 100% | 100% | Activo |
+| Chedraui | 2 | 655 | 100% | 100% | Activo |
 | Farmacias del Ahorro | 4 | 288 | 100% | 100% | Activo |
 | Farmacias San Pablo | 4 | 232 | 100% | 100% en última validación | Activo |
 | Ibarra Mayoreo | 4 | 574 | 100% | 570/574 SKU | Activo |
@@ -25,7 +25,7 @@ No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadi
 | Walmart | 3 | Pausado | — | — | Pausado |
 | Farmacias Guadalajara | 4 | Pausado | — | — | Pausado |
 
-**Total validado en el stack activo: 4,514 filas** considerando la última validación individual de San Pablo (232 productos).
+**Total validado en el stack activo: 4,486 filas** considerando la última validación individual de San Pablo (232 productos).
 
 ## Retailers activos
 
@@ -186,12 +186,20 @@ state: CDMX
 Categorías activas:
 
 ```text
-higiene-bucal   306
-lavanderia      377
-Total           683
+higiene-bucal   303
+lavanderia      352
+Total           655
 ```
 
-La última muestra tuvo cobertura completa de SKU, precio y URL.
+La validación del 8 de octubre de 2026 tuvo cobertura completa: higiene bucal 303/303 y lavandería 352/352, con precios requeridos completos, contexto de tienda Polanco 232 verificado, cero huecos de paginación y cero errores de orden de precios.
+
+Prueba completa aislada:
+
+```powershell
+& .\scripts\test_chedraui.ps1 -Headed
+```
+
+Sin `-Category`, el runner ejecuta ambas categorías. Para una sola categoría puede usarse `-Category higiene-bucal` o `-Category lavanderia`.
 
 ## Farmacias del Ahorro
 
@@ -438,6 +446,14 @@ main.py
 Cada retailer mantiene su configuración y extractor separado. `main.py` normaliza todas las salidas y actualiza el concentrado común.
 
 ## Historial reciente
+
+### 8 de octubre de 2026
+
+- Chedraui Polanco (tienda 232, CP 11500) quedó revalidado con perfil persistente y precios estructurados VTEX `productSearchV3`.
+- Higiene bucal: 303/303 productos, 297/297 precios requeridos.
+- Lavandería: 352/352 productos, 338/338 precios requeridos.
+- Ambas categorías terminaron `COMPLETE`, con cobertura 1.0, cero huecos de paginación y cero errores de orden de precios.
+- Se agregó `scripts/test_chedraui.ps1`; por defecto ejecuta todas las categorías activas de Chedraui.
 
 ### 2 de octubre de 2026
 
