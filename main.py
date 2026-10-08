@@ -52,7 +52,8 @@ from scraper.retailers.walmart_storage_state import WalmartStorageStateScraper
 COLUMNS = [
     "scrape_timestamp", "retailer", "city", "state", "postal_code", "store", "store_id",
     "department", "category", "subcategory", "sub_subcategory", "category_id", "sku", "brand",
-    "product", "price_current", "price_regular", "promotion", "pickup_available",
+    "product", "price_current", "price_regular", "promotion",
+    "availability_status", "is_available", "availability_raw", "pickup_available",
     "store_context_verified", "store_context_method", "url", "price_raw",
 ]
 

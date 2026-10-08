@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
+from ..availability import AVAILABLE, UNAVAILABLE, UNKNOWN
 from ..config import Category, Location
 from ..parsers import absolute_url, clean_text
 from .chedraui import ChedrauiBlocked, ChedrauiStoreContextError
@@ -80,10 +81,16 @@ class ChedrauiScraper(PolancoUIScraper):
 
         usable = [
             value for value in offers
-            if value[1] is not None and float(value[1]) > 0 and (value[3] is None or int(value[3]) > 0)
+            if value[1] is not None
+            and float(value[1]) > 0
+            and (value[3] is None or int(value[3]) > 0)
         ]
         if not usable:
-            usable = [value for value in offers if value[1] is not None and float(value[1]) > 0]
+            usable = [
+                value
+                for value in offers
+                if value[1] is not None and float(value[1]) > 0
+            ]
         if usable:
             usable.sort(key=lambda value: value[0])
             _, price, regular, available, promo_names = usable[0]
@@ -91,6 +98,24 @@ class ChedrauiScraper(PolancoUIScraper):
                 float(price) if price is not None else None,
                 float(regular) if regular is not None else None,
                 int(available) if available is not None else None,
+                promo_names,
+            )
+
+        # Un SKU con inventario explícitamente 0 sigue siendo información
+        # válida aunque el storefront ya no publique precio. Se conserva para
+        # poder medir quiebres de stock.
+        stock_only = [
+            value
+            for value in offers
+            if value[3] is not None and int(value[3]) <= 0
+        ]
+        if stock_only:
+            stock_only.sort(key=lambda value: value[0])
+            _, price, regular, available, promo_names = stock_only[0]
+            return (
+                float(price) if price is not None else None,
+                float(regular) if regular is not None else None,
+                int(available),
                 promo_names,
             )
 
@@ -134,14 +159,28 @@ class ChedrauiScraper(PolancoUIScraper):
                 continue
 
             current, regular, available, promo_names = self._best_offer(product)
-            if current is None:
+            if current is None and available != 0:
                 continue
-            if regular is None or regular <= 0:
-                regular = current
-            if current > regular:
-                current, regular = regular, current
-            if current < regular and not promo_names:
-                promo_names.append("Precio promocional")
+            if current is not None:
+                if regular is None or regular <= 0:
+                    regular = current
+                if current > regular:
+                    current, regular = regular, current
+                if current < regular and not promo_names:
+                    promo_names.append("Precio promocional")
+
+            if available is None:
+                availability_status = UNKNOWN
+                is_available = None
+                availability_raw = "productSearchV3 AvailableQuantity=None"
+            elif available > 0:
+                availability_status = AVAILABLE
+                is_available = True
+                availability_raw = f"productSearchV3 AvailableQuantity={available}"
+            else:
+                availability_status = UNAVAILABLE
+                is_available = False
+                availability_raw = f"productSearchV3 AvailableQuantity={available}"
 
             rows.append(
                 {
@@ -163,11 +202,17 @@ class ChedrauiScraper(PolancoUIScraper):
                     "price_current": current,
                     "price_regular": regular,
                     "promotion": clean_text(" | ".join(dict.fromkeys(promo_names))),
+                    "availability_status": availability_status,
+                    "is_available": is_available,
+                    "availability_raw": availability_raw,
                     "pickup_available": available is None or available > 0,
                     "store_context_verified": True,
                     "store_context_method": f"{self._active_store_context_method}+productSearchV3",
                     "url": url,
-                    "price_raw": f"productSearchV3 Price={current} ListPrice={regular}",
+                    "price_raw": (
+                        f"productSearchV3 Price={current} "
+                        f"ListPrice={regular} AvailableQuantity={available}"
+                    ),
                 }
             )
 
