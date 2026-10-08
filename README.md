@@ -15,7 +15,7 @@ No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadi
 | Retailer | Categorías activas | Productos validados | Precio actual | SKU/URL | Estado |
 |---|---:|---:|---:|---:|---|
 | Soriana | 6 | 2,152 | 100% | 100% | Activo |
-| Chedraui | 2 | 683 | 100% | 100% | Activo |
+| Chedraui | 2 | 655 live | 100% | 100% | Activo |
 | Farmacias del Ahorro | 4 | 288 | 100% | 100% | Activo |
 | Farmacias San Pablo | 4 | 232 | 100% | 100% en última validación | Activo |
 | Ibarra Mayoreo | 4 | 570/571 live | 100% en filas capturadas | URL 100%; SKU informativo | Activo / Scrapy |
@@ -514,12 +514,16 @@ state: CDMX
 Categorías activas:
 
 ```text
-higiene-bucal   306
-lavanderia      377
-Total           683
+higiene-bucal   303 / 303
+lavanderia      352 / 352
+Total           655 / 655
 ```
 
-La última muestra tuvo cobertura completa de SKU, precio y URL.
+La validación live del 8 de octubre de 2026 tuvo cobertura completa de catálogo,
+SKU y URL en ambas categorías. Los productos que requerían precio quedaron
+completos: Higiene Bucal 297/297 y Lavandería 338/338. No hubo gaps de
+paginación, páginas VTEX estructuradas faltantes ni errores
+`price_regular < price_current`.
 
 
 ### Contexto persistente Chedraui
