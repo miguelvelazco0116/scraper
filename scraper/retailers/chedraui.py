@@ -883,6 +883,17 @@ class ChedrauiScraper:
                 self._save_diagnostics(page, f"success_{category.id}")
                 return rows
             finally:
-                context.close()
+                try:
+                    if not page.is_closed():
+                        page.close(run_before_unload=False)
+                except Exception:
+                    pass
+                try:
+                    context.close()
+                except Exception:
+                    pass
                 if browser is not None:
-                    browser.close()
+                    try:
+                        browser.close()
+                    except Exception:
+                        pass
