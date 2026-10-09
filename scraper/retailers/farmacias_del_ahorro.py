@@ -46,6 +46,7 @@ class FarmaciasDelAhorroScraper:
         self.headless = headless
         self.max_pages = max_pages
         self.rows_per_page = rows_per_page
+        self.last_meta: dict = {}
 
     @classmethod
     def _parse_money(cls, value: str | None) -> float | None:
@@ -303,6 +304,7 @@ class FarmaciasDelAhorroScraper:
                     "url_complete": sum(bool(clean_text(x.get("url"))) for x in rows),
                     "store_context": "online_catalog_empathy_nacional",
                 }
+                self.last_meta = meta
                 (DIAGNOSTICS / f"farmacias_del_ahorro_{category.id}.json").write_text(
                     json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
                 )

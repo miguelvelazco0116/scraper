@@ -50,6 +50,28 @@ Farmacias Guadalajara
 
 La Comer está implementado pero sigue fuera del runner principal hasta completar validación live.
 
+## Fase 1 productiva
+
+La primera corrida productiva está limitada a los retailers estables:
+
+- Farmacias del Ahorro: todas las categorías activas.
+- Ibarra Mayoreo: todas las categorías activas, usando precio por presentación **CAJA**.
+- Chedraui Polanco (tienda 232): todas las categorías activas.
+
+El runner productivo es:
+
+```powershell
+& .\scripts\run_phase1_production.ps1
+```
+
+El archivo canónico de producción es:
+
+```text
+output\concentrado_productivo.xlsx
+```
+
+Contiene las hojas `Concentrado`, `Resumen` y `Control`. La publicación es atómica: el archivo productivo sólo se reemplaza cuando **todas** las categorías de los tres retailers terminan con calidad `COMPLETE`. Si una categoría falla, queda `PARTIAL`, se bloquea o no alcanza la cobertura requerida, el master productivo anterior se conserva sin cambios y el detalle se guarda en `diagnostics\phase1_production\last_run.json`.
+
 ## Ejecución local
 
 Desde PowerShell:
