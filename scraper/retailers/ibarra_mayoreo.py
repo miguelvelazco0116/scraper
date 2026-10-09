@@ -138,18 +138,32 @@ class IbarraMayoreoScraper:
             )
 
     def _goto(self, page, url: str) -> None:
-        try:
-            response = page.goto(
-                url,
-                wait_until="domcontentloaded",
-                timeout=90_000,
-            )
-        except PlaywrightError as exc:
-            raise IbarraMayoreoNetworkUnavailable(str(exc)) from exc
+        last_error: PlaywrightError | None = None
 
-        status = response.status if response else None
-        page.wait_for_timeout(self.wait_ms)
-        self._assert_not_blocked(page, status)
+        for attempt in range(1, 5):
+            try:
+                response = page.goto(
+                    url,
+                    wait_until="domcontentloaded",
+                    timeout=120_000,
+                )
+                status = response.status if response else None
+                page.wait_for_timeout(max(self.wait_ms, 1_000))
+                self._assert_not_blocked(page, status)
+                return
+            except IbarraMayoreoBlocked:
+                raise
+            except PlaywrightError as exc:
+                last_error = exc
+                if attempt < 4:
+                    try:
+                        page.wait_for_timeout(min(1_500 * attempt, 4_500))
+                    except Exception:
+                        pass
+
+        raise IbarraMayoreoNetworkUnavailable(
+            f"No fue posible cargar {url} tras 4 intentos: {last_error}"
+        ) from last_error
 
     @staticmethod
     def _extract_product_links(page) -> list[dict]:
