@@ -219,21 +219,69 @@ class ChedrauiScraper(BaseChedrauiScraper):
         except ValueError:
             return None
 
+    def _wait_for_catalog_ready(
+        self,
+        page,
+        *,
+        selector_timeout: int = 30_000,
+        settle_ms: int = 2_500,
+    ) -> bool:
+        """Wait until the async VTEX product grid is present and stable."""
+        try:
+            page.wait_for_timeout(settle_ms)
+        except Exception:
+            pass
+
+        try:
+            page.wait_for_selector(
+                PRODUCT_SELECTOR,
+                state="attached",
+                timeout=selector_timeout,
+            )
+        except Exception:
+            return False
+
+        previous_count = -1
+        stable_rounds = 0
+        for _ in range(6):
+            try:
+                count = page.locator(PRODUCT_SELECTOR).count()
+            except Exception:
+                return previous_count > 0
+
+            if count > 0 and count == previous_count:
+                stable_rounds += 1
+            else:
+                stable_rounds = 0
+
+            previous_count = count
+            if stable_rounds >= 2:
+                return True
+
+            try:
+                page.wait_for_timeout(750)
+            except Exception:
+                break
+
+        return previous_count > 0
+
     def _scroll_grid(self, page) -> None:
         try:
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            page.wait_for_timeout(700)
+            page.wait_for_timeout(1_200)
             page.evaluate("window.scrollTo(0, 0)")
-            page.wait_for_timeout(350)
+            page.wait_for_timeout(700)
         except Exception:
             pass
 
     def _rows_from_current_page(self, page, category, location) -> list[dict]:
-        try:
-            page.wait_for_selector(PRODUCT_SELECTOR, timeout=10_000)
-        except Exception:
+        if not self._wait_for_catalog_ready(page):
             return []
         self._scroll_grid(page)
+        try:
+            page.wait_for_timeout(750)
+        except Exception:
+            pass
         return self._extract_cards(page, category, location)
 
     def _recover_page_from_previous(self, page, category, location, page_number: int) -> tuple[list[dict], dict]:
@@ -248,9 +296,13 @@ class ChedrauiScraper(BaseChedrauiScraper):
 
         previous_url = self._paged_url(category.url, page_number - 1)
         try:
-            response = page.goto(previous_url, wait_until="domcontentloaded", timeout=60_000)
+            response = page.goto(previous_url, wait_until="domcontentloaded", timeout=90_000)
             self._assert_not_blocked(page, response.status if response else None)
-            page.wait_for_timeout(max(self.wait_ms, 900))
+            self._wait_for_catalog_ready(
+                page,
+                selector_timeout=35_000,
+                settle_ms=max(self.wait_ms, 2_500),
+            )
             previous_rows = self._rows_from_current_page(page, category, location)
             info["previous_rows"] = len(previous_rows)
             if not previous_rows:
@@ -279,7 +331,12 @@ class ChedrauiScraper(BaseChedrauiScraper):
                 info["reason"] = "paginator_link_not_found"
                 return [], info
 
-            page.wait_for_timeout(1_400)
+            page.wait_for_timeout(2_500)
+            self._wait_for_catalog_ready(
+                page,
+                selector_timeout=35_000,
+                settle_ms=1_500,
+            )
             rows = self._rows_from_current_page(page, category, location)
             info["rows"] = len(rows)
             return rows, info
@@ -295,10 +352,18 @@ class ChedrauiScraper(BaseChedrauiScraper):
 
         for attempt in range(1, 5):
             try:
-                response = page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+                response = page.goto(url, wait_until="domcontentloaded", timeout=90_000)
                 self._assert_not_blocked(page, response.status if response else None)
-                page.wait_for_timeout(max(self.wait_ms, 1_000))
-                rows = self._rows_from_current_page(page, category, location)
+                ready = self._wait_for_catalog_ready(
+                    page,
+                    selector_timeout=35_000,
+                    settle_ms=max(self.wait_ms, 2_500),
+                )
+                rows = (
+                    self._rows_from_current_page(page, category, location)
+                    if ready
+                    else []
+                )
             except Exception as exc:
                 attempts.append(
                     {"attempt": attempt, "rows": 0, "reason": f"navigation:{type(exc).__name__}"}
@@ -309,13 +374,26 @@ class ChedrauiScraper(BaseChedrauiScraper):
                 key = str(row.get("sku") or row.get("url"))
                 if key:
                     best[key] = row
-            attempts.append({"attempt": attempt, "rows": len(rows), "best": len(best)})
+            attempts.append(
+                {
+                    "attempt": attempt,
+                    "rows": len(rows),
+                    "best": len(best),
+                    "catalog_ready": bool(rows),
+                }
+            )
 
             if target_rows is None:
                 if best:
                     break
             elif len(best) >= target_rows:
                 break
+
+            if attempt < 4:
+                try:
+                    page.wait_for_timeout(min(2_000 * attempt, 6_000))
+                except Exception:
+                    pass
 
         if not best and page_number > 1:
             recovered, fallback_info = self._recover_page_from_previous(

@@ -241,6 +241,11 @@ class ChedrauiScraper(PolancoUIScraper):
         best_records_filtered: int | None = None
         last_reason = "no_structured_price_rows"
 
+        try:
+            page.wait_for_timeout(1_500)
+        except Exception:
+            pass
+
         for attempt in range(1, 5):
             detail: dict = {"attempt": attempt}
             try:
@@ -302,7 +307,7 @@ class ChedrauiScraper(PolancoUIScraper):
             attempts.append(detail)
             if attempt < 4:
                 try:
-                    page.wait_for_timeout(min(500 * attempt, 1_500))
+                    page.wait_for_timeout(min(1_500 * attempt, 4_500))
                 except Exception:
                     pass
 

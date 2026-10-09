@@ -842,7 +842,7 @@ class ChedrauiScraper:
                     timeout=120_000,
                 )
                 self._assert_not_blocked(page, response.status if response else None)
-                page.wait_for_timeout(max(self.wait_ms, 900))
+                page.wait_for_timeout(max(self.wait_ms, 2_000))
 
                 structured_ok, structured_method = (
                     self._prepare_structured_store_context(page, location)
@@ -856,7 +856,15 @@ class ChedrauiScraper:
                     timeout=120_000,
                 )
                 self._assert_not_blocked(page, response.status if response else None)
-                page.wait_for_timeout(1_500)
+                page.wait_for_timeout(3_000)
+                try:
+                    page.wait_for_selector(
+                        PRODUCT_SELECTOR,
+                        state="attached",
+                        timeout=30_000,
+                    )
+                except Exception:
+                    pass
 
                 verified, method = self._verify_store_context(page, location)
                 if not verified:
