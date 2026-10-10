@@ -70,7 +70,15 @@ El archivo canónico de producción es:
 output\concentrado_productivo.xlsx
 ```
 
-Contiene las hojas `Concentrado`, `Resumen` y `Control`. La publicación es atómica: el archivo productivo sólo se reemplaza cuando **todas** las categorías de los tres retailers terminan con calidad `COMPLETE`. Si una categoría falla, queda `PARTIAL`, se bloquea o no alcanza la cobertura requerida, el master productivo anterior se conserva sin cambios y el detalle se guarda en `diagnostics\phase1_production\last_run.json`.
+La primera corrida que publique correctamente también crea, una sola vez, la muestra base inmutable:
+
+```text
+output\fase1_muestra_inicial_valida.xlsx
+```
+
+Ese archivo representa la **primera muestra válida oficial de Fase 1** y no se sobrescribe en corridas futuras. Su metadata se guarda en `output\fase1_muestra_inicial_valida.json`.
+
+El archivo productivo contiene las hojas `Concentrado`, `Resumen` y `Control`. La publicación es atómica: el archivo productivo sólo se reemplaza cuando todas las categorías cumplen sus gates de calidad. Si una categoría falla, queda `PARTIAL`, se bloquea o no alcanza la cobertura requerida, el master productivo anterior se conserva sin cambios y el detalle se guarda en `diagnostics\phase1_production\last_run.json`.
 
 ## Ejecución local
 
