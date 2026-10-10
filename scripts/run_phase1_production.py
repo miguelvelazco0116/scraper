@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import os
 import sys
 import time
 from copy import copy
@@ -42,6 +43,22 @@ RETAILERS = (
     "Ibarra Mayoreo",
     "Chedraui",
 )
+
+
+def _set_low_priority() -> None:
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+        handle = ctypes.windll.kernel32.GetCurrentProcess()
+        ctypes.windll.kernel32.SetPriorityClass(
+            handle,
+            BELOW_NORMAL_PRIORITY_CLASS,
+        )
+    except Exception:
+        pass
 
 
 def _release_between_cases(low_memory: bool) -> None:
@@ -481,6 +498,9 @@ def main() -> int:
         help="Optimiza Chrome para servidores con poca RAM.",
     )
     args = parser.parse_args()
+
+    if args.low_memory:
+        _set_low_priority()
 
     generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
     locations = {
