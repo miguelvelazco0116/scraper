@@ -41,3 +41,18 @@ def test_ibarra_goto_retries_transient_playwright_errors():
 
     assert page.calls == 3
     assert any(wait >= 1500 for wait in page.waits)
+
+
+def test_ibarra_filters_promotional_navigation_links():
+    assert not IbarraMayoreoScraper._is_product_candidate(
+        {"title": "DESTACADOS", "href": "https://ibarramayoreo.com/destacados"}
+    )
+    assert not IbarraMayoreoScraper._is_product_candidate(
+        {"title": "BONUS", "href": "https://ibarramayoreo.com/bonus"}
+    )
+    assert IbarraMayoreoScraper._is_product_candidate(
+        {
+            "title": "Detergente Mi Genio Multiusos 9 kg",
+            "href": "https://ibarramayoreo.com/detergente-mi-genio-multiusos-9-kg",
+        }
+    )
