@@ -268,26 +268,45 @@ def _run_ibarra(
         parse_errors = len(meta.get("parse_errors") or [])
         no_box = len(meta.get("products_without_box_price") or [])
         discovery_complete = bool(meta.get("discovery_complete"))
+        unit_count_complete = int(
+            frame["units_per_package"].notna().sum()
+        ) if not frame.empty else 0
+        unit_price_complete = int(
+            frame["price_per_unit"].notna().sum()
+        ) if not frame.empty else 0
+        single_item_products = int(
+            frame["is_single_item"].fillna(False).astype(bool).sum()
+        ) if not frame.empty else 0
+        single_item_price_complete = int(
+            frame["single_item_price"].notna().sum()
+        ) if not frame.empty else 0
 
         if error:
             status = "ERROR"
             notes.append(error)
         else:
             if metrics["products"] <= 0:
-                notes.append("sin productos con precio CAJA")
+                notes.append("sin productos con precio utilizable")
             if not discovery_complete:
                 notes.append("descubrimiento incompleto")
             if parse_errors:
                 notes.append(f"parse_errors {parse_errors}")
             if metrics["price_complete"] < metrics["products"]:
                 notes.append(f"precio {metrics['price_complete']}/{metrics['products']}")
+            if unit_count_complete < metrics["products"]:
+                notes.append(
+                    f"unidades {unit_count_complete}/{metrics['products']}"
+                )
+            if unit_price_complete < metrics["products"]:
+                notes.append(
+                    f"precio_unitario {unit_price_complete}/{metrics['products']}"
+                )
             if metrics["url_complete"] < metrics["products"]:
                 notes.append(f"url {metrics['url_complete']}/{metrics['products']}")
             if metrics["price_order_errors"]:
                 notes.append(f"orden_precio {metrics['price_order_errors']}")
-            # SKU incompleto y productos sin presentación CAJA se informan,
-            # pero no bloquean la publicación: el entregable de Ibarra es
-            # estrictamente precio por CAJA para los productos que lo exponen.
+            # SKU incompleto y ausencia de precio individual se informan.
+            # Unidades por presentación y precio por pieza sí son bloqueantes.
             status = "COMPLETE" if not notes else "PARTIAL"
 
         if not frame.empty:
@@ -302,13 +321,19 @@ def _run_ibarra(
             discovery_complete=discovery_complete,
             parse_errors=parse_errors,
             products_without_box_price=no_box,
+            unit_count_complete=unit_count_complete,
+            unit_price_complete=unit_price_complete,
+            single_item_products=single_item_products,
+            single_item_price_complete=single_item_price_complete,
             product_links=meta.get("product_links"),
         )
         summaries.append(summary)
         print(
             f"  -> {status} products={summary['products']} "
             f"links={meta.get('product_links')} price={summary['price_complete']} "
-            f"sku={summary['sku_complete']} no_box={no_box}"
+            f"units={unit_count_complete} unit_price={unit_price_complete} "
+            f"single={single_item_products} sku={summary['sku_complete']} "
+            f"no_box={no_box}"
         )
         _release_between_cases(low_memory)
 
@@ -475,10 +500,10 @@ def _write_productive(
                     )
                     ws.column_dimensions[cells[0].column_letter].width = width
 
-            for column in ("P", "Q"):
+            for column in ("P", "Q", "V", "X"):
                 for cell in workbook["Concentrado"][column]:
                     if cell.row > 1:
-                        cell.number_format = "$#,##0.00"
+                        cell.number_format = "$#,##0.0000"
 
 
 def main() -> int:

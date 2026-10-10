@@ -53,6 +53,8 @@ COLUMNS = [
     "scrape_timestamp", "retailer", "city", "state", "postal_code", "store", "store_id",
     "department", "category", "subcategory", "sub_subcategory", "category_id", "sku", "brand",
     "product", "price_current", "price_regular", "promotion",
+    "package_type", "units_per_package", "is_single_item", "price_per_unit",
+    "single_item_presentation", "single_item_price",
     "availability_status", "is_available", "availability_raw", "pickup_available",
     "store_context_verified", "store_context_method", "url", "price_raw",
 ]
@@ -199,12 +201,13 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
                 width = min(max(max((len(v) for v in values), default=0) + 2, 10), 42)
                 ws.column_dimensions[col_cells[0].column_letter].width = width
 
-        for cell in workbook["Concentrado"]["P"]:
+        for column in ("P", "Q", "X"):
+            for cell in workbook["Concentrado"][column]:
+                if cell.row > 1:
+                    cell.number_format = '$#,##0.00'
+        for cell in workbook["Concentrado"]["V"]:
             if cell.row > 1:
-                cell.number_format = '$#,##0.00'
-        for cell in workbook["Concentrado"]["Q"]:
-            if cell.row > 1:
-                cell.number_format = '$#,##0.00'
+                cell.number_format = '$#,##0.0000'
 
     return output_path
 

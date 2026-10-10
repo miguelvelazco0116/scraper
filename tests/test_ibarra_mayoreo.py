@@ -56,3 +56,74 @@ def test_ibarra_filters_promotional_navigation_links():
             "href": "https://ibarramayoreo.com/detergente-mi-genio-multiusos-9-kg",
         }
     )
+
+
+def test_ibarra_parses_box_and_single_item_prices():
+    body = """
+    Crema Dental Colgate Triple Acción 75 ml
+    SKU: 22601
+    Marca: COLGATE
+    Presentación: Caja - 72 artículo(s).
+    $1,826.40 MXN
+    Presentación: Pieza - 1 artículo(s).
+    $26.60 MXN
+    """
+
+    detail = IbarraMayoreoScraper._parse_box_detail(
+        body,
+        "Crema Dental Colgate Triple Acción 75 ml",
+    )
+
+    assert detail["box_units"] == 72
+    assert detail["box_price"] == 1826.40
+    assert detail["sale_presentation"] == "CAJA"
+    assert detail["sale_units"] == 72
+    assert detail["price_per_unit"] == round(1826.40 / 72, 4)
+    assert detail["single_item_presentation"] == "Pieza"
+    assert detail["single_item_price"] == 26.60
+    assert detail["is_single_item"] is False
+
+
+def test_ibarra_accepts_single_only_product():
+    body = """
+    Producto Individual
+    SKU: 10001
+    Marca: MARCA
+    Presentación: Pieza - 1 artículo(s).
+    $25.00 MXN
+    """
+
+    detail = IbarraMayoreoScraper._parse_box_detail(
+        body,
+        "Producto Individual",
+    )
+
+    assert detail["box_price"] is None
+    assert detail["sale_presentation"] == "PIEZA"
+    assert detail["sale_units"] == 1
+    assert detail["sale_price"] == 25.00
+    assert detail["price_per_unit"] == 25.00
+    assert detail["single_item_price"] == 25.00
+    assert detail["is_single_item"] is True
+
+
+def test_ibarra_supports_package_as_single_presentation():
+    body = """
+    Manteca Inca 250 g
+    SKU: 259
+    Marca: INCA
+    Presentación: Caja - 48 artículo(s).
+    $1,098.70 MXN
+    Presentación: Paquete - 1 artículo(s).
+    $24.00 MXN
+    """
+
+    detail = IbarraMayoreoScraper._parse_box_detail(
+        body,
+        "Manteca Inca 250 g",
+    )
+
+    assert detail["sale_units"] == 48
+    assert detail["single_item_presentation"] == "Paquete"
+    assert detail["single_item_price"] == 24.00
+    assert detail["price_per_unit"] == round(1098.70 / 48, 4)

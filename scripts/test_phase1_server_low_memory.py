@@ -92,14 +92,26 @@ def main() -> int:
         locations["ibarra-online"],
     )
     ibarra_meta = dict(ibarra.last_meta or {})
+    ibarra_unit_count_complete = sum(
+        row.get("units_per_package") is not None
+        for row in ibarra_rows
+    )
+    ibarra_unit_price_complete = sum(
+        row.get("price_per_unit") is not None
+        for row in ibarra_rows
+    )
     ibarra_ok = (
         bool(ibarra_rows)
         and bool(ibarra_meta.get("discovery_complete"))
         and str(ibarra_meta.get("status")) == "SUCCESS"
+        and ibarra_unit_count_complete == len(ibarra_rows)
+        and ibarra_unit_price_complete == len(ibarra_rows)
     )
     print(
         f"IBARRA: {'PASS' if ibarra_ok else 'FAIL'} "
         f"rows={len(ibarra_rows)} "
+        f"units={ibarra_unit_count_complete}/{len(ibarra_rows)} "
+        f"unit_price={ibarra_unit_price_complete}/{len(ibarra_rows)} "
         f"status={ibarra_meta.get('status')}"
     )
     del ibarra

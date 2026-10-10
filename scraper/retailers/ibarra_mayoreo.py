@@ -38,6 +38,13 @@ class IbarraMayoreoScraper:
     MONEY_RE = re.compile(r"\$\s*([0-9][0-9,]*(?:\.\d{1,2})?)")
     SKU_RE = re.compile(r"\bSKU\s*:\s*([A-Za-z0-9._-]+)", re.IGNORECASE)
     BRAND_RE = re.compile(r"\bMarca\s*:\s*([^\r\n]+)", re.IGNORECASE)
+    PRESENTATION_RE = re.compile(
+        r"Presentaci[oó]n\s*:\s*"
+        r"([A-Za-zÁÉÍÓÚÜÑáéíóúüñ ]+?)\s*-\s*"
+        r"(\d+)\s*art[ií]culo(?:\(s\)|s)?\.?\s*"
+        r"\$\s*([0-9][0-9,]*(?:\.\d{1,2})?)",
+        re.IGNORECASE,
+    )
     BOX_RE = re.compile(
         r"Presentaci[oó]n\s*:\s*Caja\s*-\s*"
         r"(\d+)\s*art[ií]culo(?:\(s\)|s)?\.?\s*"
@@ -501,19 +508,90 @@ class IbarraMayoreoScraper:
                 maxsplit=1,
             )[0].strip()
 
-        box_match = cls.BOX_RE.search(text)
-        if box_match is None:
-            box_match = cls.BOX_FALLBACK_RE.search(text)
+        presentations: list[dict] = []
+        for match in cls.PRESENTATION_RE.finditer(text):
+            try:
+                presentation = clean_text(match.group(1))
+                units = int(match.group(2))
+                price = float(match.group(3).replace(",", ""))
+            except (TypeError, ValueError):
+                continue
+            if not presentation or units <= 0 or price <= 0:
+                continue
+            presentations.append(
+                {
+                    "presentation": presentation,
+                    "units": units,
+                    "price": price,
+                }
+            )
+
+        box = next(
+            (
+                item for item in presentations
+                if (clean_text(item.get("presentation")) or "").casefold() == "caja"
+            ),
+            None,
+        )
 
         pack_count = None
         box_price = None
-        if box_match is not None:
-            try:
-                pack_count = int(box_match.group(1))
-                box_price = float(box_match.group(2).replace(",", ""))
-            except (TypeError, ValueError):
-                pack_count = None
-                box_price = None
+        if box is not None:
+            pack_count = int(box["units"])
+            box_price = float(box["price"])
+        else:
+            box_match = cls.BOX_FALLBACK_RE.search(text)
+            if box_match is not None:
+                try:
+                    pack_count = int(box_match.group(1))
+                    box_price = float(box_match.group(2).replace(",", ""))
+                except (TypeError, ValueError):
+                    pack_count = None
+                    box_price = None
+
+        single = next(
+            (
+                item for item in presentations
+                if int(item.get("units") or 0) == 1
+                and (clean_text(item.get("presentation")) or "").casefold() != "caja"
+            ),
+            None,
+        )
+
+        single_presentation = (
+            clean_text(single.get("presentation"))
+            if single is not None
+            else None
+        )
+        single_price = (
+            float(single.get("price"))
+            if single is not None
+            else None
+        )
+
+        if box_price is not None and pack_count:
+            sale_presentation = "CAJA"
+            sale_units = pack_count
+            sale_price = box_price
+        elif single_price is not None:
+            sale_presentation = (single_presentation or "PIEZA").upper()
+            sale_units = 1
+            sale_price = single_price
+        else:
+            sale_presentation = None
+            sale_units = None
+            sale_price = None
+
+        price_per_unit = (
+            round(float(sale_price) / int(sale_units), 4)
+            if sale_price is not None and sale_units
+            else None
+        )
+        is_single_item = (
+            bool(int(sale_units) == 1)
+            if sale_units is not None
+            else None
+        )
 
         promo_match = re.search(
             r"(Ahorra\s*\$\s*[0-9][0-9,]*(?:\.\d{1,2})?)",
@@ -528,6 +606,14 @@ class IbarraMayoreoScraper:
             "brand": brand,
             "box_units": pack_count,
             "box_price": box_price,
+            "sale_presentation": sale_presentation,
+            "sale_units": sale_units,
+            "sale_price": sale_price,
+            "price_per_unit": price_per_unit,
+            "is_single_item": is_single_item,
+            "single_item_presentation": single_presentation,
+            "single_item_price": single_price,
+            "presentations": presentations,
             "promotion": promotion,
         }
 
@@ -606,20 +692,44 @@ class IbarraMayoreoScraper:
                                 "url": href,
                                 "title": detail.get("product") or fallback_title,
                                 "sku": detail.get("sku"),
+                                "single_item_presentation": detail.get(
+                                    "single_item_presentation"
+                                ),
+                                "single_item_price": detail.get("single_item_price"),
                             }
                         )
+
+                    sale_price = detail.get("sale_price")
+                    sale_units = detail.get("sale_units")
+                    sale_presentation = detail.get("sale_presentation")
+                    price_per_unit = detail.get("price_per_unit")
+                    if (
+                        sale_price is None
+                        or sale_units is None
+                        or price_per_unit is None
+                    ):
                         continue
 
                     pack_count = detail.get("box_units")
                     box_price = detail.get("box_price")
-                    if pack_count is not None:
-                        price_raw = (
-                            f"CAJA | {pack_count} artículos por caja | "
-                            + "$"
-                            + f"{box_price:.2f} MXN"
+                    single_presentation = detail.get("single_item_presentation")
+                    single_price = detail.get("single_item_price")
+
+                    price_raw_parts = [
+                        f"{sale_presentation} | {sale_units} unidad(es)",
+                        "precio observado=$" + f"{float(sale_price):.2f} MXN",
+                        "precio por pieza=$" + f"{float(price_per_unit):.4f} MXN",
+                    ]
+                    if box_price is not None and pack_count:
+                        price_raw_parts.append(
+                            f"caja={pack_count} x $" + f"{float(box_price):.2f} MXN"
                         )
-                    else:
-                        price_raw = "CAJA | $" + f"{box_price:.2f} MXN"
+                    if single_price is not None:
+                        price_raw_parts.append(
+                            f"{single_presentation or 'SINGLE'}=$"
+                            + f"{float(single_price):.2f} MXN"
+                        )
+                    price_raw = " | ".join(price_raw_parts)
 
                     rows.append(
                         {
@@ -638,9 +748,15 @@ class IbarraMayoreoScraper:
                             "sku": detail.get("sku"),
                             "brand": detail.get("brand"),
                             "product": detail.get("product") or fallback_title,
-                            "price_current": box_price,
-                            "price_regular": box_price,
+                            "price_current": sale_price,
+                            "price_regular": sale_price,
                             "promotion": detail.get("promotion"),
+                            "package_type": sale_presentation,
+                            "units_per_package": sale_units,
+                            "is_single_item": detail.get("is_single_item"),
+                            "price_per_unit": price_per_unit,
+                            "single_item_presentation": single_presentation,
+                            "single_item_price": single_price,
                             "pickup_available": None,
                             "store_context_verified": False,
                             "store_context_method": (
@@ -699,6 +815,18 @@ class IbarraMayoreoScraper:
                         ),
                         "price_complete": sum(
                             x.get("price_current") is not None for x in rows
+                        ),
+                        "unit_count_complete": sum(
+                            x.get("units_per_package") is not None for x in rows
+                        ),
+                        "unit_price_complete": sum(
+                            x.get("price_per_unit") is not None for x in rows
+                        ),
+                        "single_item_products": sum(
+                            bool(x.get("is_single_item")) for x in rows
+                        ),
+                        "single_item_price_complete": sum(
+                            x.get("single_item_price") is not None for x in rows
                         ),
                         "url_complete": sum(bool(x.get("url")) for x in rows),
                         "products_without_box_price": no_box,
