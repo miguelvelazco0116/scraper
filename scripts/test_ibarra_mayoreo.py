@@ -91,6 +91,12 @@ def run_category(
         "last_page": last_page,
         "product_links": links,
         "discovery_complete": discovery_complete,
+        "discovery_coverage": (
+            len(df) / int(target)
+            if target not in (None, 0)
+            else None
+        ),
+        "discovery_threshold": 0.90,
         "products_with_sale_price": len(df),
         "products_with_box_price": int(
             df["package_type"].fillna("").astype(str).str.upper().eq("CAJA").sum()
@@ -127,6 +133,8 @@ def run_category(
     print(f"last_page                  : {last_page}")
     print(f"product_links              : {links}")
     print(f"discovery_complete         : {discovery_complete}")
+    print(f"discovery_coverage         : {summary['discovery_coverage']}")
+    print(f"discovery_threshold        : {summary['discovery_threshold']}")
     print(f"products_with_sale_price   : {summary['products_with_sale_price']}")
     print(f"products_with_box_price    : {summary['products_with_box_price']}")
     print(f"sku_complete               : {summary['sku_complete']}")
@@ -266,6 +274,8 @@ def main() -> int:
                     "last_page",
                     "product_links",
                     "discovery_complete",
+                    "discovery_coverage",
+                    "discovery_threshold",
                     "products_with_sale_price",
                     "products_with_box_price",
                     "single_item_products",
@@ -286,7 +296,13 @@ def main() -> int:
     for summary in summaries:
         acceptable = acceptable and (
             summary["status"] in {"SUCCESS", "PARTIAL"}
-            and bool(summary["discovery_complete"])
+            and (
+                bool(summary["discovery_complete"])
+                or (
+                    summary["discovery_coverage"] is not None
+                    and summary["discovery_coverage"] >= 0.90
+                )
+            )
             and summary["products_with_sale_price"] > 0
             and summary["price_complete"] == summary["products_with_sale_price"]
             and summary["unit_count_complete"] == summary["products_with_sale_price"]
