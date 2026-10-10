@@ -201,12 +201,13 @@ def update_consolidated_output(df: pd.DataFrame, output_path: Path = CONSOLIDATE
                 width = min(max(max((len(v) for v in values), default=0) + 2, 10), 42)
                 ws.column_dimensions[col_cells[0].column_letter].width = width
 
-        for cell in workbook["Concentrado"]["P"]:
+        for column in ("P", "Q", "X"):
+            for cell in workbook["Concentrado"][column]:
+                if cell.row > 1:
+                    cell.number_format = '$#,##0.00'
+        for cell in workbook["Concentrado"]["V"]:
             if cell.row > 1:
-                cell.number_format = '$#,##0.00'
-        for cell in workbook["Concentrado"]["Q"]:
-            if cell.row > 1:
-                cell.number_format = '$#,##0.00'
+                cell.number_format = '$#,##0.0000'
 
     return output_path
 
