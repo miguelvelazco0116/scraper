@@ -36,7 +36,7 @@ def run_category(
     print(f"category_id : {category.id}")
     print(f"subcategoría: {category.subcategory}")
     print(f"URL         : {category.url}")
-    print("Precio      : SIEMPRE presentación CAJA")
+    print("Precio      : presentación observada + unidades + precio por pieza")
     print("")
 
     scraper = IbarraMayoreoScraper(
@@ -288,7 +288,7 @@ def main() -> int:
         )
 
     print("")
-    print(f"Total filas con precio CAJA: {len(concentrated)}")
+    print(f"Total filas con precio utilizable: {len(concentrated)}")
     print(f"Archivo: {OUTPUT_PATH}")
     print("Diagnósticos: diagnostics\\ibarra_mayoreo_*")
 
