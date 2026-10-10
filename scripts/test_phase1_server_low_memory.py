@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import gc
+import os
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,6 +13,40 @@ if str(ROOT) not in sys.path:
 from scraper.config import load_categories, load_locations
 from scraper.retailers.chedraui_polanco_api import ChedrauiScraper
 from scraper.retailers.ibarra_mayoreo import IbarraMayoreoScraper
+
+
+def _print_memory(label: str) -> None:
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+
+        state = MEMORYSTATUSEX()
+        state.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(state)):
+            total_mb = round(state.ullTotalPhys / (1024 * 1024))
+            free_mb = round(state.ullAvailPhys / (1024 * 1024))
+            used_mb = total_mb - free_mb
+            print(
+                f"MEMORIA {label}: used={used_mb}MB "
+                f"free={free_mb}MB total={total_mb}MB "
+                f"load={state.dwMemoryLoad}%"
+            )
+    except Exception as exc:
+        print(f"MEMORIA {label}: no disponible ({type(exc).__name__})")
 
 
 def main() -> int:
@@ -40,6 +77,7 @@ def main() -> int:
     print("Ibarra     : detergentes-lavatrastes-jab-marca-propia")
     print("Chedraui   : higiene-bucal")
     print("")
+    _print_memory("ANTES")
 
     ibarra = IbarraMayoreoScraper(
         headless=True,
@@ -64,6 +102,10 @@ def main() -> int:
         f"rows={len(ibarra_rows)} "
         f"status={ibarra_meta.get('status')}"
     )
+    del ibarra
+    gc.collect()
+    time.sleep(2)
+    _print_memory("DESPUES_IBARRA")
 
     chedraui = ChedrauiScraper(
         headless=True,
@@ -94,6 +136,10 @@ def main() -> int:
         f"structured_missing={structured_missing} "
         f"pagination_gaps={pagination_gaps}"
     )
+    del chedraui
+    gc.collect()
+    time.sleep(2)
+    _print_memory("DESPUES_CHEDRAUI")
 
     print("")
     print("=" * 72)
