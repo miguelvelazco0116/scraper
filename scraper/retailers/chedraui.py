@@ -51,6 +51,7 @@ class ChedrauiScraper:
         browser_channel: str | None = None,
         profile_dir: str | Path | None = None,
         prepare_vtex_region: bool = True,
+        low_memory: bool = False,
     ) -> None:
         self.headless = headless
         self.diagnostics_dir = Path(diagnostics_dir)
@@ -63,8 +64,31 @@ class ChedrauiScraper:
         if self.profile_dir is not None:
             self.profile_dir.mkdir(parents=True, exist_ok=True)
         self.prepare_vtex_region = prepare_vtex_region
+        self.low_memory = low_memory
         self.run_meta: dict[str, Any] = {}
         self._active_store_context_method: str | None = None
+
+    @staticmethod
+    def _low_memory_browser_args() -> list[str]:
+        return [
+            "--disable-gpu",
+            "--disable-extensions",
+            "--disable-sync",
+            "--disable-translate",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--renderer-process-limit=2",
+        ]
+
+    @staticmethod
+    def _install_low_memory_routes(context: BrowserContext) -> None:
+        def handle(route, request):
+            if request.resource_type in {"image", "media", "font"}:
+                route.abort()
+            else:
+                route.continue_()
+
+        context.route("**/*", handle)
 
     @staticmethod
     def _normalize(value: str | None) -> str:
@@ -815,6 +839,8 @@ class ChedrauiScraper:
             launch_kwargs = {"headless": self.headless}
             if self.browser_channel:
                 launch_kwargs["channel"] = self.browser_channel
+            if self.low_memory:
+                launch_kwargs["args"] = self._low_memory_browser_args()
 
             browser = None
             if self.profile_dir is not None:
@@ -824,6 +850,8 @@ class ChedrauiScraper:
                     viewport={"width": 1440, "height": 1000},
                     **launch_kwargs,
                 )
+                if self.low_memory:
+                    self._install_low_memory_routes(context)
                 page = context.pages[0] if context.pages else context.new_page()
             else:
                 browser = p.chromium.launch(**launch_kwargs)
@@ -831,6 +859,8 @@ class ChedrauiScraper:
                     locale="es-MX",
                     viewport={"width": 1440, "height": 1000},
                 )
+                if self.low_memory:
+                    self._install_low_memory_routes(context)
                 page = context.new_page()
 
             try:

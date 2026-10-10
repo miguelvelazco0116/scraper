@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
+import os
 import sys
+import time
 from copy import copy
 from datetime import datetime
 from pathlib import Path
@@ -40,6 +43,29 @@ RETAILERS = (
     "Ibarra Mayoreo",
     "Chedraui",
 )
+
+
+def _set_low_priority() -> None:
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+        handle = ctypes.windll.kernel32.GetCurrentProcess()
+        ctypes.windll.kernel32.SetPriorityClass(
+            handle,
+            BELOW_NORMAL_PRIORITY_CLASS,
+        )
+    except Exception:
+        pass
+
+
+def _release_between_cases(low_memory: bool) -> None:
+    if not low_memory:
+        return
+    gc.collect()
+    time.sleep(2.0)
 
 
 def _canonical_frame(rows: list[dict[str, Any]]) -> pd.DataFrame:
@@ -132,6 +158,8 @@ def _summary_row(
 def _run_ahorro(
     categories: list[Category],
     location: Location,
+    *,
+    low_memory: bool,
 ) -> tuple[list[pd.DataFrame], list[dict[str, Any]]]:
     frames: list[pd.DataFrame] = []
     summaries: list[dict[str, Any]] = []
@@ -195,6 +223,7 @@ def _run_ahorro(
             f"target={target} price={summary['price_complete']} "
             f"sku={summary['sku_complete']} url={summary['url_complete']}"
         )
+        _release_between_cases(low_memory)
 
     return frames, summaries
 
@@ -204,6 +233,7 @@ def _run_ibarra(
     location: Location,
     *,
     headed: bool,
+    low_memory: bool,
 ) -> tuple[list[pd.DataFrame], list[dict[str, Any]]]:
     frames: list[pd.DataFrame] = []
     summaries: list[dict[str, Any]] = []
@@ -217,6 +247,8 @@ def _run_ibarra(
             browser_channel="chrome",
             max_pages=30,
             wait_ms=700,
+            low_memory=low_memory,
+            page_recycle_interval=50,
         )
         rows: list[dict[str, Any]] = []
         notes: list[str] = []
@@ -278,6 +310,7 @@ def _run_ibarra(
             f"links={meta.get('product_links')} price={summary['price_complete']} "
             f"sku={summary['sku_complete']} no_box={no_box}"
         )
+        _release_between_cases(low_memory)
 
     return frames, summaries
 
@@ -288,6 +321,7 @@ def _run_chedraui(
     *,
     profile_dir: Path,
     headed: bool,
+    low_memory: bool,
 ) -> tuple[list[pd.DataFrame], list[dict[str, Any]]]:
     frames: list[pd.DataFrame] = []
     summaries: list[dict[str, Any]] = []
@@ -301,6 +335,7 @@ def _run_chedraui(
             browser_channel="chrome",
             profile_dir=profile_dir,
             max_pages=100,
+            low_memory=low_memory,
         )
         rows: list[dict[str, Any]] = []
         notes: list[str] = []
@@ -386,6 +421,7 @@ def _run_chedraui(
             f"required_price={price_required_complete}/{price_required} "
             f"structured_missing={structured_missing} gaps={pagination_gaps}"
         )
+        _release_between_cases(low_memory)
 
     return frames, summaries
 
@@ -459,7 +495,15 @@ def main() -> int:
         action="store_true",
         help="Abre Chrome visible para Ibarra y Chedraui.",
     )
+    parser.add_argument(
+        "--low-memory",
+        action="store_true",
+        help="Optimiza Chrome para servidores con poca RAM.",
+    )
     args = parser.parse_args()
+
+    if args.low_memory:
+        _set_low_priority()
 
     generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
     locations = {
@@ -490,19 +534,25 @@ def main() -> int:
     print("Retailers : Farmacias del Ahorro, Ibarra Mayoreo, Chedraui")
     print(f"Categorías: {expected_cases}")
     print(f"Salida    : {OUTPUT_PATH}")
+    print(f"Navegador : {'visible' if args.headed else 'headless'}")
+    print(f"Memoria   : {'LOW-MEMORY' if args.low_memory else 'standard'}")
     print("Publicación: sólo si TODOS los casos quedan COMPLETE")
     print("")
 
     all_frames: list[pd.DataFrame] = []
     summaries: list[dict[str, Any]] = []
 
-    frames, rows = _run_ahorro(*configurations["ahorro"])
+    frames, rows = _run_ahorro(
+        *configurations["ahorro"],
+        low_memory=args.low_memory,
+    )
     all_frames.extend(frames)
     summaries.extend(rows)
 
     frames, rows = _run_ibarra(
         *configurations["ibarra"],
         headed=args.headed,
+        low_memory=args.low_memory,
     )
     all_frames.extend(frames)
     summaries.extend(rows)
@@ -511,6 +561,7 @@ def main() -> int:
         *configurations["chedraui"],
         profile_dir=(ROOT / args.profile_dir).resolve(),
         headed=args.headed,
+        low_memory=args.low_memory,
     )
     all_frames.extend(frames)
     summaries.extend(rows)

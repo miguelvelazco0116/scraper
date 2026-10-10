@@ -68,12 +68,38 @@ class IbarraMayoreoScraper:
         browser_channel: str | None = "chrome",
         max_pages: int = 30,
         wait_ms: int = 700,
+        low_memory: bool = False,
+        page_recycle_interval: int = 50,
     ) -> None:
         self.headless = headless
         self.browser_channel = browser_channel
         self.max_pages = max_pages
         self.wait_ms = wait_ms
+        self.low_memory = low_memory
+        self.page_recycle_interval = max(10, int(page_recycle_interval))
         self.last_meta: dict = {}
+
+    @staticmethod
+    def _low_memory_browser_args() -> list[str]:
+        return [
+            "--disable-gpu",
+            "--disable-extensions",
+            "--disable-sync",
+            "--disable-translate",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--renderer-process-limit=2",
+        ]
+
+    @staticmethod
+    def _install_low_memory_routes(context) -> None:
+        def handle(route, request):
+            if request.resource_type in {"image", "media", "font"}:
+                route.abort()
+            else:
+                route.continue_()
+
+        context.route("**/*", handle)
 
     @staticmethod
     def _page_url(base_url: str, page_number: int) -> str:
@@ -486,12 +512,16 @@ class IbarraMayoreoScraper:
             launch_kwargs = {"headless": self.headless}
             if self.browser_channel:
                 launch_kwargs["channel"] = self.browser_channel
+            if self.low_memory:
+                launch_kwargs["args"] = self._low_memory_browser_args()
 
             browser = p.chromium.launch(**launch_kwargs)
             context = browser.new_context(
                 locale="es-MX",
                 viewport={"width": 1440, "height": 1000},
             )
+            if self.low_memory:
+                self._install_low_memory_routes(context)
             page = context.new_page()
 
             try:
@@ -585,6 +615,21 @@ class IbarraMayoreoScraper:
                             "price_raw": price_raw,
                         }
                     )
+
+                    if (
+                        self.low_memory
+                        and index < len(links)
+                        and index % self.page_recycle_interval == 0
+                    ):
+                        try:
+                            page.close(run_before_unload=False)
+                        except Exception:
+                            pass
+                        page = context.new_page()
+                        print(
+                            f"Ibarra low-memory: renderer reciclado "
+                            f"despues de {index} productos"
+                        )
 
                 unique: dict[str, dict] = {}
                 for row in rows:
