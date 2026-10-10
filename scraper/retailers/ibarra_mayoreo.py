@@ -192,9 +192,40 @@ class IbarraMayoreoScraper:
         ) from last_error
 
     @staticmethod
-    def _extract_product_links(page) -> list[dict]:
+    def _is_product_candidate(item: dict) -> bool:
+        title = clean_text(item.get("title")) or ""
+        href = clean_text(item.get("href")) or ""
+
+        folded_title = (
+            title.casefold()
+            .replace("á", "a")
+            .replace("é", "e")
+            .replace("í", "i")
+            .replace("ó", "o")
+            .replace("ú", "u")
+            .replace("ü", "u")
+        )
+        slug = unquote(urlsplit(href).path).strip("/").casefold()
+
+        blocked = {
+            "bonus",
+            "destacados",
+            "promociones",
+            "promocion",
+            "ofertas",
+            "marcas",
+            "categorias",
+            "categoria",
+            "catalogo",
+            "inicio",
+            "novedades",
+        }
+        return folded_title not in blocked and slug not in blocked
+
+    @classmethod
+    def _extract_product_links(cls, page) -> list[dict]:
         """Discover every product card shown on the current catalogue page."""
-        return page.locator("body").evaluate(
+        items = page.locator("body").evaluate(
             r"""
             () => {
               const normalize = value =>
@@ -280,6 +311,10 @@ class IbarraMayoreoScraper:
             }
             """
         )
+        return [
+            item for item in items
+            if isinstance(item, dict) and cls._is_product_candidate(item)
+        ]
 
     @staticmethod
     def _catalogue_metadata(page, category: Category) -> dict:
