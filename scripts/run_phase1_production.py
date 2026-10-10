@@ -286,7 +286,7 @@ def _run_ibarra(
             notes.append(error)
         else:
             if metrics["products"] <= 0:
-                notes.append("sin productos con precio CAJA")
+                notes.append("sin productos con precio utilizable")
             if not discovery_complete:
                 notes.append("descubrimiento incompleto")
             if parse_errors:
