@@ -199,14 +199,6 @@ def _run_ahorro(
                 notes.append(f"sku {metrics['sku_complete']}/{metrics['products']}")
             if metrics["price_complete"] < metrics["products"]:
                 notes.append(f"precio {metrics['price_complete']}/{metrics['products']}")
-            if unit_count_complete < metrics["products"]:
-                notes.append(
-                    f"unidades {unit_count_complete}/{metrics['products']}"
-                )
-            if unit_price_complete < metrics["products"]:
-                notes.append(
-                    f"precio_unitario {unit_price_complete}/{metrics['products']}"
-                )
             if metrics["url_complete"] < metrics["products"]:
                 notes.append(f"url {metrics['url_complete']}/{metrics['products']}")
             if metrics["price_order_errors"]:
@@ -301,13 +293,20 @@ def _run_ibarra(
                 notes.append(f"parse_errors {parse_errors}")
             if metrics["price_complete"] < metrics["products"]:
                 notes.append(f"precio {metrics['price_complete']}/{metrics['products']}")
+            if unit_count_complete < metrics["products"]:
+                notes.append(
+                    f"unidades {unit_count_complete}/{metrics['products']}"
+                )
+            if unit_price_complete < metrics["products"]:
+                notes.append(
+                    f"precio_unitario {unit_price_complete}/{metrics['products']}"
+                )
             if metrics["url_complete"] < metrics["products"]:
                 notes.append(f"url {metrics['url_complete']}/{metrics['products']}")
             if metrics["price_order_errors"]:
                 notes.append(f"orden_precio {metrics['price_order_errors']}")
-            # SKU incompleto y productos sin presentación CAJA se informan,
-            # pero no bloquean la publicación: el entregable de Ibarra es
-            # estrictamente precio por CAJA para los productos que lo exponen.
+            # SKU incompleto y ausencia de precio individual se informan.
+            # Unidades por presentación y precio por pieza sí son bloqueantes.
             status = "COMPLETE" if not notes else "PARTIAL"
 
         if not frame.empty:
