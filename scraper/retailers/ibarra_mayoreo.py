@@ -692,20 +692,44 @@ class IbarraMayoreoScraper:
                                 "url": href,
                                 "title": detail.get("product") or fallback_title,
                                 "sku": detail.get("sku"),
+                                "single_item_presentation": detail.get(
+                                    "single_item_presentation"
+                                ),
+                                "single_item_price": detail.get("single_item_price"),
                             }
                         )
+
+                    sale_price = detail.get("sale_price")
+                    sale_units = detail.get("sale_units")
+                    sale_presentation = detail.get("sale_presentation")
+                    price_per_unit = detail.get("price_per_unit")
+                    if (
+                        sale_price is None
+                        or sale_units is None
+                        or price_per_unit is None
+                    ):
                         continue
 
                     pack_count = detail.get("box_units")
                     box_price = detail.get("box_price")
-                    if pack_count is not None:
-                        price_raw = (
-                            f"CAJA | {pack_count} artículos por caja | "
-                            + "$"
-                            + f"{box_price:.2f} MXN"
+                    single_presentation = detail.get("single_item_presentation")
+                    single_price = detail.get("single_item_price")
+
+                    price_raw_parts = [
+                        f"{sale_presentation} | {sale_units} unidad(es)",
+                        "precio observado=$" + f"{float(sale_price):.2f} MXN",
+                        "precio por pieza=$" + f"{float(price_per_unit):.4f} MXN",
+                    ]
+                    if box_price is not None and pack_count:
+                        price_raw_parts.append(
+                            f"caja={pack_count} x $" + f"{float(box_price):.2f} MXN"
                         )
-                    else:
-                        price_raw = "CAJA | $" + f"{box_price:.2f} MXN"
+                    if single_price is not None:
+                        price_raw_parts.append(
+                            f"{single_presentation or 'SINGLE'}=$"
+                            + f"{float(single_price):.2f} MXN"
+                        )
+                    price_raw = " | ".join(price_raw_parts)
 
                     rows.append(
                         {
@@ -724,9 +748,15 @@ class IbarraMayoreoScraper:
                             "sku": detail.get("sku"),
                             "brand": detail.get("brand"),
                             "product": detail.get("product") or fallback_title,
-                            "price_current": box_price,
-                            "price_regular": box_price,
+                            "price_current": sale_price,
+                            "price_regular": sale_price,
                             "promotion": detail.get("promotion"),
+                            "package_type": sale_presentation,
+                            "units_per_package": sale_units,
+                            "is_single_item": detail.get("is_single_item"),
+                            "price_per_unit": price_per_unit,
+                            "single_item_presentation": single_presentation,
+                            "single_item_price": single_price,
                             "pickup_available": None,
                             "store_context_verified": False,
                             "store_context_method": (
@@ -785,6 +815,18 @@ class IbarraMayoreoScraper:
                         ),
                         "price_complete": sum(
                             x.get("price_current") is not None for x in rows
+                        ),
+                        "unit_count_complete": sum(
+                            x.get("units_per_package") is not None for x in rows
+                        ),
+                        "unit_price_complete": sum(
+                            x.get("price_per_unit") is not None for x in rows
+                        ),
+                        "single_item_products": sum(
+                            bool(x.get("is_single_item")) for x in rows
+                        ),
+                        "single_item_price_complete": sum(
+                            x.get("single_item_price") is not None for x in rows
                         ),
                         "url_complete": sum(bool(x.get("url")) for x in rows),
                         "products_without_box_price": no_box,
