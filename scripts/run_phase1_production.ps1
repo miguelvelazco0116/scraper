@@ -10,6 +10,12 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location $ProjectDir
 
+$LogDir = Join-Path $ProjectDir "diagnostics\phase1_production"
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+$LogStamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$LogPath = Join-Path $LogDir "phase1_$LogStamp.log"
+Start-Transcript -Path $LogPath -Force | Out-Null
+
 if ([string]::IsNullOrWhiteSpace($PythonExe) -and $env:VIRTUAL_ENV) {
     $candidate = Join-Path $env:VIRTUAL_ENV "Scripts\python.exe"
     if (Test-Path $candidate) {
@@ -52,6 +58,7 @@ Write-Host "Profile   : $ProfileDir"
 Write-Host "Navegador : $(if ($UseHeaded) { 'VISIBLE' } else { 'HEADLESS' })"
 Write-Host "Memoria   : $(if ($UseLowMemory) { 'LOW-MEMORY' } else { 'STANDARD' })"
 Write-Host "Salida    : $ProjectDir\output\concentrado_productivo.xlsx"
+Write-Host "Log       : $LogPath"
 Write-Host ""
 Write-Host "El master solo se reemplaza si TODAS las categorias pasan calidad."
 Write-Host ""
@@ -78,9 +85,16 @@ if ($code -eq 0) {
     Write-Host "FASE 1 PRODUCTIVA PUBLICADA"
     Write-Host "========================================================================"
     Write-Host "Archivo: $ProjectDir\output\concentrado_productivo.xlsx"
+    Write-Host "Log    : $LogPath"
 } else {
     Write-Warning "La Fase 1 NO fue publicada. El master productivo anterior se conserva."
     Write-Host "Diagnostico: $ProjectDir\diagnostics\phase1_production\last_run.json"
+    Write-Host "Log        : $LogPath"
+}
+
+try {
+    Stop-Transcript | Out-Null
+} catch {
 }
 
 exit $code
