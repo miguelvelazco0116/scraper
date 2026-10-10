@@ -4,6 +4,7 @@ import argparse
 import gc
 import json
 import os
+import shutil
 import sys
 import time
 from copy import copy
@@ -35,6 +36,8 @@ from scraper.retailers.ibarra_mayoreo import (
 
 
 OUTPUT_PATH = ROOT / "output" / "concentrado_productivo.xlsx"
+BASELINE_PATH = ROOT / "output" / "fase1_muestra_inicial_valida.xlsx"
+BASELINE_META_PATH = ROOT / "output" / "fase1_muestra_inicial_valida.json"
 DIAGNOSTIC_PATH = ROOT / "diagnostics" / "phase1_production" / "last_run.json"
 
 PHASE = "FASE 1"
@@ -530,6 +533,39 @@ def _write_productive(
                         cell.number_format = "$#,##0.0000"
 
 
+def _create_baseline_if_missing(
+    *,
+    generated_at: str,
+    concentrated: pd.DataFrame,
+    summary: pd.DataFrame,
+) -> bool:
+    if BASELINE_PATH.exists():
+        return False
+
+    BASELINE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(OUTPUT_PATH, BASELINE_PATH)
+
+    baseline_meta = {
+        "phase": PHASE,
+        "status": "VALID_BASELINE",
+        "generated_at": generated_at,
+        "source": str(OUTPUT_PATH),
+        "baseline": str(BASELINE_PATH),
+        "products": len(concentrated),
+        "categories": len(summary),
+        "retailers": list(RETAILERS),
+        "note": (
+            "Primera muestra productiva valida de Fase 1. "
+            "No sobrescribir en corridas futuras."
+        ),
+    }
+    BASELINE_META_PATH.write_text(
+        json.dumps(baseline_meta, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Fase 1 productiva: Ahorro + Ibarra + Chedraui."
@@ -679,10 +715,22 @@ def main() -> int:
         generated_at=generated_at,
     )
 
+    baseline_created = _create_baseline_if_missing(
+        generated_at=generated_at,
+        concentrated=concentrated,
+        summary=summary,
+    )
+
     print("")
     print("FASE 1 PUBLICADA CORRECTAMENTE")
     print(f"Filas productivas : {len(concentrated)}")
     print(f"Archivo productivo: {OUTPUT_PATH}")
+    if baseline_created:
+        print(f"Baseline Fase 1   : {BASELINE_PATH}")
+        print("Baseline status   : CREADA - MUESTRA INICIAL VALIDA")
+    else:
+        print(f"Baseline Fase 1   : {BASELINE_PATH}")
+        print("Baseline status   : CONSERVADA - NO SOBRESCRITA")
     print(f"Diagnóstico       : {DIAGNOSTIC_PATH}")
     return 0
 
