@@ -158,6 +158,8 @@ def _summary_row(
 def _run_ahorro(
     categories: list[Category],
     location: Location,
+    *,
+    low_memory: bool,
 ) -> tuple[list[pd.DataFrame], list[dict[str, Any]]]:
     frames: list[pd.DataFrame] = []
     summaries: list[dict[str, Any]] = []
@@ -221,6 +223,7 @@ def _run_ahorro(
             f"target={target} price={summary['price_complete']} "
             f"sku={summary['sku_complete']} url={summary['url_complete']}"
         )
+        _release_between_cases(low_memory)
 
     return frames, summaries
 
@@ -539,10 +542,12 @@ def main() -> int:
     all_frames: list[pd.DataFrame] = []
     summaries: list[dict[str, Any]] = []
 
-    frames, rows = _run_ahorro(*configurations["ahorro"])
+    frames, rows = _run_ahorro(
+        *configurations["ahorro"],
+        low_memory=args.low_memory,
+    )
     all_frames.extend(frames)
     summaries.extend(rows)
-    _release_between_cases(args.low_memory)
 
     frames, rows = _run_ibarra(
         *configurations["ibarra"],
