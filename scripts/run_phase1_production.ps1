@@ -84,8 +84,9 @@ if ($code -eq 0) {
     Write-Host "========================================================================"
     Write-Host "FASE 1 PRODUCTIVA PUBLICADA"
     Write-Host "========================================================================"
-    Write-Host "Archivo: $ProjectDir\output\concentrado_productivo.xlsx"
-    Write-Host "Log    : $LogPath"
+    Write-Host "Archivo : $ProjectDir\output\concentrado_productivo.xlsx"
+    Write-Host "Baseline: $ProjectDir\output\fase1_muestra_inicial_valida.xlsx"
+    Write-Host "Log     : $LogPath"
 } else {
     Write-Warning "La Fase 1 NO fue publicada. El master productivo anterior se conserva."
     Write-Host "Diagnostico: $ProjectDir\diagnostics\phase1_production\last_run.json"
