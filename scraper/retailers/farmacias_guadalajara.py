@@ -36,9 +36,39 @@ class FarmaciasGuadalajaraScraper:
     PRODUCT_RE = re.compile(r"-(\d{5,14})\.html(?:$|[?#])", re.IGNORECASE)
     MONEY_RE = re.compile(r"\$\s*([0-9][0-9,]*(?:\.\d{1,2})?)")
 
-    def __init__(self, headless: bool = True, max_load_more: int = 100) -> None:
+    def __init__(
+        self,
+        headless: bool = True,
+        max_load_more: int = 100,
+        low_memory: bool = False,
+    ) -> None:
         self.headless = headless
         self.max_load_more = max_load_more
+        self.low_memory = low_memory
+        self.last_meta: dict = {}
+
+    @staticmethod
+    def _low_memory_browser_args() -> list[str]:
+        return [
+            "--disable-http2",
+            "--disable-gpu",
+            "--disable-extensions",
+            "--disable-sync",
+            "--disable-translate",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--renderer-process-limit=2",
+        ]
+
+    @staticmethod
+    def _install_low_memory_routes(context) -> None:
+        def handle(route, request):
+            if request.resource_type in {"image", "media", "font"}:
+                route.abort()
+            else:
+                route.continue_()
+
+        context.route("**/*", handle)
 
     @classmethod
     def extract_sku(cls, url: str | None) -> str | None:
@@ -162,20 +192,20 @@ class FarmaciasGuadalajaraScraper:
     @staticmethod
     def _goto_with_retries(page, url: str):
         last_error: Exception | None = None
-        for attempt in range(1, 3):
+        for attempt in range(1, 4):
             try:
-                response = page.goto(url, wait_until="commit", timeout=20_000)
-                page.wait_for_selector("body", state="attached", timeout=10_000)
+                response = page.goto(url, wait_until="commit", timeout=60_000)
+                page.wait_for_selector("body", state="attached", timeout=20_000)
                 return response
             except PlaywrightError as exc:
                 last_error = exc
-                if attempt >= 2:
+                if attempt >= 3:
                     break
                 try:
                     page.goto("about:blank", wait_until="commit", timeout=5_000)
                 except Exception:
                     pass
-                page.wait_for_timeout(1_000)
+                page.wait_for_timeout(1_500 * attempt)
 
         detail = f"{type(last_error).__name__}: {last_error}" if last_error else "sin respuesta"
         raise FarmaciasGuadalajaraNetworkUnavailable(
@@ -274,6 +304,7 @@ class FarmaciasGuadalajaraScraper:
                 "establecer una respuesta HTTP con el dominio oficial."
             ),
         }
+        self.last_meta = dict(meta)
         (DIAGNOSTICS / f"farmacias_guadalajara_{category.id}.json").write_text(
             json.dumps(meta, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -282,8 +313,21 @@ class FarmaciasGuadalajaraScraper:
     def scrape_category(self, category: Category, location: Location) -> list[dict]:
         DIAGNOSTICS.mkdir(parents=True, exist_ok=True)
         slug = category.id
+        self.last_meta = {
+            "retailer": "Farmacias Guadalajara",
+            "category_id": category.id,
+            "url": category.url,
+        }
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=self.headless, args=["--disable-http2"])
+            launch_args = (
+                self._low_memory_browser_args()
+                if self.low_memory
+                else ["--disable-http2"]
+            )
+            browser = p.chromium.launch(
+                headless=self.headless,
+                args=launch_args,
+            )
             context = browser.new_context(
                 locale="es-MX",
                 viewport={"width": 1440, "height": 1000},
@@ -293,6 +337,8 @@ class FarmaciasGuadalajaraScraper:
                     "Chrome/139.0.0.0 Safari/537.36"
                 ),
             )
+            if self.low_memory:
+                self._install_low_memory_routes(context)
             page = context.new_page()
             try:
                 try:
@@ -363,8 +409,19 @@ class FarmaciasGuadalajaraScraper:
                     "target_products": target,
                     "product_links": self._product_link_count(page),
                     "rows": len(rows),
+                    "sku_complete": sum(bool(row.get("sku")) for row in rows),
+                    "price_complete": sum(
+                        row.get("price_current") is not None for row in rows
+                    ),
+                    "url_complete": sum(bool(row.get("url")) for row in rows),
+                    "coverage": (
+                        len(rows) / int(target)
+                        if target not in (None, 0)
+                        else None
+                    ),
                     "store_context": "online_catalog_no_store_requested",
                 }
+                self.last_meta = dict(meta)
                 (DIAGNOSTICS / f"farmacias_guadalajara_{slug}.json").write_text(
                     json.dumps(meta, ensure_ascii=False, indent=2),
                     encoding="utf-8",

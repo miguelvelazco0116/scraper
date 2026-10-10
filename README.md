@@ -80,6 +80,60 @@ Ese archivo representa la **primera muestra válida oficial de Fase 1** y no se 
 
 El archivo productivo contiene las hojas `Concentrado`, `Resumen` y `Control`. La publicación es atómica: el archivo productivo sólo se reemplaza cuando todas las categorías cumplen sus gates de calidad. Si una categoría falla, queda `PARTIAL`, se bloquea o no alcanza la cobertura requerida, el master productivo anterior se conserva sin cambios y el detalle se guarda en `diagnostics\phase1_production\last_run.json`.
 
+## Fase 2 - testing
+
+Fase 2 incorpora inicialmente:
+
+- **Farmacias Guadalajara**: 4 categorías activas. La categoría se considera aceptable con cobertura de catálogo **>= 90%**, siempre que todas las filas extraídas tengan SKU, precio actual y URL completos. El test corre `HEADLESS + LOW-MEMORY` y no modifica el master de Fase 1.
+- **Soriana**: 6 categorías activas usando **Chrome abierto manualmente por el usuario**. El script se conecta a esa sesión mediante CDP, navega las categorías y recorre la paginación sin abrir ni cerrar otro navegador.
+
+### Farmacias Guadalajara
+
+Prueba completa:
+
+```powershell
+& .\scripts\test_farmacias_guadalajara_phase2.ps1
+```
+
+Una sola categoría:
+
+```powershell
+& .\scripts\test_farmacias_guadalajara_phase2.ps1 -Category cuidado-bucal
+```
+
+Salida:
+
+```text
+output\farmacias_guadalajara_phase2_test.xlsx
+```
+
+### Soriana - navegador manual
+
+1. Abre Google Chrome manualmente.
+2. Entra a `https://www.soriana.com/`.
+3. Si el wrapper indica que remote debugging no está habilitado, en esa misma ventana abre `chrome://inspect/#remote-debugging` y habilita **Allow remote debugging for this browser instance**.
+4. Ejecuta:
+
+```powershell
+& .\scripts\test_soriana_manual_phase2.ps1
+```
+
+El script usa la misma pestaña/sesión, recorre las categorías configuradas y no llama `browser.close()`.
+
+Una sola categoría:
+
+```powershell
+& .\scripts\test_soriana_manual_phase2.ps1 -Category cuidado-bucal
+```
+
+Salida:
+
+```text
+output\soriana_manual_phase2_test.xlsx
+```
+
+Los tests de Fase 2 son aislados y no modifican `output\concentrado_productivo.xlsx` ni `output\fase1_muestra_inicial_valida.xlsx`.
+
 ## Ejecución local
 
 Desde PowerShell:
