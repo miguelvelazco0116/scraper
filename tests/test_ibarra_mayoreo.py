@@ -127,3 +127,65 @@ def test_ibarra_supports_package_as_single_presentation():
     assert detail["single_item_presentation"] == "Paquete"
     assert detail["single_item_price"] == 24.00
     assert detail["price_per_unit"] == round(1098.70 / 48, 4)
+
+
+def test_ibarra_second_discovery_pass_recovers_missing_link():
+    scraper = IbarraMayoreoScraper(headless=True)
+    calls = {"extract": 0}
+
+    class FakePage:
+        url = "https://ibarramayoreo.com/categoria"
+
+        def wait_for_timeout(self, _value):
+            return None
+
+    page = FakePage()
+
+    scraper._page_url = lambda base_url, page_number: (
+        f"{base_url}?p={page_number}"
+    )
+    scraper._goto = lambda page, url: setattr(page, "url", url)
+    scraper._catalogue_metadata = lambda page, category: {
+        "target_products": 2,
+        "last_page": 1,
+    }
+
+    def fake_extract(_page):
+        calls["extract"] += 1
+        if calls["extract"] == 1:
+            return [
+                {
+                    "href": "https://ibarramayoreo.com/producto-a",
+                    "title": "Producto A",
+                }
+            ]
+        return [
+            {
+                "href": "https://ibarramayoreo.com/producto-a",
+                "title": "Producto A",
+            },
+            {
+                "href": "https://ibarramayoreo.com/producto-b",
+                "title": "Producto B",
+            },
+        ]
+
+    scraper._extract_product_links = fake_extract
+
+    category = type(
+        "CategoryStub",
+        (),
+        {
+            "id": "test",
+            "url": "https://ibarramayoreo.com/categoria",
+        },
+    )()
+
+    products, meta = scraper._discover_product_links(page, category)
+
+    assert len(products) == 2
+    assert meta["target_products"] == 2
+    assert meta["product_links"] == 2
+    assert meta["discovery_complete"] is True
+    assert meta["recovery_attempted"] is True
+    assert meta["recovery_recovered"] == 1
