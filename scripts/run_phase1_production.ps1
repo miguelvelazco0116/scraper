@@ -2,7 +2,9 @@ param(
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = "",
     [string]$ProfileDir = ".chedraui_profile",
-    [switch]$Headless
+    [switch]$Headed,
+    [switch]$Headless,
+    [switch]$StandardMemory
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,7 +41,16 @@ Write-Host "====================================================================
 Write-Host "Retailers : Farmacias del Ahorro + Ibarra Mayoreo + Chedraui"
 Write-Host "Cobertura : TODAS las categorias activas"
 Write-Host "Python    : $PythonExe"
+if ($Headed -and $Headless) {
+    throw "Usa -Headed o -Headless, no ambos."
+}
+
+$UseHeaded = $Headed -and -not $Headless
+$UseLowMemory = -not $StandardMemory
+
 Write-Host "Profile   : $ProfileDir"
+Write-Host "Navegador : $(if ($UseHeaded) { 'VISIBLE' } else { 'HEADLESS' })"
+Write-Host "Memoria   : $(if ($UseLowMemory) { 'LOW-MEMORY' } else { 'STANDARD' })"
 Write-Host "Salida    : $ProjectDir\output\concentrado_productivo.xlsx"
 Write-Host ""
 Write-Host "El master solo se reemplaza si TODAS las categorias pasan calidad."
@@ -50,8 +61,12 @@ $ArgsList = @(
     "--profile-dir", $ProfileDir
 )
 
-if (-not $Headless) {
+if ($UseHeaded) {
     $ArgsList += "--headed"
+}
+
+if ($UseLowMemory) {
+    $ArgsList += "--low-memory"
 }
 
 & $PythonExe @ArgsList
