@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -21,7 +22,13 @@ from scraper.retailers.ibarra_mayoreo import (
 OUTPUT_PATH = ROOT / "output" / "ibarra_mayoreo_test.xlsx"
 
 
-def run_category(category, location) -> tuple[pd.DataFrame, dict, list[dict], list[dict]]:
+def run_category(
+    category,
+    location,
+    *,
+    headless: bool,
+    low_memory: bool,
+) -> tuple[pd.DataFrame, dict, list[dict], list[dict]]:
     print("")
     print("-" * 72)
     print(f"IBARRA MAYOREO | {category.department}")
@@ -29,14 +36,16 @@ def run_category(category, location) -> tuple[pd.DataFrame, dict, list[dict], li
     print(f"category_id : {category.id}")
     print(f"subcategoría: {category.subcategory}")
     print(f"URL         : {category.url}")
-    print("Precio      : SIEMPRE presentación CAJA")
+    print("Precio      : presentación observada + unidades + precio por pieza")
     print("")
 
     scraper = IbarraMayoreoScraper(
-        headless=False,
+        headless=headless,
         browser_channel="chrome",
         max_pages=30,
         wait_ms=700,
+        low_memory=low_memory,
+        page_recycle_interval=50,
     )
 
     rows: list[dict] = []
@@ -82,6 +91,12 @@ def run_category(category, location) -> tuple[pd.DataFrame, dict, list[dict], li
         "last_page": last_page,
         "product_links": links,
         "discovery_complete": discovery_complete,
+        "discovery_coverage": (
+            len(df) / int(target)
+            if target not in (None, 0)
+            else None
+        ),
+        "discovery_threshold": 0.90,
         "products_with_sale_price": len(df),
         "products_with_box_price": int(
             df["package_type"].fillna("").astype(str).str.upper().eq("CAJA").sum()
@@ -118,6 +133,8 @@ def run_category(category, location) -> tuple[pd.DataFrame, dict, list[dict], li
     print(f"last_page                  : {last_page}")
     print(f"product_links              : {links}")
     print(f"discovery_complete         : {discovery_complete}")
+    print(f"discovery_coverage         : {summary['discovery_coverage']}")
+    print(f"discovery_threshold        : {summary['discovery_threshold']}")
     print(f"products_with_sale_price   : {summary['products_with_sale_price']}")
     print(f"products_with_box_price    : {summary['products_with_box_price']}")
     print(f"sku_complete               : {summary['sku_complete']}")
@@ -153,9 +170,38 @@ def run_category(category, location) -> tuple[pd.DataFrame, dict, list[dict], li
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Test de Ibarra Mayoreo."
+    )
+    parser.add_argument(
+        "--category",
+        default="all",
+        help="Category id o all.",
+    )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Ejecuta Chrome sin UI.",
+    )
+    parser.add_argument(
+        "--low-memory",
+        action="store_true",
+        help="Bloquea recursos pesados y recicla renderer.",
+    )
+    args = parser.parse_args()
+
     categories = load_categories(
         ROOT / "config" / "ibarra-mayoreo" / "categories.yaml"
     )
+    if args.category != "all":
+        categories = [
+            item for item in categories
+            if item.id == args.category
+        ]
+        if not categories:
+            raise SystemExit(
+                f"Categoria no encontrada: {args.category}"
+            )
     location = next(
         x
         for x in load_locations(ROOT / "config" / "locations.yaml")
@@ -168,7 +214,10 @@ def main() -> int:
     print("Fuentes a extraer:")
     for category in categories:
         print(f"  - {category.department} > {category.subcategory}")
-    print("Regla de precio: SIEMPRE presentación CAJA")
+    print(
+        "Regla de precio: presentación observada + unidades "
+        "+ precio por pieza"
+    )
     print(f"Salida: {OUTPUT_PATH}")
 
     frames: list[pd.DataFrame] = []
@@ -180,6 +229,8 @@ def main() -> int:
         df, summary, category_no_box, category_errors = run_category(
             category,
             location,
+            headless=args.headless,
+            low_memory=args.low_memory,
         )
         frames.append(df)
         summaries.append(summary)
@@ -223,6 +274,8 @@ def main() -> int:
                     "last_page",
                     "product_links",
                     "discovery_complete",
+                    "discovery_coverage",
+                    "discovery_threshold",
                     "products_with_sale_price",
                     "products_with_box_price",
                     "single_item_products",
@@ -235,7 +288,7 @@ def main() -> int:
         )
 
     print("")
-    print(f"Total filas con precio CAJA: {len(concentrated)}")
+    print(f"Total filas con precio utilizable: {len(concentrated)}")
     print(f"Archivo: {OUTPUT_PATH}")
     print("Diagnósticos: diagnostics\\ibarra_mayoreo_*")
 
@@ -243,7 +296,13 @@ def main() -> int:
     for summary in summaries:
         acceptable = acceptable and (
             summary["status"] in {"SUCCESS", "PARTIAL"}
-            and bool(summary["discovery_complete"])
+            and (
+                bool(summary["discovery_complete"])
+                or (
+                    summary["discovery_coverage"] is not None
+                    and summary["discovery_coverage"] >= 0.90
+                )
+            )
             and summary["products_with_sale_price"] > 0
             and summary["price_complete"] == summary["products_with_sale_price"]
             and summary["unit_count_complete"] == summary["products_with_sale_price"]

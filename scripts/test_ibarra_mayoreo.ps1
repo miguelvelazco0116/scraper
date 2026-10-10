@@ -1,6 +1,9 @@
 param(
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
-    [string]$PythonExe = ""
+    [string]$PythonExe = "",
+    [string]$Category = "all",
+    [switch]$Headless,
+    [switch]$LowMemory
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,12 +24,26 @@ if ([string]::IsNullOrWhiteSpace($PythonExe) -or -not (Test-Path $PythonExe)) {
 }
 
 Write-Host "============================================================"
-Write-Host "Ibarra Mayoreo - test precio por caja"
+Write-Host "Ibarra Mayoreo - test de precio y unidades por empaque"
 Write-Host "============================================================"
-Write-Host "Python: $PythonExe"
+Write-Host "Python   : $PythonExe"
+Write-Host "Category : $Category"
+Write-Host "Headless : $Headless"
+Write-Host "LowMemory: $LowMemory"
 Write-Host ""
 
-& $PythonExe .\scripts\test_ibarra_mayoreo.py
+$ArgsList = @(
+    ".\scripts\test_ibarra_mayoreo.py",
+    "--category", $Category
+)
+if ($Headless) {
+    $ArgsList += "--headless"
+}
+if ($LowMemory) {
+    $ArgsList += "--low-memory"
+}
+
+& $PythonExe @ArgsList
 $code = $LASTEXITCODE
 
 Write-Host ""

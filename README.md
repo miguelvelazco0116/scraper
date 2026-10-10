@@ -351,7 +351,7 @@ Total                                         574
 
 Regla crítica: se conserva el precio observado de la presentación de venta y su economía unitaria. Si existe **CAJA**, se registra el número de artículos y `price_per_unit = price_current / units_per_package`. Si la ficha sólo ofrece una presentación individual de 1 unidad, se registra como `is_single_item = true`. Cuando Ibarra publica además precio de Pieza/Paquete individual, se conserva en `single_item_price` para comparar el costo unitario de la caja contra la compra individual.
 
-Cobertura de precio: 574/574. Cobertura de SKU: 570/574. En Fase 1 productiva, `units_per_package` y `price_per_unit` son campos bloqueantes para Ibarra: si falta cualquiera de ellos, la categoría queda `PARTIAL`.
+Cobertura de precio: 574/574. Cobertura de SKU: 570/574. En Fase 1 productiva, cada categoría de Ibarra debe cubrir al menos **90% del catálogo publicado**. `units_per_package` y `price_per_unit` son campos bloqueantes para todas las filas extraídas: si falta cualquiera de ellos, la categoría queda `PARTIAL`. Cuando la primera pasada queda por debajo del target, el scraper realiza una segunda pasada de descubrimiento antes de aplicar el umbral.
 
 Test dedicado:
 
