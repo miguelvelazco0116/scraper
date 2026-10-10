@@ -268,6 +268,18 @@ def _run_ibarra(
         parse_errors = len(meta.get("parse_errors") or [])
         no_box = len(meta.get("products_without_box_price") or [])
         discovery_complete = bool(meta.get("discovery_complete"))
+        discovery_coverage = (
+            metrics["products"] / int(target)
+            if target not in (None, 0)
+            else None
+        )
+        discovery_coverage_ok = (
+            discovery_complete
+            or (
+                discovery_coverage is not None
+                and discovery_coverage >= 0.90
+            )
+        )
         unit_count_complete = int(
             frame["units_per_package"].notna().sum()
         ) if not frame.empty else 0
@@ -287,8 +299,15 @@ def _run_ibarra(
         else:
             if metrics["products"] <= 0:
                 notes.append("sin productos con precio utilizable")
-            if not discovery_complete:
-                notes.append("descubrimiento incompleto")
+            if not discovery_coverage_ok:
+                coverage_text = (
+                    f"{discovery_coverage:.1%}"
+                    if discovery_coverage is not None
+                    else "n/d"
+                )
+                notes.append(
+                    f"cobertura_catalogo {coverage_text} < 90%"
+                )
             if parse_errors:
                 notes.append(f"parse_errors {parse_errors}")
             if metrics["price_complete"] < metrics["products"]:
@@ -319,6 +338,9 @@ def _run_ibarra(
             target=target,
             notes=notes,
             discovery_complete=discovery_complete,
+            discovery_coverage=discovery_coverage,
+            discovery_coverage_ok=discovery_coverage_ok,
+            discovery_threshold=0.90,
             parse_errors=parse_errors,
             products_without_box_price=no_box,
             unit_count_complete=unit_count_complete,
@@ -330,7 +352,9 @@ def _run_ibarra(
         summaries.append(summary)
         print(
             f"  -> {status} products={summary['products']} "
-            f"links={meta.get('product_links')} price={summary['price_complete']} "
+            f"links={meta.get('product_links')} "
+            f"coverage={discovery_coverage if discovery_coverage is not None else 'n/d'} "
+            f"price={summary['price_complete']} "
             f"units={unit_count_complete} unit_price={unit_price_complete} "
             f"single={single_item_products} sku={summary['sku_complete']} "
             f"no_box={no_box}"
