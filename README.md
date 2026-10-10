@@ -55,7 +55,7 @@ La Comer está implementado pero sigue fuera del runner principal hasta completa
 La primera corrida productiva está limitada a los retailers estables:
 
 - Farmacias del Ahorro: todas las categorías activas.
-- Ibarra Mayoreo: todas las categorías activas, usando precio por presentación **CAJA**.
+- Ibarra Mayoreo: todas las categorías activas, conservando presentación, unidades por empaque y precio por pieza. Cuando existe CAJA, el precio unitario se calcula como precio de caja / artículos por caja; si sólo existe presentación individual, se registra como single item.
 - Chedraui Polanco (tienda 232): todas las categorías activas.
 
 El runner productivo es:
@@ -132,6 +132,12 @@ product
 price_current
 price_regular
 promotion
+package_type
+units_per_package
+is_single_item
+price_per_unit
+single_item_presentation
+single_item_price
 pickup_available
 store_context_verified
 store_context_method
@@ -343,9 +349,9 @@ perfumeria-abarrotes                         331
 Total                                         574
 ```
 
-Regla crítica: **sólo se guarda la presentación con precio CAJA**.
+Regla crítica: se conserva el precio observado de la presentación de venta y su economía unitaria. Si existe **CAJA**, se registra el número de artículos y `price_per_unit = price_current / units_per_package`. Si la ficha sólo ofrece una presentación individual de 1 unidad, se registra como `is_single_item = true`. Cuando Ibarra publica además precio de Pieza/Paquete individual, se conserva en `single_item_price` para comparar el costo unitario de la caja contra la compra individual.
 
-Cobertura de precio: 574/574. Cobertura de SKU: 570/574.
+Cobertura de precio: 574/574. Cobertura de SKU: 570/574. En Fase 1 productiva, `units_per_package` y `price_per_unit` son campos bloqueantes para Ibarra: si falta cualquiera de ellos, la categoría queda `PARTIAL`.
 
 Test dedicado:
 
