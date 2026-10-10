@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -21,7 +22,13 @@ from scraper.retailers.ibarra_mayoreo import (
 OUTPUT_PATH = ROOT / "output" / "ibarra_mayoreo_test.xlsx"
 
 
-def run_category(category, location) -> tuple[pd.DataFrame, dict, list[dict], list[dict]]:
+def run_category(
+    category,
+    location,
+    *,
+    headless: bool,
+    low_memory: bool,
+) -> tuple[pd.DataFrame, dict, list[dict], list[dict]]:
     print("")
     print("-" * 72)
     print(f"IBARRA MAYOREO | {category.department}")
@@ -33,10 +40,12 @@ def run_category(category, location) -> tuple[pd.DataFrame, dict, list[dict], li
     print("")
 
     scraper = IbarraMayoreoScraper(
-        headless=False,
+        headless=headless,
         browser_channel="chrome",
         max_pages=30,
         wait_ms=700,
+        low_memory=low_memory,
+        page_recycle_interval=50,
     )
 
     rows: list[dict] = []
@@ -153,9 +162,38 @@ def run_category(category, location) -> tuple[pd.DataFrame, dict, list[dict], li
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Test de Ibarra Mayoreo."
+    )
+    parser.add_argument(
+        "--category",
+        default="all",
+        help="Category id o all.",
+    )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Ejecuta Chrome sin UI.",
+    )
+    parser.add_argument(
+        "--low-memory",
+        action="store_true",
+        help="Bloquea recursos pesados y recicla renderer.",
+    )
+    args = parser.parse_args()
+
     categories = load_categories(
         ROOT / "config" / "ibarra-mayoreo" / "categories.yaml"
     )
+    if args.category != "all":
+        categories = [
+            item for item in categories
+            if item.id == args.category
+        ]
+        if not categories:
+            raise SystemExit(
+                f"Categoria no encontrada: {args.category}"
+            )
     location = next(
         x
         for x in load_locations(ROOT / "config" / "locations.yaml")
@@ -168,7 +206,10 @@ def main() -> int:
     print("Fuentes a extraer:")
     for category in categories:
         print(f"  - {category.department} > {category.subcategory}")
-    print("Regla de precio: SIEMPRE presentación CAJA")
+    print(
+        "Regla de precio: presentación observada + unidades "
+        "+ precio por pieza"
+    )
     print(f"Salida: {OUTPUT_PATH}")
 
     frames: list[pd.DataFrame] = []
@@ -180,6 +221,8 @@ def main() -> int:
         df, summary, category_no_box, category_errors = run_category(
             category,
             location,
+            headless=args.headless,
+            low_memory=args.low_memory,
         )
         frames.append(df)
         summaries.append(summary)
