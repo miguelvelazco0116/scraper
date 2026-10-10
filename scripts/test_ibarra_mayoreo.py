@@ -87,6 +87,18 @@ def run_category(category, location) -> tuple[pd.DataFrame, dict, list[dict], li
             df["sku"].fillna("").astype(str).str.strip().ne("").sum()
         ) if not df.empty else 0,
         "price_complete": int(df["price_current"].notna().sum()) if not df.empty else 0,
+        "unit_count_complete": int(
+            df["units_per_package"].notna().sum()
+        ) if not df.empty else 0,
+        "unit_price_complete": int(
+            df["price_per_unit"].notna().sum()
+        ) if not df.empty else 0,
+        "single_item_products": int(
+            df["is_single_item"].fillna(False).astype(bool).sum()
+        ) if not df.empty else 0,
+        "single_item_price_complete": int(
+            df["single_item_price"].notna().sum()
+        ) if not df.empty else 0,
         "url_complete": int(
             df["url"].fillna("").astype(str).str.strip().ne("").sum()
         ) if not df.empty else 0,
@@ -106,6 +118,10 @@ def run_category(category, location) -> tuple[pd.DataFrame, dict, list[dict], li
     print(f"products_with_box_price    : {len(df)}")
     print(f"sku_complete               : {summary['sku_complete']}")
     print(f"price_complete             : {summary['price_complete']}")
+    print(f"unit_count_complete        : {summary['unit_count_complete']}")
+    print(f"unit_price_complete        : {summary['unit_price_complete']}")
+    print(f"single_item_products       : {summary['single_item_products']}")
+    print(f"single_item_price_complete : {summary['single_item_price_complete']}")
     print(f"url_complete               : {summary['url_complete']}")
     print(f"products_without_box_price : {len(without_box)}")
     print(f"parse_errors               : {len(parse_errors)}")
@@ -222,6 +238,8 @@ def main() -> int:
             and bool(summary["discovery_complete"])
             and summary["products_with_box_price"] > 0
             and summary["price_complete"] == summary["products_with_box_price"]
+            and summary["unit_count_complete"] == summary["products_with_box_price"]
+            and summary["unit_price_complete"] == summary["products_with_box_price"]
             and summary["parse_errors"] == 0
         )
 
