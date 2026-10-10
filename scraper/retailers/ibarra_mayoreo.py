@@ -465,6 +465,68 @@ class IbarraMayoreoScraper:
             if last_page is None and stale_pages >= 2:
                 break
 
+        recovery_pages: list[dict] = []
+        if (
+            target is not None
+            and len(products) < target
+            and (last_page is not None or pages)
+        ):
+            recovery_last_page = (
+                int(last_page)
+                if last_page is not None
+                else int(pages[-1]["page"])
+            )
+            print(
+                f"Ibarra recovery: faltan {target - len(products)} "
+                f"producto(s); segunda pasada hasta pagina {recovery_last_page}"
+            )
+
+            for page_number in range(1, min(recovery_last_page, self.max_pages) + 1):
+                if len(products) >= target:
+                    break
+
+                url = self._page_url(category.url, page_number)
+                before = len(products)
+                try:
+                    self._goto(page, url)
+                    page.wait_for_timeout(max(self.wait_ms, 1_500))
+                    page_links = self._extract_product_links(page)
+                except (IbarraMayoreoBlocked, IbarraMayoreoNetworkUnavailable):
+                    raise
+                except Exception as exc:
+                    recovery_pages.append(
+                        {
+                            "page": page_number,
+                            "url": url,
+                            "links_on_page": 0,
+                            "new_links": 0,
+                            "cumulative_links": len(products),
+                            "error": f"{type(exc).__name__}: {exc}",
+                        }
+                    )
+                    continue
+
+                for item in page_links:
+                    href = clean_text(item.get("href"))
+                    if href:
+                        products[href] = item
+
+                after = len(products)
+                recovery_pages.append(
+                    {
+                        "page": page_number,
+                        "url": page.url,
+                        "links_on_page": len(page_links),
+                        "new_links": after - before,
+                        "cumulative_links": after,
+                    }
+                )
+                print(
+                    f"Ibarra recovery page={page_number}: "
+                    f"links={len(page_links)}, new={after - before}, "
+                    f"cumulative={after}/{target}"
+                )
+
         meta = {
             "category_id": category.id,
             "category_url": category.url,
@@ -484,6 +546,13 @@ class IbarraMayoreoScraper:
                 )
             ),
             "pages": pages,
+            "recovery_pages": recovery_pages,
+            "recovery_attempted": bool(recovery_pages),
+            "recovery_recovered": (
+                max(len(products) - (pages[-1]["cumulative_links"] if pages else 0), 0)
+                if recovery_pages
+                else 0
+            ),
         }
         return list(products.values()), meta
 
