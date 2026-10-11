@@ -116,28 +116,51 @@ Regla de operación:
 
 ### Farmacias Guadalajara
 
-Estado: EN VALIDACIÓN
+Estado: VALIDADO
 
-Último patrón a reutilizar:
+Patrón oficial:
 - Chrome abierto manualmente por el usuario
 - remote debugging habilitado
 - CDP directo por WebSocket
 - NO usar Playwright.connect_over_cdp(), porque en Windows Server se observó timeout después de establecer el WebSocket
 - no abrir otro Chrome
 - no cerrar la sesión del usuario
+- expansión de catálogo mediante clicks CDP sobre "Ver más productos"
 
-Gate acordado:
+Commit estable del método:
+- 52ebb6f921480da0aff0091fa610605ff7edd741
+
+Comando validado:
+- & .\scripts\test_farmacias_guadalajara_phase2.ps1 -Category cuidado-bucal
+
+Validación real reportada el 2026-10-11:
+- categoría: cuidado-bucal
+- target publicado: 358
+- links detectados: 358
+- productos extraídos: 358
+- cobertura: 100%
+- SKU completos: 358/358
+- precios completos: 358/358
+- URLs completas: 358/358
+- rondas de expansión: 17
+- patrón de expansión: 20 -> 40 -> ... -> 340 -> 358
+- método de click: cdp_mouse_ranked
+- return_code: 0
+- resultado: SUCCESS
+
+Gate oficial:
 - cobertura >= 90%
 - SKU completo en filas extraídas
 - precio completo
 - URL completa
 
-Script actual:
+Scripts oficiales:
 - scripts\test_farmacias_guadalajara_phase2.ps1
+- scripts\test_farmacias_guadalajara_phase2.py
 - scripts\scrape_farmacias_guadalajara_phase2_raw_cdp.py
 
-Importante:
-- promover a VALIDADO sólo después de que el usuario confirme una ejecución real exitosa del flujo raw-CDP.
+Regla:
+- no sustituir CDP directo por Playwright.connect_over_cdp() salvo que el método validado deje de funcionar y exista una prueba aislada que demuestre una alternativa mejor.
 
 ### Soriana
 
