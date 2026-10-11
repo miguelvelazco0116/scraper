@@ -84,22 +84,27 @@ El archivo productivo contiene las hojas `Concentrado`, `Resumen` y `Control`. L
 
 Fase 2 incorpora inicialmente:
 
-- **Farmacias Guadalajara**: 4 categorías activas. La categoría se considera aceptable con cobertura de catálogo **>= 90%**, siempre que todas las filas extraídas tengan SKU, precio actual y URL completos. El test corre `HEADLESS + LOW-MEMORY` y no modifica el master de Fase 1.
+- **Farmacias Guadalajara**: 4 categorías activas usando **Chrome abierto manualmente por el usuario**. El script se conecta a esa sesión mediante CDP y navega las categorías sin abrir ni cerrar otro navegador. La categoría se considera aceptable con cobertura de catálogo **>= 90%**, siempre que todas las filas extraídas tengan SKU, precio actual y URL completos.
 - **Soriana**: 6 categorías activas usando **Chrome abierto manualmente por el usuario**. El script se conecta a esa sesión mediante CDP, navega las categorías y recorre la paginación sin abrir ni cerrar otro navegador.
 
-### Farmacias Guadalajara
+### Farmacias Guadalajara - navegador manual
 
-Prueba completa:
+1. Abre Google Chrome manualmente.
+2. Entra a `https://www.farmaciasguadalajara.com/`.
+3. Si el wrapper indica que remote debugging no está habilitado, en esa misma ventana abre `chrome://inspect/#remote-debugging` y habilita **Allow remote debugging for this browser instance**.
+4. Para probar una sola categoría ejecuta:
+
+```powershell
+& .\scripts\test_farmacias_guadalajara_phase2.ps1 -Category cuidado-bucal
+```
+
+5. Si la prueba pasa, ejecuta las cuatro categorías:
 
 ```powershell
 & .\scripts\test_farmacias_guadalajara_phase2.ps1
 ```
 
-Una sola categoría:
-
-```powershell
-& .\scripts\test_farmacias_guadalajara_phase2.ps1 -Category cuidado-bucal
-```
+El script usa la misma pestaña/sesión, navega las categorías y no llama `browser.close()`.
 
 Salida:
 
