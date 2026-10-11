@@ -1,0 +1,38 @@
+{
+  "retailer": "Farmacias Guadalajara",
+  "phase": "Fase 2",
+  "status": "VALIDATED",
+  "validated_at": "2026-10-11",
+  "environment": {
+    "os": "Windows Server 2022",
+    "cpu": "2 vCPU",
+    "ram_gb": 4,
+    "browser_mode": "manual_existing_chrome",
+    "connection_method": "raw_cdp_websocket"
+  },
+  "implementation_commit": "52ebb6f921480da0aff0091fa610605ff7edd741",
+  "command": "& .\\scripts\\test_farmacias_guadalajara_phase2.ps1 -Category cuidado-bucal",
+  "category_id": "cuidado-bucal",
+  "target_products": 358,
+  "product_links": 358,
+  "products": 358,
+  "coverage": 1,
+  "sku_complete": 358,
+  "price_complete": 358,
+  "url_complete": 358,
+  "expansion_rounds": 17,
+  "click_method": "cdp_mouse_ranked",
+  "return_code": 0,
+  "result": "SUCCESS",
+  "quality_gate": {
+    "minimum_coverage": 0.9,
+    "require_sku_complete": true,
+    "require_price_complete": true,
+    "require_url_complete": true
+  },
+  "notes": [
+    "Playwright.connect_over_cdp previously timed out after WebSocket connection.",
+    "Raw CDP direct WebSocket completed successfully.",
+    "Do not replace the validated raw-CDP pattern without an isolated successful test."
+  ]
+}
