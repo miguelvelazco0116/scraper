@@ -104,7 +104,7 @@ Fase 2 incorpora inicialmente:
 & .\scripts\test_farmacias_guadalajara_phase2.ps1
 ```
 
-El script usa la misma pestaña/sesión, navega las categorías y no llama `browser.close()`.
+El script usa la misma pestaña/sesión mediante **CDP directo por WebSocket**. No usa `Playwright.connect_over_cdp()`, no abre otro navegador y no cierra Chrome.
 
 Salida:
 
