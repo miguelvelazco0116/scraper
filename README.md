@@ -1,4 +1,6 @@
-# Scraper multi-retailer
+# Scraper
+
+> **Registro de métodos validados:** antes de cambiar la estrategia de un retailer, revisar `docs/validated_scraping_patterns.md`. Los métodos sólo se marcan como VALIDADO después de una prueba real exitosa. multi-retailer
 
 Proyecto modular para extraer catálogos públicos, precios y promociones de retailers en México y concentrar los resultados en un único Excel.
 
