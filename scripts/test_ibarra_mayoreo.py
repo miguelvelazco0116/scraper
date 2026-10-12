@@ -193,7 +193,7 @@ def main() -> int:
     parser.add_argument(
         "--low-memory",
         action="store_true",
-        help="Bloquea recursos pesados y recicla renderer.",
+        help="Bloquea recursos pesados y recicla navegador/contexto.",
     )
     args = parser.parse_args()
 
@@ -290,6 +290,7 @@ def main() -> int:
                     "unit_price_complete",
                     "products_without_box_price",
                     "parse_errors",
+                    "browser_session_restarts",
                 ]
             ].to_string(index=False)
         )
