@@ -134,6 +134,20 @@ def _source_row(summary: pd.DataFrame, category_id: str) -> pd.Series | None:
     return matches.iloc[0]
 
 
+def _invalid_product_name(value: object) -> bool:
+    text = str(value or "").strip()
+    lowered = text.casefold()
+    if not text:
+        return True
+    return (
+        lowered in {"price", "sale price", "precio", "oferta"}
+        or lowered.startswith("price reduced from")
+        or lowered.startswith("price reduced to")
+        or lowered.startswith("reduced from")
+        or lowered.startswith("reduced to")
+    )
+
+
 def _validate_fg(
     frame: pd.DataFrame,
     source_summary: pd.DataFrame,
@@ -166,6 +180,13 @@ def _validate_fg(
             return_code = _safe_int(source.get("return_code"))
 
         products = len(subset)
+        product_name_complete = (
+            _count_nonempty(subset["product"]) if products else 0
+        )
+        product_name_invalid = (
+            int(subset["product"].apply(_invalid_product_name).sum())
+            if products else 0
+        )
         sku_complete = _count_nonempty(subset["sku"]) if products else 0
         price_complete = (
             int(pd.to_numeric(subset["price_current"], errors="coerce").notna().sum())
@@ -190,6 +211,14 @@ def _validate_fg(
                 notes.append(
                     f"cobertura {actual_coverage:.1%} < 90%"
                 )
+        if product_name_complete < products:
+            notes.append(
+                f"producto {product_name_complete}/{products}"
+            )
+        if product_name_invalid:
+            notes.append(
+                f"producto_invalido {product_name_invalid}/{products}"
+            )
         if sku_complete < products:
             notes.append(f"sku {sku_complete}/{products}")
         if price_complete < products:
@@ -214,6 +243,8 @@ def _validate_fg(
                 "target_products": target,
                 "product_links": product_links,
                 "products": products,
+                "product_name_complete": product_name_complete,
+                "product_name_invalid": product_name_invalid,
                 "coverage": coverage,
                 "coverage_threshold": 0.90,
                 "total_pages": None,
@@ -627,6 +658,8 @@ def main() -> int:
                     "status",
                     "target_products",
                     "products",
+                    "product_name_complete",
+                    "product_name_invalid",
                     "coverage",
                     "total_pages",
                     "sku_complete",
