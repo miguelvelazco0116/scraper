@@ -761,6 +761,20 @@ def extract_cards(cdp: RawCDP, session_id: str) -> list[dict]:
     return value or []
 
 
+def _invalid_product_name(value: object) -> bool:
+    text = clean_text(value) or ""
+    lowered = text.casefold()
+    if not text:
+        return True
+    return (
+        lowered in {"price", "sale price", "precio", "oferta"}
+        or lowered.startswith("price reduced from")
+        or lowered.startswith("price reduced to")
+        or lowered.startswith("reduced from")
+        or lowered.startswith("reduced to")
+    )
+
+
 def normalize_frame(rows: list[dict]) -> pd.DataFrame:
     frame = pd.DataFrame(rows)
     for column in COLUMNS:
@@ -924,6 +938,13 @@ def main() -> int:
             encoding="utf-8",
         )
 
+        product_name_complete = int(
+            frame["product"].fillna("").astype(str).str.strip().ne("").sum()
+        )
+        product_name_invalid = int(
+            frame["product"].apply(_invalid_product_name).sum()
+        )
+
         summary = pd.DataFrame(
             [{
                 "retailer": "Farmacias Guadalajara",
@@ -931,6 +952,8 @@ def main() -> int:
                 "target_products": target_products,
                 "product_links": final_links,
                 "products": len(frame),
+                "product_name_complete": product_name_complete,
+                "product_name_invalid": product_name_invalid,
                 "coverage": (
                     len(frame) / target_products
                     if target_products
@@ -962,6 +985,8 @@ def main() -> int:
         print(f"Target publicado   : {target_products}")
         print(f"Links detectados   : {final_links}")
         print(f"Productos extraídos: {len(frame)}")
+        print(f"Nombres completos  : {product_name_complete}")
+        print(f"Nombres inválidos  : {product_name_invalid}")
         print(f"SKU completos      : {int(frame['sku'].fillna('').astype(str).str.strip().ne('').sum())}")
         print(f"Precios completos  : {int(frame['price_current'].notna().sum())}")
         print(f"URLs completas     : {int(frame['url'].fillna('').astype(str).str.strip().ne('').sum())}")
