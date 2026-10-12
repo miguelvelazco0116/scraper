@@ -629,78 +629,103 @@ class BodegaAurreraScraper:
         location: Location,
         seen_skus: set[str],
     ) -> tuple[list[dict], dict]:
-        self._goto(page, source_url)
+        """Collect every published page for one direct browse source.
 
-        try:
-            page.wait_for_selector(
-                'a[href*="/ip/"]',
-                timeout=25_000,
-            )
-        except PlaywrightTimeoutError:
-            source_meta = {
-                "source_url": source_url,
-                "actual_url": page.url,
-                "rows": 0,
-                "new_rows": 0,
-                "product_links": 0,
-                "explicit_pages": 0,
-                "stabilized": False,
-                "no_product_links": True,
-            }
-            self._save_diagnostics(
-                page,
-                "no_products_" + str(len(self.run_meta.get("sources", [])) + 1),
-            )
-            return [], source_meta
+        Pagination URLs are discovered recursively from every visited page.
+        The queue is processed sequentially and each navigation observes
+        wait_ms, avoiding parallel requests and reducing pressure on the
+        existing Chrome session.
+        """
+        queue: list[str] = [source_url]
+        queued: set[str] = {source_url}
+        visited_requested: set[str] = set()
+        page_meta: list[dict] = []
+        unique_source: dict[str, dict] = {}
+        all_stabilized = True
+        max_page_urls = max(1, self.max_pages)
 
-        expansion = self._expand_current_page(
-            page,
-            source_url=source_url,
-        )
-        explicit_pages = self._explicit_page_urls(page)
-
-        page_rows = self._extract_rows(
-            page,
-            category,
-            location,
-        )
-
-        all_rows = list(page_rows)
-        explicit_page_meta: list[dict] = []
-        visited_page_urls = {page.url}
-
-        for page_url in explicit_pages:
-            if page_url in visited_page_urls:
+        while queue and len(visited_requested) < max_page_urls:
+            requested_url = queue.pop(0)
+            if requested_url in visited_requested:
                 continue
-            visited_page_urls.add(page_url)
+            visited_requested.add(requested_url)
 
-            self._goto(page, page_url)
-            page_expansion = self._expand_current_page(
+            self._goto(page, requested_url)
+
+            try:
+                page.wait_for_selector(
+                    'a[href*="/ip/"]',
+                    timeout=25_000,
+                )
+            except PlaywrightTimeoutError:
+                page_meta.append(
+                    {
+                        "requested_url": requested_url,
+                        "actual_url": page.url,
+                        "rows": 0,
+                        "product_links": 0,
+                        "scroll_rounds": 0,
+                        "stabilized": False,
+                        "no_product_links": True,
+                    }
+                )
+                all_stabilized = False
+                continue
+
+            expansion = self._expand_current_page(
                 page,
-                source_url=page_url,
+                source_url=requested_url,
             )
-            extra_rows = self._extract_rows(
+            all_stabilized = (
+                all_stabilized
+                and bool(expansion.get("stabilized"))
+            )
+
+            page_rows = self._extract_rows(
                 page,
                 category,
                 location,
             )
-            all_rows.extend(extra_rows)
-            explicit_page_meta.append(
+            for row in page_rows:
+                sku = clean_text(str(row.get("sku") or ""))
+                if sku:
+                    unique_source[sku] = row
+
+            discovered_pages = self._explicit_page_urls(page)
+            for discovered_url in discovered_pages:
+                if (
+                    discovered_url not in queued
+                    and discovered_url not in visited_requested
+                    and len(queued) + len(visited_requested) < max_page_urls
+                ):
+                    queued.add(discovered_url)
+                    queue.append(discovered_url)
+
+            page_meta.append(
                 {
-                    "requested_url": page_url,
+                    "requested_url": requested_url,
                     "actual_url": page.url,
-                    "rows": len(extra_rows),
-                    "product_links": page_expansion.get("product_links"),
-                    "scroll_rounds": page_expansion.get("scroll_rounds"),
-                    "stabilized": page_expansion.get("stabilized"),
+                    "rows": len(page_rows),
+                    "product_links": expansion.get("product_links"),
+                    "scroll_rounds": expansion.get("scroll_rounds"),
+                    "stabilized": expansion.get("stabilized"),
+                    "discovered_page_urls": len(discovered_pages),
                 }
             )
 
-        unique_source: dict[str, dict] = {}
-        for row in all_rows:
-            sku = clean_text(str(row.get("sku") or ""))
-            if sku:
-                unique_source[sku] = row
+            print(
+                "Bodega Aurrera page "
+                f"{len(visited_requested)}: "
+                f"rows={len(page_rows)}, "
+                f"unique_source={len(unique_source)}, "
+                f"queue={len(queue)}",
+                flush=True,
+            )
+
+            # Deliberate pacing for the low-resource server and high-latency
+            # storefront. _goto() already waits wait_ms after navigation; this
+            # additional pause separates catalogue pages.
+            page.wait_for_timeout(self.wait_ms)
 
         new_rows = [
             row
@@ -710,20 +735,39 @@ class BodegaAurreraScraper:
         for row in new_rows:
             seen_skus.add(str(row.get("sku")))
 
+        pagination_complete = (
+            not queue
+            and all_stabilized
+            and bool(page_meta)
+            and not any(
+                item.get("no_product_links")
+                for item in page_meta
+            )
+        )
+
         source_meta = {
             "source_url": source_url,
             "actual_url": page.url,
             "rows": len(unique_source),
             "new_rows": len(new_rows),
-            "product_links": expansion.get("product_links"),
-            "scroll_rounds": expansion.get("scroll_rounds"),
-            "stabilized": expansion.get("stabilized"),
-            "explicit_pages": len(explicit_pages),
-            "explicit_pages_stabilized": all(
-                bool(item.get("stabilized"))
-                for item in explicit_page_meta
+            "product_links": max(
+                [
+                    int(item.get("product_links") or 0)
+                    for item in page_meta
+                ]
+                or [0]
             ),
-            "explicit_page_meta": explicit_page_meta,
+            "scroll_rounds": sum(
+                int(item.get("scroll_rounds") or 0)
+                for item in page_meta
+            ),
+            "stabilized": all_stabilized,
+            "explicit_pages": max(0, len(page_meta) - 1),
+            "explicit_pages_stabilized": all_stabilized,
+            "pagination_complete": pagination_complete,
+            "pages_visited": len(page_meta),
+            "queued_pages_remaining": len(queue),
+            "explicit_page_meta": page_meta,
         }
         return new_rows, source_meta
 
@@ -811,8 +855,13 @@ class BodegaAurreraScraper:
         stabilized = all(
             bool(item.get("stabilized"))
             and bool(item.get("explicit_pages_stabilized", True))
+            and bool(item.get("pagination_complete"))
             for item in self.run_meta.get("sources", [])
             if not item.get("no_product_links")
+        )
+        self.run_meta["pages_visited"] = sum(
+            int(item.get("pages_visited") or 0)
+            for item in self.run_meta.get("sources", [])
         )
         self.run_meta["pagination_verified"] = stabilized
         self.run_meta["status"] = (
