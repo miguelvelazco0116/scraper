@@ -693,6 +693,29 @@ class WalmartScraper:
         return rows
 
     @staticmethod
+    def _target_count(page: Page) -> int | None:
+        try:
+            text = page.locator("body").inner_text(timeout=5_000)
+        except Exception:
+            return None
+
+        values: list[int] = []
+        patterns = (
+            r"\b([0-9][0-9,.]{0,8})\s+productos?\b",
+            r"\b([0-9][0-9,.]{0,8})\s+resultados?\b",
+            r"\bde\s+([0-9][0-9,.]{0,8})\s+productos?\b",
+        )
+        for pattern in patterns:
+            for raw in re.findall(pattern, text, flags=re.IGNORECASE):
+                try:
+                    values.append(
+                        int(raw.replace(",", "").replace(".", ""))
+                    )
+                except ValueError:
+                    continue
+        return max(values) if values else None
+
+    @staticmethod
     def _pagination_total_hint(page: Page) -> int | None:
         values: list[int] = []
 
@@ -754,6 +777,7 @@ class WalmartScraper:
         pagination_verified = False
         pagination_stop_reason: str | None = None
         total_pages_hint: int | None = None
+        target_products: int | None = None
 
         if establish_reference:
             self._establish_store_reference(page, location)
@@ -781,6 +805,13 @@ class WalmartScraper:
                 )
                 pagination_verified = page_number > 1
                 break
+
+            page_target = self._target_count(page)
+            if page_target not in (None, 0):
+                target_products = max(
+                    target_products or 0,
+                    page_target,
+                )
 
             hint = self._pagination_total_hint(page)
             if hint is not None and hint > 1:
@@ -878,9 +909,21 @@ class WalmartScraper:
 
         self.run_meta["store_context_verified"] = session_verified
         self.run_meta["unique_products"] = len(seen_skus)
+        coverage = (
+            len(seen_skus) / target_products
+            if target_products not in (None, 0)
+            else None
+        )
+        coverage_ok = bool(
+            coverage is not None and coverage >= 0.90
+        )
         self.run_meta["pagination_verified"] = pagination_verified
         self.run_meta["pagination_stop_reason"] = pagination_stop_reason
         self.run_meta["total_pages_hint"] = total_pages_hint
+        self.run_meta["target_products"] = target_products
+        self.run_meta["coverage"] = coverage
+        self.run_meta["coverage_threshold"] = 0.90
+        self.run_meta["coverage_ok"] = coverage_ok
         self._save_diagnostics(page, f"success_{category.id}_{location.id}")
         return rows
 
