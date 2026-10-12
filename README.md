@@ -10,24 +10,24 @@ No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadi
 
 ## Estado actual
 
-Última actualización: **8 de octubre de 2026**.
+Última actualización: **12 de octubre de 2026**.
 
 Última muestra completa validada localmente:
 
 | Retailer | Categorías activas | Productos validados | Precio actual | SKU/URL | Estado |
 |---|---:|---:|---:|---:|---|
 | Soriana | 6 | 2,148 | 100% | 100% | Validado / Fase 2 |
-| Chedraui | 2 | 655 | 100% | 100% | Activo |
-| Farmacias del Ahorro | 4 | 288 | 100% | 100% | Activo |
+| Chedraui | 2 | 667 | 100% | 100% | Validado / Fase 1 |
+| Farmacias del Ahorro | 4 | 288 | 100% | 100% | Validado / Fase 1 |
 | Farmacias San Pablo | 4 | 232 | 100% | 100% en última validación | Activo |
-| Ibarra Mayoreo | 4 | 574 | 100% | 570/574 SKU | Activo |
+| Ibarra Mayoreo | 4 | 572 | 100% | SKU informativo; gates unitarios completos | Validado / Fase 1 |
 | Bodega Aurrera | 2 | 555 | 100% | 100% | Activo |
 | Farmacias Similares | 2 | 30 | 100% | 100% | Activo |
 | La Comer | 2 | Pendiente | Pendiente | Pendiente | Implementado, no activo |
 | Walmart | 3 | Pausado | — | — | Pausado |
 | Farmacias Guadalajara | 4 | 870 | 100% | 100% | Validado / Fase 2 |
 
-**Total validado en el stack activo: 4,486 filas** considerando la última validación individual de San Pablo (232 productos).
+Las Fases 1 y 2 actualmente cubren **5 retailers y 20 categorías**. La primera corrida integral todavía debe validarse live antes de fijar su baseline global.
 
 ## Retailers activos
 
@@ -47,8 +47,9 @@ En pausa:
 
 ```text
 Walmart
-Farmacias Guadalajara
 ```
+
+Farmacias Guadalajara ya está validado y productivo dentro de Fase 2.
 
 La Comer está implementado pero sigue fuera del runner principal hasta completar validación live.
 
