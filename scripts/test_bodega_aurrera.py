@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import sys
@@ -10,6 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import pandas as pd
+from playwright.sync_api import sync_playwright
 
 from main import COLUMNS
 from scraper.config import load_categories, load_locations
@@ -109,7 +111,17 @@ def audit_visible_prices(df: pd.DataFrame, category_id: str) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
-def run_category(category, location):
+def find_bodega_page(browser):
+    candidates = []
+    for context in browser.contexts:
+        for page in context.pages:
+            url = (page.url or "").casefold()
+            if "bodegaaurrera.com.mx" in url:
+                candidates.append(page)
+    return candidates[-1] if candidates else None
+
+
+def run_category(category, location, page):
     print("")
     print("-" * 72)
     print(f"BODEGA AURRERA | {category.id}")
@@ -133,7 +145,11 @@ def run_category(category, location):
     error = None
 
     try:
-        rows = scraper.scrape_category(category, location)
+        rows = scraper.scrape_category_on_page(
+            page,
+            category,
+            location,
+        )
         status = str(scraper.run_meta.get("status") or "SUCCESS")
     except BodegaAurreraBlocked as exc:
         status = "BLOCKED"
@@ -279,6 +295,14 @@ def run_category(category, location):
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Bodega Aurrera sobre Chrome abierto manualmente."
+        )
+    )
+    parser.add_argument("--cdp-url", required=True)
+    args = parser.parse_args()
+
     categories = [
         x
         for x in load_categories(
@@ -310,19 +334,43 @@ def main() -> int:
     extraction = []
     price_audits = []
 
-    for category in categories:
-        (
-            df,
-            summary,
-            category_sources,
-            category_extraction,
-            category_price_audit,
-        ) = run_category(category, location)
-        frames.append(df)
-        summaries.append(summary)
-        sources.extend(category_sources)
-        extraction.extend(category_extraction)
-        price_audits.append(category_price_audit)
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.connect_over_cdp(
+                args.cdp_url
+            )
+        except Exception as exc:
+            print("ERROR: no fue posible conectarse al Chrome abierto.")
+            print(f"{type(exc).__name__}: {exc}")
+            return 10
+
+        page = find_bodega_page(browser)
+        if page is None:
+            print(
+                "ERROR: abre una pestaña de Bodega Aurrera "
+                "antes de ejecutar el test."
+            )
+            return 11
+
+        print(f"Pestaña Bodega detectada: {page.url}")
+        print("El script NO abrirá ni cerrará Chrome.")
+        print("")
+
+        for category in categories:
+            (
+                df,
+                summary,
+                category_sources,
+                category_extraction,
+                category_price_audit,
+            ) = run_category(category, location, page)
+            frames.append(df)
+            summaries.append(summary)
+            sources.extend(category_sources)
+            extraction.extend(category_extraction)
+            price_audits.append(category_price_audit)
+
+        # No browser.close(): la sesión pertenece al usuario.
 
     concentrated = (
         pd.concat(frames, ignore_index=True)
