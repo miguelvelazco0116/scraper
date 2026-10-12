@@ -166,14 +166,17 @@ Master incremental fechado:
 Checkpoints inmutables:
 - `output\checkpoints_validos\checkpoint_fase1_YYYYMMDD_HHMMSS.xlsx`
 - `output\checkpoints_validos\checkpoint_fase2_YYYYMMDD_HHMMSS.xlsx`
+- `output\checkpoints_validos\checkpoint_fase3_YYYYMMDD_HHMMSS.xlsx`
 
 Comandos:
 - integrar Fase 1: `& .\scripts\integrate_validated_phase.ps1 -Phase 1`
 - integrar Fase 2: `& .\scripts\integrate_validated_phase.ps1 -Phase 2`
+- integrar Fase 3: `& .\scripts\integrate_validated_phase.ps1 -Phase 3`
 
 Reglas:
 - Fase 1 inicia/reinicia el master de la nueva corrida
 - Fase 2 exige que Fase 1 ya esté integrada
+- Fase 3 exige que Fase 1 y Fase 2 ya estén integradas
 - reejecutar una fase reemplaza su propia partición; no duplica retailers
 - cada integración valida nuevamente el workbook de la fase antes de publicarlo
 - el master usa `CHECKPOINT_VALIDATED` mientras se construye por fases
