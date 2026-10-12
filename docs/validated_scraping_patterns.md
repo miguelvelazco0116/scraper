@@ -182,6 +182,70 @@ Fase 3 acordada:
 - todavía NO integrada al consolidator
 - implementar sólo cuando ambos métodos/runners estén validados para esta nueva fase
 
+## Fase 3 - Bodega Aurrera + Walmart
+
+Estado: EN VALIDACIÓN LIVE
+
+Alcance:
+- Bodega Aurrera
+  - cuidado-bucal
+  - cuidado-de-la-ropa
+- Walmart
+  - cuidado-bucal
+  - cuidado-de-la-ropa
+  - depilacion-y-rasurado
+
+Total:
+- 2 retailers
+- 5 categorías
+
+Runner:
+- `scripts\run_phase3_production.ps1`
+- `scripts\run_phase3_production.py`
+
+Validaciones Bodega Aurrera:
+- status SUCCESS en las 2 categorías
+- productos > 0
+- SKU completo
+- precio completo
+- URL completa
+- todas las fuentes descubiertas visitadas
+- pagination_verified=True
+- price_validation_errors=0
+- blocked_detected=False
+
+Validaciones Walmart:
+- 3/3 categorías COMPLETE
+- productos > 0
+- SKU/precio/URL completos
+- store_context_complete=products
+- store_context_verified=True
+- tienda: SC Toreo
+- store_id: 2344
+- CP: 11220
+- price_order_errors=0
+- duplicates_sku_url=0
+
+Memoria:
+- Bodega corre en un child process y termina completamente antes de Walmart
+- Walmart corre en otro child process
+- no se mantienen los dos navegadores/scrapers simultáneamente
+
+Salida candidata:
+- `output\concentrado_fase3.xlsx`
+
+Baseline:
+- `output\fase3_muestra_inicial_valida.xlsx`
+- sólo se crea en la primera corrida Fase 3 que pase todos los gates
+
+Integración:
+- `& .\scripts\integrate_validated_phase.ps1 -Phase 3`
+- agrega únicamente Bodega Aurrera + Walmart al master fechado activo
+- no modifica las particiones de Fase 1 o Fase 2
+
+Regla:
+- NO marcar Fase 3 como VALIDADA hasta observar una corrida live completa en Windows Server
+
 ## Fase 2
 
 ### Farmacias Guadalajara
