@@ -210,6 +210,29 @@ Regla:
 - no cambiar este patrón mientras continúe funcionando.
 - cualquier alternativa debe probarse de forma aislada antes de sustituir el método validado.
 
+## Fase 2 productiva
+
+Estado: EN VALIDACIÓN
+
+Runner:
+- scripts\run_phase2_production.ps1
+- scripts\run_phase2_production.py
+
+Objetivo:
+- reutilizar sin modificar los métodos validados de Farmacias Guadalajara y Soriana
+- ejecutar las 10 categorías activas
+- validar nuevamente las filas generadas
+- publicar de forma atómica output\concentrado_fase2.xlsx
+- crear una sola vez output\fase2_muestra_inicial_valida.xlsx
+- conservar el master anterior si cualquier gate falla
+
+Requisito operativo:
+- Chrome abierto manualmente con remote debugging
+- una pestaña abierta de Farmacias Guadalajara
+- una pestaña abierta de Soriana
+
+Este runner sólo pasa a VALIDADO después de una corrida productiva real exitosa.
+
 ## Regla de mantenimiento
 
 Cuando una corrección pase una prueba real:
