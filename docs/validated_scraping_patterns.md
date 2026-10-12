@@ -266,6 +266,24 @@ Regla:
 - si alguna categoría falla, el master anterior se conserva
 - no sustituir los métodos validados de Guadalajara o Soriana sin una prueba aislada exitosa
 
+## Incidencia de calidad - Farmacias Guadalajara product
+
+Detectada el 2026-10-12:
+- la columna `product` de la primera baseline productiva de Fase 2 quedó etiquetada como `Price reduced from` en registros de Farmacias Guadalajara
+- SKU, precio, URL, cobertura y expansión no presentan este defecto
+- causa: el extractor seleccionaba el primer anchor de producto y podía tomar el enlace accesible del precio antes que el nombre del artículo
+
+Corrección implementada:
+- priorizar atributos y nodos semánticos de nombre de producto
+- usar `img alt` y anchors equivalentes como respaldo
+- rechazar etiquetas de precio como `Price reduced from`
+- usar el slug de URL sólo como último fallback
+- añadir gate bloqueante `product_name_invalid = 0`
+
+Estado:
+- CORRECCIÓN PENDIENTE DE VALIDACIÓN LIVE
+- no considerar corregida la baseline hasta que Guadalajara vuelva a pasar una prueba real con nombres válidos
+
 ## Regla de mantenimiento
 
 Cuando una corrección pase una prueba real:
