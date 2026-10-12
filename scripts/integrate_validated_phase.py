@@ -453,8 +453,20 @@ def main() -> int:
             for x in completed_raw.split("|")
             if x.strip().isdigit()
         ]
-        if 1 not in completed:
-            print("ERROR: el concentrado no contiene una Fase 1 validada.")
+        required_previous = list(range(1, phase))
+        missing_previous = [
+            item
+            for item in required_previous
+            if item not in completed
+        ]
+        if missing_previous:
+            missing_text = ", ".join(
+                f"Fase {item}" for item in missing_previous
+            )
+            print(
+                "ERROR: faltan fases previas validadas en el concentrado: "
+                f"{missing_text}."
+            )
             return 2
 
         phase_retailers = cfg["retailers"]
