@@ -356,6 +356,24 @@ Reglas:
 - nunca usar un output viejo de una fase para publicar el master cuando el child process de esa fase falla
 - este runner sólo pasa a VALIDADO después de una corrida real exitosa en el Windows Server
 
+## Incidencia Ibarra - Playwright event listener en LOW-MEMORY
+
+Detectada el 2026-10-12 durante la primera corrida integral:
+- la extracción alcanzó al menos 98/152 fichas de `detergentes-lavatrastes-jab-abarrotes`
+- apareció `Error occurred in event listener` dentro de `playwright._impl._connection.dispatch`
+- el descubrimiento de catálogo y el parser de detalle seguían funcionando hasta ese punto
+- la causa más probable es una carrera de requests canceladas durante navegaciones rápidas mientras el callback `context.route("**/*")` intenta `abort()` o `continue_()`
+
+Hardening aplicado:
+- conservar exactamente el mismo bloqueo LOW-MEMORY de image/media/font
+- conservar paginación, parser, precios, unidades y reciclaje de renderer
+- capturar `PlaywrightError` únicamente dentro del callback de routing
+- los fallos reales de navegación siguen siendo detectados por `_goto()`
+
+Estado:
+- PENDIENTE DE VALIDACIÓN LIVE
+- validar primero con `detergentes-lavatrastes-jab-abarrotes` en headless + low-memory antes de repetir la corrida integral
+
 ## Regla de mantenimiento
 
 Cuando una corrección pase una prueba real:
