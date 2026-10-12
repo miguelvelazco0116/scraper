@@ -92,6 +92,42 @@ output\checkpoints_validos\
 
 La Fase 1 inicia una nueva construcción del master. La Fase 2 sólo se incorpora cuando el master ya contiene una Fase 1 válida. Una fase reejecutada reemplaza su propia partición y no duplica filas.
 
+## Fase 3 — Bodega Aurrera + Walmart
+
+Estado: **EN VALIDACIÓN LIVE**
+
+Alcance:
+- Bodega Aurrera: 2 categorías activas.
+- Walmart: 3 categorías activas.
+- Total Fase 3: 5 categorías.
+
+Runner:
+
+```powershell
+& .\scripts\run_phase3_production.ps1 -PrepareWalmartSession
+```
+
+El flujo es secuencial para reducir presión de memoria:
+
+```text
+Bodega Aurrera
+→ cerrar proceso
+→ Walmart
+→ cerrar proceso
+→ validar 5 categorías
+→ publicar output\concentrado_fase3.xlsx
+```
+
+Walmart usa SC Toreo, tienda 2344, CP 11220. La sesión persistente se prepara manualmente; el scraper no resuelve verificaciones de identidad.
+
+Cuando Fase 3 pase sus gates:
+
+```powershell
+& .\scripts\integrate_validated_phase.ps1 -Phase 3
+```
+
+Esto agrega exclusivamente Bodega Aurrera + Walmart al concentrado fechado activo sin volver a ejecutar Fase 1 o Fase 2.
+
 ## Producción integral validada
 
 El flujo final del proyecto une Fase 1 + Fase 2 en una sola corrida fresca. Ejecuta primero Fase 1 y, sólo si pasa, ejecuta Fase 2. El master general se publica únicamente cuando ambas fases terminan correctamente y vuelven a pasar sus gates.
