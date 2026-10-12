@@ -409,6 +409,27 @@ Estado:
 - validar primero `perfumeria-abarrotes` en HEADLESS + LOW-MEMORY
 - esperado para el caso observado: 332/333 aceptado como SUCCESS si no hay parse_errors
 
+## Incidencia Ibarra - ficha individual puede aparentar congelamiento
+
+Detectada el 2026-10-12 durante perfumeria-abarrotes:
+- la corrida avanzó normalmente hasta 282/332 fichas
+- después dejó de imprimir progreso durante varios minutos
+- la navegación genérica `_goto()` permitía hasta 4 intentos de 120 segundos por URL
+- como el log sólo se imprimía después de cargar la ficha, una URL lenta podía aparentar un proceso congelado
+
+Hardening aplicado:
+- conservar `_goto()` robusto para descubrimiento/paginación
+- usar navegación específica de detalle con máximo 3 intentos de 30 segundos
+- reciclar el renderer entre intentos fallidos
+- imprimir `cargando intento X/3` antes de cada navegación
+- si los 3 intentos fallan, registrar la ficha como parse/error y continuar en lugar de congelar toda la categoría
+- mantener intactos parser, precios, unidades, SKU, URLs, cobertura y LOW-MEMORY
+
+Estado:
+- PENDIENTE DE VALIDACIÓN LIVE
+- validar `perfumeria-abarrotes` en HEADLESS + LOW-MEMORY
+- esperado: avance visible hasta el final o error acotado por ficha; nunca varios minutos sin diagnóstico
+
 ## Regla de mantenimiento
 
 Cuando una corrección pase una prueba real:
