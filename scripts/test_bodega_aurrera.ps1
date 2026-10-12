@@ -1,6 +1,7 @@
 param(
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
-    [string]$PythonExe = ""
+    [string]$PythonExe = "",
+    [string]$CdpUrl = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,37 +11,51 @@ if ([string]::IsNullOrWhiteSpace($PythonExe) -and $env:VIRTUAL_ENV) {
     $candidate = Join-Path $env:VIRTUAL_ENV "Scripts\python.exe"
     if (Test-Path $candidate) { $PythonExe = $candidate }
 }
-
 if ([string]::IsNullOrWhiteSpace($PythonExe)) {
-    $candidate = Join-Path $ProjectDir ".venv\Scripts\python.exe"
+    $candidate = "C:\Proyectos\venvs\scraper\Scripts\python.exe"
     if (Test-Path $candidate) { $PythonExe = $candidate }
 }
-
 if ([string]::IsNullOrWhiteSpace($PythonExe)) {
     $cmd = Get-Command python.exe -ErrorAction SilentlyContinue
     if ($cmd) { $PythonExe = $cmd.Source }
 }
-
 if ([string]::IsNullOrWhiteSpace($PythonExe) -or -not (Test-Path $PythonExe)) {
     throw "No se encontro Python valido."
 }
 
+if ([string]::IsNullOrWhiteSpace($CdpUrl)) {
+    $ChromeUserData = Join-Path $env:LOCALAPPDATA "Google\Chrome\User Data"
+    $ActivePortFiles = @()
+    if (Test-Path $ChromeUserData) {
+        $ActivePortFiles = @(Get-ChildItem -Path $ChromeUserData -Filter "DevToolsActivePort" -File -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+    }
+    if (-not $ActivePortFiles -or $ActivePortFiles.Count -eq 0) {
+        Write-Host "ERROR: habilita remote debugging en el Chrome ya abierto."
+        Write-Host "Abre chrome://inspect/#remote-debugging y activa Allow remote debugging for this browser instance."
+        exit 11
+    }
+    $ActivePortPath = ($ActivePortFiles | Select-Object -First 1).FullName
+    $Lines = @(Get-Content -LiteralPath $ActivePortPath -ErrorAction Stop)
+    if ($Lines.Count -lt 2) { exit 12 }
+    $Port = $Lines[0].Trim()
+    $WebSocketPath = $Lines[1].Trim()
+    $CdpUrl = "ws://127.0.0.1:$Port$WebSocketPath"
+}
+
 Write-Host "============================================================"
-Write-Host "Bodega Aurrera - test categorias activas"
+Write-Host "Bodega Aurrera - Chrome existente"
 Write-Host "============================================================"
 Write-Host "Python: $PythonExe"
-Write-Host ""
-Write-Host "IMPORTANTE: si aparece una verificacion de identidad en Chrome,"
-Write-Host "completala manualmente. El scraper no intenta evadirla."
+Write-Host "Chrome: SESION EXISTENTE"
+Write-Host "CDP   : $CdpUrl"
 Write-Host ""
 
-& $PythonExe .\scripts\test_bodega_aurrera.py
+$ArgsList = @(".\scripts\test_bodega_aurrera.py", "--cdp-url", $CdpUrl)
+& $PythonExe @ArgsList
 $code = $LASTEXITCODE
 
-Write-Host ""
 Write-Host "Salida: $ProjectDir\output\bodega_aurrera_test.xlsx"
-Write-Host "Diagnosticos: $ProjectDir\diagnostics\bodega_aurrera_*"
-
 if ($code -ne 0) {
     Write-Warning "El test termino con observaciones (exit_code=$code)."
 }
+exit $code
