@@ -83,6 +83,20 @@ def _run_category(
     return last
 
 
+def _invalid_product_name(value: object) -> bool:
+    text = str(value or "").strip()
+    lowered = text.casefold()
+    if not text:
+        return True
+    return (
+        lowered in {"price", "sale price", "precio", "oferta"}
+        or lowered.startswith("price reduced from")
+        or lowered.startswith("price reduced to")
+        or lowered.startswith("reduced from")
+        or lowered.startswith("reduced to")
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Prueba completa de Farmacias Guadalajara usando CDP directo."
@@ -166,6 +180,12 @@ def main() -> int:
         else:
             status = f"ERROR_{completed.returncode}"
 
+        product_name_complete = int(
+            frame["product"].fillna("").astype(str).str.strip().ne("").sum()
+        ) if not frame.empty else 0
+        product_name_invalid = int(
+            frame["product"].apply(_invalid_product_name).sum()
+        ) if not frame.empty else 0
         sku_complete = int(
             frame["sku"].fillna("").astype(str).str.strip().ne("").sum()
         ) if not frame.empty else 0
@@ -184,6 +204,8 @@ def main() -> int:
             "target_products": target,
             "product_links": meta.get("product_links"),
             "products": products,
+            "product_name_complete": product_name_complete,
+            "product_name_invalid": product_name_invalid,
             "coverage": coverage,
             "sku_complete": sku_complete,
             "price_complete": price_complete,
@@ -197,6 +219,7 @@ def main() -> int:
         print(
             f"FULL_TEST: {status} | target={target} | "
             f"products={products} | coverage={coverage} | "
+            f"name={product_name_complete} | invalid_name={product_name_invalid} | "
             f"sku={sku_complete} | price={price_complete} | url={url_complete}"
         )
 
@@ -240,6 +263,8 @@ def main() -> int:
 
     bad = summary_df["status"].astype(str).str.startswith("ERROR")
     bad = bad | summary_df["status"].isin(["EMPTY", "PARTIAL"])
+    bad = bad | (summary_df["product_name_complete"] < summary_df["products"])
+    bad = bad | (summary_df["product_name_invalid"] > 0)
     bad = bad | (summary_df["sku_complete"] < summary_df["products"])
     bad = bad | (summary_df["price_complete"] < summary_df["products"])
     bad = bad | (summary_df["url_complete"] < summary_df["products"])
