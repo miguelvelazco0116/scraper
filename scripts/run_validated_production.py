@@ -371,14 +371,15 @@ def _style_workbook(writer: pd.ExcelWriter) -> None:
                     item.number_format = "$#,##0.0000"
 
 
-def _write_master(
+def _write_workbook(
+    path: Path,
     *,
     concentrated: pd.DataFrame,
     summary: pd.DataFrame,
     retailer_summary: pd.DataFrame,
     control: pd.DataFrame,
 ) -> None:
-    with atomic_output_path(MASTER_OUTPUT) as temporary:
+    with atomic_output_path(path) as temporary:
         with pd.ExcelWriter(
             temporary,
             engine="openpyxl",
@@ -413,6 +414,7 @@ def _atomic_copy(source: Path, target: Path) -> None:
 
 def _create_baseline_if_missing(
     *,
+    source_path: Path,
     generated_at: str,
     run_id: str,
     products: int,
@@ -422,13 +424,13 @@ def _create_baseline_if_missing(
     if MASTER_BASELINE.exists():
         return False
 
-    _atomic_copy(MASTER_OUTPUT, MASTER_BASELINE)
+    _atomic_copy(source_path, MASTER_BASELINE)
 
     metadata = {
         "status": "VALID_GLOBAL_BASELINE",
         "generated_at": generated_at,
         "run_id": run_id,
-        "source": str(MASTER_OUTPUT),
+        "source": str(source_path),
         "baseline": str(MASTER_BASELINE),
         "products": products,
         "categories": categories,
@@ -451,6 +453,7 @@ def _create_baseline_if_missing(
 
 def _publish_historical_extract(
     *,
+    source_path: Path,
     run_id: str,
     generated_at: str,
     phase1_products: int,
@@ -475,7 +478,7 @@ def _publish_historical_extract(
             f"Ya existe un extracto para run_id={run_id}"
         )
 
-    _atomic_copy(MASTER_OUTPUT, extract_path)
+    _atomic_copy(source_path, extract_path)
 
     metadata = {
         "status": "VALIDATED_EXTRACT",
@@ -837,32 +840,49 @@ def main() -> int:
         ]
     )
 
-    _write_master(
-        concentrated=concentrated,
-        summary=summary,
-        retailer_summary=retailers,
-        control=control,
+    staging_path = (
+        ROOT
+        / "output"
+        / f".validated_production_{run_id}.staging.xlsx"
     )
 
-    baseline_created = _create_baseline_if_missing(
-        generated_at=generated_at,
-        run_id=run_id,
-        products=len(concentrated),
-        categories=len(summary),
-        retailers=all_retailers,
-    )
+    try:
+        _write_workbook(
+            staging_path,
+            concentrated=concentrated,
+            summary=summary,
+            retailer_summary=retailers,
+            control=control,
+        )
 
-    extract_path, extract_meta_path = (
-        _publish_historical_extract(
-            run_id=run_id,
+        extract_path, extract_meta_path = (
+            _publish_historical_extract(
+                source_path=staging_path,
+                run_id=run_id,
+                generated_at=generated_at,
+                phase1_products=len(phase1_frame),
+                phase2_products=len(phase2_frame),
+                products=len(concentrated),
+                categories=len(summary),
+                retailers=all_retailers,
+            )
+        )
+
+        _atomic_copy(
+            staging_path,
+            MASTER_OUTPUT,
+        )
+
+        baseline_created = _create_baseline_if_missing(
+            source_path=staging_path,
             generated_at=generated_at,
-            phase1_products=len(phase1_frame),
-            phase2_products=len(phase2_frame),
+            run_id=run_id,
             products=len(concentrated),
             categories=len(summary),
             retailers=all_retailers,
         )
-    )
+    finally:
+        staging_path.unlink(missing_ok=True)
 
     payload = {
         "status": "PRODUCTIVE",
