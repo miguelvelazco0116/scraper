@@ -1,9 +1,7 @@
 param(
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = "",
-    [string]$ProfileDir = ".walmart_profile",
-    [string]$StorageState = "",
-    [switch]$Headless
+    [string]$CdpUrl = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,31 +23,39 @@ if ([string]::IsNullOrWhiteSpace($PythonExe) -or -not (Test-Path $PythonExe)) {
     throw "No se encontro Python valido."
 }
 
-$ArgsList = @(
-    ".\scripts\test_walmart_phase3.py",
-    "--profile-dir", $ProfileDir
-)
-if (-not [string]::IsNullOrWhiteSpace($StorageState)) {
-    $ArgsList += @("--storage-state", $StorageState)
-}
-if ($Headless) {
-    $ArgsList += "--headless"
+if ([string]::IsNullOrWhiteSpace($CdpUrl)) {
+    $ChromeUserData = Join-Path $env:LOCALAPPDATA "Google\Chrome\User Data"
+    $ActivePortFiles = @()
+    if (Test-Path $ChromeUserData) {
+        $ActivePortFiles = @(Get-ChildItem -Path $ChromeUserData -Filter "DevToolsActivePort" -File -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+    }
+    if (-not $ActivePortFiles -or $ActivePortFiles.Count -eq 0) {
+        Write-Host "ERROR: habilita remote debugging en el Chrome ya abierto."
+        Write-Host "Abre chrome://inspect/#remote-debugging y activa Allow remote debugging for this browser instance."
+        exit 11
+    }
+    $ActivePortPath = ($ActivePortFiles | Select-Object -First 1).FullName
+    $Lines = @(Get-Content -LiteralPath $ActivePortPath -ErrorAction Stop)
+    if ($Lines.Count -lt 2) { exit 12 }
+    $Port = $Lines[0].Trim()
+    $WebSocketPath = $Lines[1].Trim()
+    $CdpUrl = "ws://127.0.0.1:$Port$WebSocketPath"
 }
 
-Write-Host "========================================================================"
-Write-Host "WALMART - TEST FASE 3"
-Write-Host "========================================================================"
-Write-Host "Python : $PythonExe"
-Write-Host "Perfil : $ProfileDir"
-Write-Host "Modo   : $(if ($Headless) { 'HEADLESS' } else { 'VISIBLE' })"
+Write-Host "============================================================"
+Write-Host "Walmart Fase 3 - Chrome existente"
+Write-Host "============================================================"
+Write-Host "Python: $PythonExe"
+Write-Host "Chrome: SESION EXISTENTE"
+Write-Host "CDP   : $CdpUrl"
 Write-Host ""
 
+$ArgsList = @(".\scripts\test_walmart_phase3.py", "--cdp-url", $CdpUrl)
 & $PythonExe @ArgsList
 $code = $LASTEXITCODE
 
-Write-Host ""
 Write-Host "Salida: $ProjectDir\output\walmart_phase3_test.xlsx"
 if ($code -ne 0) {
-    Write-Warning "Walmart Fase 3 termino con observaciones (exit_code=$code)."
+    Write-Warning "El test termino con observaciones (exit_code=$code)."
 }
 exit $code

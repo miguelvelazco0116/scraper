@@ -10,12 +10,15 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import pandas as pd
+from playwright.sync_api import sync_playwright
 
 from main import COLUMNS, deduplicate_catalog
 from scraper.config import load_categories, load_locations
-from scraper.retailers.walmart import WalmartBlocked, WalmartStoreContextError
-from scraper.retailers.walmart_persistent import WalmartPersistentScraper
-from scraper.retailers.walmart_storage_state import WalmartStorageStateScraper
+from scraper.retailers.walmart import (
+    WalmartBlocked,
+    WalmartScraper,
+    WalmartStoreContextError,
+)
 
 OUTPUT_PATH = ROOT / "output" / "walmart_phase3_test.xlsx"
 
@@ -24,13 +27,20 @@ def _count_nonempty(series: pd.Series) -> int:
     return int(series.fillna("").astype(str).str.strip().ne("").sum())
 
 
+def find_walmart_page(browser):
+    candidates = []
+    for context in browser.contexts:
+        for page in context.pages:
+            if "walmart.com.mx" in (page.url or "").casefold():
+                candidates.append(page)
+    return candidates[-1] if candidates else None
+
+
 def run_category(
     category,
     location,
     *,
-    profile_dir: Path | None,
-    storage_state: Path | None,
-    headless: bool,
+    page,
     max_pages: int,
 ):
     print("")
@@ -41,30 +51,23 @@ def run_category(
     print(f"CP          : {location.postal_code}")
     print(f"URL         : {category.url}")
 
-    kwargs = {
-        "headless": headless,
-        "max_pages": max_pages,
-        "manual_verification_timeout_ms": 180_000,
-    }
-    if storage_state is not None:
-        scraper = WalmartStorageStateScraper(
-            storage_state_path=storage_state,
-            **kwargs,
-        )
-        session_method = "storage_state"
-    else:
-        scraper = WalmartPersistentScraper(
-            user_data_dir=profile_dir,
-            **kwargs,
-        )
-        session_method = "persistent_profile"
+    scraper = WalmartScraper(
+        headless=False,
+        max_pages=max_pages,
+        manual_verification_timeout_ms=180_000,
+    )
+    session_method = "existing_chrome_cdp"
 
     rows = []
     error = None
     source_status = "SUCCESS"
 
     try:
-        rows = scraper.scrape_category(category, location)
+        rows = scraper.scrape_category_on_page(
+            page,
+            category,
+            location,
+        )
     except WalmartBlocked as exc:
         source_status = "BLOCKED"
         error = str(exc)
@@ -202,29 +205,13 @@ def run_category(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Prueba completa Walmart para Fase 3."
+        description=(
+            "Walmart Fase 3 usando Chrome abierto manualmente."
+        )
     )
-    parser.add_argument("--profile-dir", default=".walmart_profile")
-    parser.add_argument("--storage-state")
-    parser.add_argument("--headless", action="store_true")
+    parser.add_argument("--cdp-url", required=True)
     parser.add_argument("--max-pages", type=int, default=100)
     args = parser.parse_args()
-
-    profile_dir = Path(args.profile_dir).resolve()
-    storage_state = (
-        Path(args.storage_state).resolve()
-        if args.storage_state
-        else None
-    )
-    if storage_state is not None and not storage_state.exists():
-        raise SystemExit(
-            f"Storage state Walmart no encontrado: {storage_state}"
-        )
-    if storage_state is None and not profile_dir.exists():
-        raise SystemExit(
-            f"Perfil Walmart no encontrado: {profile_dir}. "
-            "Ejecuta scripts/walmart_prepare_session.py primero."
-        )
 
     categories = list(
         load_categories(ROOT / "config" / "walmart" / "categories.yaml")
@@ -241,36 +228,57 @@ def main() -> int:
     print(f"Categorías : {len(categories)}")
     print(f"Tienda     : {location.store} ({location.store_id})")
     print(f"CP         : {location.postal_code}")
-    print(
-        f"Sesión     : {'storage state' if storage_state else profile_dir}"
-    )
+    print("Sesión     : Chrome existente por CDP")
+    print(f"CDP        : {args.cdp_url}")
+    print("El script NO abrirá ni cerrará Chrome.")
     print("")
 
     frames = []
     summaries = []
     metas = []
 
-    for category in categories:
-        frame, summary, meta = run_category(
-            category,
-            location,
-            profile_dir=profile_dir,
-            storage_state=storage_state,
-            headless=args.headless,
-            max_pages=args.max_pages,
-        )
-        frames.append(frame)
-        summaries.append(summary)
-        metas.append(
-            {
-                "category_id": category.id,
-                "meta_json": json.dumps(
-                    meta,
-                    ensure_ascii=False,
-                    default=str,
-                ),
-            }
-        )
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.connect_over_cdp(
+                args.cdp_url
+            )
+        except Exception as exc:
+            print("ERROR: no fue posible conectarse al Chrome abierto.")
+            print(f"{type(exc).__name__}: {exc}")
+            return 10
+
+        page = find_walmart_page(browser)
+        if page is None:
+            print(
+                "ERROR: abre una pestaña de Walmart "
+                "antes de ejecutar el test."
+            )
+            return 11
+
+        print(f"Pestaña Walmart detectada: {page.url}")
+        print("")
+
+        for category in categories:
+            frame, summary, meta = run_category(
+                category,
+                location,
+                page=page,
+                max_pages=args.max_pages,
+            )
+            frames.append(frame)
+            summaries.append(summary)
+            metas.append(
+                {
+                    "category_id": category.id,
+                    "meta_json": json.dumps(
+                        meta,
+                        ensure_ascii=False,
+                        default=str,
+                    ),
+                }
+            )
+
+        # No browser.close(): la sesión pertenece al usuario.
 
     concentrated = (
         pd.concat(frames, ignore_index=True)

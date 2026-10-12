@@ -277,11 +277,16 @@ def _create_baseline(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Fase 3 productiva: Bodega Aurrera + Walmart."
+        description=(
+            "Fase 3 productiva sobre Chrome abierto: "
+            "Bodega Aurrera + Walmart."
+        )
     )
-    parser.add_argument("--walmart-profile-dir", default=".walmart_profile")
-    parser.add_argument("--walmart-storage-state")
-    parser.add_argument("--walmart-headless", action="store_true")
+    parser.add_argument(
+        "--cdp-url",
+        required=True,
+        help="WebSocket CDP del Chrome abierto manualmente.",
+    )
     args = parser.parse_args()
 
     now = datetime.now().astimezone()
@@ -292,6 +297,8 @@ def main() -> int:
     print("=" * 84)
     print("Retailers : Bodega Aurrera + Walmart")
     print("Categorías: 2 + 3 = 5")
+    print("Navegador : Chrome abierto manualmente")
+    print(f"CDP       : {args.cdp_url}")
     print(f"Salida    : {OUTPUT_PATH}")
     print("")
 
@@ -303,6 +310,8 @@ def main() -> int:
         [
             sys.executable,
             str(ROOT / "scripts" / "test_bodega_aurrera.py"),
+            "--cdp-url",
+            args.cdp_url,
         ],
     )
     if bodega_code != 0:
@@ -318,20 +327,15 @@ def main() -> int:
         print("FASE 3 NO PUBLICADA.")
         return 2
 
-    walmart_cmd = [
-        sys.executable,
-        str(ROOT / "scripts" / "test_walmart_phase3.py"),
-        "--profile-dir",
-        args.walmart_profile_dir,
-    ]
-    if args.walmart_storage_state:
-        walmart_cmd.extend(
-            ["--storage-state", args.walmart_storage_state]
-        )
-    if args.walmart_headless:
-        walmart_cmd.append("--headless")
-
-    walmart_code = _run_child("WALMART", walmart_cmd)
+    walmart_code = _run_child(
+        "WALMART",
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "test_walmart_phase3.py"),
+            "--cdp-url",
+            args.cdp_url,
+        ],
+    )
 
     notes: list[str] = []
     if walmart_code != 0:

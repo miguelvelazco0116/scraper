@@ -24,7 +24,7 @@ No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadi
 | Bodega Aurrera | 2 | 555 | 100% | 100% | Activo |
 | Farmacias Similares | 2 | 30 | 100% | 100% | Activo |
 | La Comer | 2 | Pendiente | Pendiente | Pendiente | Implementado, no activo |
-| Walmart | 3 | Pausado | — | — | Pausado |
+| Walmart | 3 | Pendiente de validación Fase 3 | — | — | En validación / Fase 3 |
 | Farmacias Guadalajara | 4 | 870 | 100% | 100% | Validado / Fase 2 |
 
 Las Fases 1 y 2 actualmente cubren **5 retailers y 20 categorías**. La primera corrida integral todavía debe validarse live antes de fijar su baseline global.
@@ -43,11 +43,7 @@ Bodega Aurrera
 Farmacias Similares
 ```
 
-En pausa:
-
-```text
-Walmart
-```
+Walmart está implementado dentro de Fase 3 y pendiente de su primera validación live con Chrome existente.
 
 Farmacias Guadalajara ya está validado y productivo dentro de Fase 2.
 
@@ -60,7 +56,7 @@ Para reducir consumo de memoria, la operación productiva se ejecuta y consolida
 ```text
 Fase 1 -> validar -> integrar al master -> liberar recursos
 Fase 2 -> validar -> integrar al master -> liberar recursos
-Fase 3 -> Bodega Aurrera + Walmart (pendiente de implementación/validación)
+Fase 3 -> Bodega Aurrera + Walmart (implementada, pendiente de validación live)
 ```
 
 Comandos de integración:
@@ -68,6 +64,7 @@ Comandos de integración:
 ```powershell
 & .\scripts\integrate_validated_phase.ps1 -Phase 1
 & .\scripts\integrate_validated_phase.ps1 -Phase 2
+& .\scripts\integrate_validated_phase.ps1 -Phase 3
 ```
 
 Master incremental fechado:
@@ -104,21 +101,25 @@ Alcance:
 Runner:
 
 ```powershell
-& .\scripts\run_phase3_production.ps1 -PrepareWalmartSession
+& .\scripts\run_phase3_production.ps1
 ```
 
 El flujo es secuencial para reducir presión de memoria:
 
 ```text
-Bodega Aurrera
-→ cerrar proceso
-→ Walmart
-→ cerrar proceso
+Chrome manual ya abierto
+├── pestaña Bodega Aurrera
+└── pestaña Walmart (SC Toreo / 11220)
+        ↓
+Bodega Aurrera se conecta por CDP
+→ termina child process, Chrome permanece abierto
+→ Walmart se conecta por CDP
+→ termina child process, Chrome permanece abierto
 → validar 5 categorías
 → publicar output\concentrado_fase3.xlsx
 ```
 
-Walmart usa SC Toreo, tienda 2344, CP 11220. La sesión persistente se prepara manualmente; el scraper no resuelve verificaciones de identidad.
+Bodega Aurrera y Walmart reutilizan el mismo Chrome abierto manualmente mediante remote debugging. Deben quedar abiertas una pestaña de Bodega Aurrera y otra de Walmart. En Walmart debe estar seleccionado SC Toreo, tienda 2344, CP 11220. El runner no abre ni cierra Chrome y no resuelve verificaciones de identidad.
 
 Cuando Fase 3 pase sus gates:
 
