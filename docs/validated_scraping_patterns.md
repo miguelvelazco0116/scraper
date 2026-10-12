@@ -174,15 +174,39 @@ Regla:
 
 ### Soriana
 
-Estado: EN VALIDACIÓN
+Estado: VALIDACIÓN PARCIAL
 
-Patrón acordado:
+Patrón validado para cuidado-bucal:
 - Chrome abierto manualmente por el usuario
-- scraper conectado a la sesión existente
+- remote debugging habilitado
+- conexión a la sesión existente
 - no abrir otro navegador
 - no cerrar Chrome
+- navegación y paginación sobre la misma sesión
 
-Antes de modificar este retailer, reutilizar el último método manual que haya pasado una prueba real.
+Comando validado:
+- & .\scripts\test_soriana_manual_phase2.ps1 -Category cuidado-bucal
+
+Validación real reportada el 2026-10-12:
+- categoría: cuidado-bucal
+- productos extraídos: 348
+- páginas recorridas: 15
+- target publicado: no disponible
+- SKU completos: 348/348
+- precios completos: 348/348
+- URLs completas: 348/348
+- resultado: COMPLETE
+
+Criterio mientras target_products no esté disponible:
+- recorrer toda la paginación detectada
+- productos > 0
+- SKU completo en todas las filas extraídas
+- precio completo
+- URL completa
+
+Regla:
+- no cambiar este patrón para cuidado-bucal mientras continúe funcionando.
+- el retailer completo pasa a VALIDADO sólo después de que todas las categorías activas pasen sus pruebas reales.
 
 ## Regla de mantenimiento
 
