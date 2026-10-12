@@ -211,62 +211,6 @@ class IbarraMayoreoScraper:
             f"No fue posible cargar {url} tras 4 intentos: {last_error}"
         ) from last_error
 
-    def _goto_detail(
-        self,
-        context,
-        page,
-        url: str,
-        *,
-        index: int,
-        total: int,
-        max_attempts: int = 3,
-        timeout_ms: int = 30_000,
-    ):
-        """Carga una ficha sin permitir que una sola URL congele la categoría."""
-        last_error: PlaywrightError | None = None
-
-        for attempt in range(1, max_attempts + 1):
-            print(
-                f"Ibarra detail {index}/{total}: cargando "
-                f"intento {attempt}/{max_attempts} | {url}"
-            )
-            try:
-                response = page.goto(
-                    url,
-                    wait_until="domcontentloaded",
-                    timeout=timeout_ms,
-                )
-                status = response.status if response else None
-                page.wait_for_timeout(max(self.wait_ms, 800))
-                self._assert_not_blocked(page, status)
-                return page
-            except IbarraMayoreoBlocked:
-                raise
-            except PlaywrightError as exc:
-                last_error = exc
-                print(
-                    f"Ibarra detail {index}/{total}: "
-                    f"navegación falló intento {attempt}/{max_attempts}: "
-                    f"{type(exc).__name__}: {exc}"
-                )
-
-                try:
-                    page.close(run_before_unload=False)
-                except Exception:
-                    pass
-
-                if attempt < max_attempts:
-                    page = context.new_page()
-                    print(
-                        f"Ibarra detail {index}/{total}: "
-                        "renderer reciclado para reintento"
-                    )
-
-        raise IbarraMayoreoNetworkUnavailable(
-            f"No fue posible cargar ficha {url} tras "
-            f"{max_attempts} intentos de {timeout_ms // 1000}s: {last_error}"
-        ) from last_error
-
     @staticmethod
     def _is_product_candidate(item: dict) -> bool:
         title = clean_text(item.get("title")) or ""
@@ -820,31 +764,14 @@ class IbarraMayoreoScraper:
                         continue
 
                     try:
-                        page = self._goto_detail(
-                            context,
-                            page,
-                            href,
-                            index=index,
-                            total=len(links),
-                        )
+                        self._goto(page, href)
                         body = self._body_text(page)
                         detail = self._parse_box_detail(body, fallback_title)
-                    except IbarraMayoreoBlocked:
+                    except (
+                        IbarraMayoreoBlocked,
+                        IbarraMayoreoNetworkUnavailable,
+                    ):
                         raise
-                    except IbarraMayoreoNetworkUnavailable as exc:
-                        parse_errors.append(
-                            {
-                                "url": href,
-                                "title": fallback_title,
-                                "error": f"{type(exc).__name__}: {exc}",
-                            }
-                        )
-                        try:
-                            if page.is_closed():
-                                page = context.new_page()
-                        except Exception:
-                            page = context.new_page()
-                        continue
                     except Exception as exc:
                         parse_errors.append(
                             {
@@ -856,7 +783,7 @@ class IbarraMayoreoScraper:
                         continue
 
                     print(
-                        f"Ibarra detail {index}/{len(links)}: OK | "
+                        f"Ibarra detail {index}/{len(links)}: "
                         f"{detail.get('sku') or '-'} | "
                         f"{detail.get('product') or fallback_title} | "
                         f"caja={detail.get('box_price')}"
