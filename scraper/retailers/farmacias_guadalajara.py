@@ -269,14 +269,104 @@ class FarmaciasGuadalajaraScraper:
                 const text = (source.innerText || '').trim();
                 if (!moneyRe.test(text)) continue;
                 const named = source.querySelector('[class*="brand" i]');
-                const titleNode = source.querySelector('h2, h3, h4, [class*="name" i], [class*="title" i]');
-                let name = (a.innerText || a.getAttribute('aria-label') || a.getAttribute('title') || '').trim();
-                if (!name && titleNode) name = (titleNode.innerText || '').trim();
-                if (!name) {
-                  const lines = text.split(/\\n+/).map(x => x.trim()).filter(Boolean);
-                  name = lines.find(x => !moneyRe.test(x) && !/Agregar|Comparar|Oferta|Favoritos/i.test(x) && x.length > 8) || '';
+                
+                const cleanCandidate = value => String(value || '')
+                  .replace(/\\s+/g, ' ')
+                  .trim();
+                
+                const isBadName = value => {
+                  const candidate = cleanCandidate(value);
+                  const lower = candidate.toLowerCase();
+                  if (!candidate || candidate.length < 3) return true;
+                  if (moneyRe.test(candidate)) return true;
+                  if (
+                    lower === 'price'
+                    || lower === 'sale price'
+                    || lower === 'precio'
+                    || lower === 'oferta'
+                    || lower.startsWith('price reduced from')
+                    || lower.startsWith('price reduced to')
+                    || lower.startsWith('reduced from')
+                    || lower.startsWith('reduced to')
+                  ) return true;
+                  if (/^(agregar|comparar|favoritos|ver producto|comprar)$/i.test(candidate)) {
+                    return true;
+                  }
+                  return false;
+                };
+                
+                const candidates = [];
+                const addCandidate = value => {
+                  const candidate = cleanCandidate(value);
+                  if (!isBadName(candidate)) candidates.push(candidate);
+                };
+                
+                addCandidate(source.getAttribute('data-product-name'));
+                addCandidate(source.getAttribute('data-name'));
+                addCandidate(source.getAttribute('data-product-title'));
+                
+                for (const selector of [
+                  '[itemprop="name"]',
+                  '[class*="product-name" i]',
+                  '[class*="product_name" i]',
+                  '[class*="product" i][class*="name" i]',
+                  'h2',
+                  'h3',
+                  'h4'
+                ]) {
+                  for (const node of Array.from(source.querySelectorAll(selector))) {
+                    addCandidate(node.innerText || node.textContent);
+                    addCandidate(node.getAttribute && node.getAttribute('title'));
+                    addCandidate(node.getAttribute && node.getAttribute('aria-label'));
+                  }
                 }
-                if (!name) continue;
+                
+                for (const link of Array.from(source.querySelectorAll('a[href]'))) {
+                  if ((link.href || '') !== href) continue;
+                  addCandidate(link.getAttribute('data-product-name'));
+                  addCandidate(link.getAttribute('title'));
+                  addCandidate(link.getAttribute('aria-label'));
+                  addCandidate(link.innerText);
+                }
+                
+                for (const img of Array.from(source.querySelectorAll('img'))) {
+                  addCandidate(img.getAttribute('alt'));
+                  addCandidate(img.getAttribute('title'));
+                }
+                
+                addCandidate(a.getAttribute('data-product-name'));
+                addCandidate(a.getAttribute('title'));
+                addCandidate(a.getAttribute('aria-label'));
+                addCandidate(a.innerText);
+                
+                if (!candidates.length) {
+                  const lines = text
+                    .split(/\\n+/)
+                    .map(x => x.trim())
+                    .filter(Boolean);
+                  for (const line of lines) addCandidate(line);
+                }
+                
+                let name = candidates[0] || '';
+                
+                if (!name) {
+                  try {
+                    const pathname = new URL(href).pathname;
+                    const slug = decodeURIComponent(
+                      pathname.split('/').filter(Boolean).pop() || ''
+                    )
+                      .replace(/-\\d{5,14}\\.html$/i, '')
+                      .replace(/[-_]+/g, ' ')
+                      .replace(/\\s+/g, ' ')
+                      .trim();
+                    addCandidate(slug);
+                    name = candidates[0] || '';
+                  } catch (_) {
+                    name = '';
+                  }
+                }
+                
+                if (!name || isBadName(name)) continue;
                 seen.add(href);
                 out.push({
                   href,
