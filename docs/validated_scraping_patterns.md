@@ -154,8 +154,11 @@ Objetivo:
 - ejecutar y cerrar una fase antes de iniciar la siguiente
 - integrar únicamente outputs productivos ya validados
 
-Master incremental:
-- `output\concentrado_productivo_total.xlsx`
+Master incremental fechado:
+- `output\concentrado_productivo_total_YYYY-MM-DD.xlsx`
+- ejemplo: `output\concentrado_productivo_total_2026-10-12.xlsx`
+- la fecha queda fijada cuando se integra Fase 1
+- Fase 2 y futuras fases leen `output\checkpoints_validos\current_master.json` para continuar sobre ese mismo master
 
 Checkpoints inmutables:
 - `output\checkpoints_validos\checkpoint_fase1_YYYYMMDD_HHMMSS.xlsx`

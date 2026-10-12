@@ -70,11 +70,19 @@ Comandos de integración:
 & .\scripts\integrate_validated_phase.ps1 -Phase 2
 ```
 
-Master incremental:
+Master incremental fechado:
 
 ```text
-output\concentrado_productivo_total.xlsx
+output\concentrado_productivo_total_YYYY-MM-DD.xlsx
 ```
+
+Ejemplo para el 12 de octubre de 2026:
+
+```text
+output\concentrado_productivo_total_2026-10-12.xlsx
+```
+
+La fecha identifica la muestra/corrida iniciada por Fase 1. Las fases siguientes se agregan sobre ese mismo archivo mediante `output\checkpoints_validos\current_master.json`.
 
 Cada fase integrada crea además un checkpoint inmutable en:
 
