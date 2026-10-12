@@ -5,13 +5,19 @@ categories:
     name: Higiene y cuidado personal
     subcategory: Cuidado bucal
     sub_subcategory: null
-    url: https://despensa.bodegaaurrera.com.mx/browse/higiene-personal-y-belleza/cuidado-bucal/10_1004
+    url: https://www.bodegaaurrera.com.mx/browse/cuidado-personal/cuidado-bucal/pasta-dental/264479_950014_950022
+    source_urls:
+      - https://www.bodegaaurrera.com.mx/browse/cuidado-personal/cuidado-bucal/pasta-dental/264479_950014_950022
+      - https://www.bodegaaurrera.com.mx/browse/cuidado-personal/cuidado-bucal/enjuagues-bucales/264479_950014_950025
     enabled: true
 
   - id: cuidado-de-la-ropa
     department: Limpieza del hogar y cuidado de la ropa
     name: Cuidado de la ropa
-    subcategory: null
+    subcategory: Detergentes
     sub_subcategory: null
-    url: https://www.bodegaaurrera.com.mx/content/cuidado-de-la-ropa/3680083
+    url: https://www.bodegaaurrera.com.mx/browse/cuidado-de-la-ropa/detergente/detergente-en-polvo/3680083_3570057_3570059
+    source_urls:
+      - https://www.bodegaaurrera.com.mx/browse/cuidado-de-la-ropa/detergente/detergente-en-polvo/3680083_3570057_3570059
+      - https://www.bodegaaurrera.com.mx/browse/cuidado-de-la-ropa/detergente/detergente-liquido/3680083_3570057_3570058
     enabled: true
