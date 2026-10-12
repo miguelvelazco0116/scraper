@@ -271,9 +271,13 @@ def _run_ibarra(
         parse_errors = len(meta.get("parse_errors") or [])
         no_box = len(meta.get("products_without_box_price") or [])
         discovery_complete = bool(meta.get("discovery_complete"))
+        product_links = meta.get("product_links")
         discovery_coverage = (
-            metrics["products"] / int(target)
-            if target not in (None, 0)
+            int(product_links) / int(target)
+            if (
+                target not in (None, 0)
+                and product_links is not None
+            )
             else None
         )
         discovery_coverage_ok = (
@@ -350,7 +354,10 @@ def _run_ibarra(
             unit_price_complete=unit_price_complete,
             single_item_products=single_item_products,
             single_item_price_complete=single_item_price_complete,
-            product_links=meta.get("product_links"),
+            product_links=product_links,
+            browser_session_restarts=meta.get(
+                "browser_session_restarts"
+            ),
         )
         summaries.append(summary)
         print(
@@ -360,7 +367,8 @@ def _run_ibarra(
             f"price={summary['price_complete']} "
             f"units={unit_count_complete} unit_price={unit_price_complete} "
             f"single={single_item_products} sku={summary['sku_complete']} "
-            f"no_box={no_box}"
+            f"no_box={no_box} "
+            f"session_restarts={meta.get('browser_session_restarts', 0)}"
         )
         _release_between_cases(low_memory)
 
