@@ -370,6 +370,41 @@ Referencia oficial corregida de Fase 2:
 Referencia histórica:
 - output\fase2_muestra_inicial_valida.xlsx
 
+## Fase 2 - nueva muestra productiva válida 2026-10-12
+
+Estado: VALIDADO / PRODUCTIVO
+
+Corrida:
+- comando: `& .\scripts\run_phase2_production.ps1`
+- 10/10 categorías COMPLETE
+- 3,018 filas productivas
+- Farmacias Guadalajara: 870 productos
+- Soriana: 2,148 productos
+- SKU/precio/URL completos en las 3,018 filas observadas
+
+Farmacias Guadalajara:
+- vias-respiratorias: 284/284
+- lavanderia: 170/170
+- cuidado-bucal: 358/358
+- preservativos: 58/58
+- product_name_complete: 870/870
+- product_name_invalid: 0
+
+Soriana:
+- cuidado-bucal: 348 productos, 15 páginas
+- limpiadores: 1,075 productos, 45 páginas
+- detergentes: 197 productos, 9 páginas
+- afeitado-depilacion-dama: 59 productos, 3 páginas
+- desodorantes-para-caballero: 273 productos, 12 páginas
+- desodorantes-para-dama: 196 productos, 9 páginas
+
+Evidencia:
+- `docs/validation_results/phase2_productive_valid_2026-10-12_165207.json`
+
+Regla:
+- estos conteos son fotografía del catálogo y no son gates fijos
+- esta muestra está aprobada para integración incremental sobre la Fase 1 válida
+
 ## Incidencia de calidad - Farmacias Guadalajara product
 
 Detectada el 2026-10-12:

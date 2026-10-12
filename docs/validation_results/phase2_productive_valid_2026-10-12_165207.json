@@ -1,0 +1,85 @@
+{
+  "phase": "Fase 2",
+  "validated_at": "2026-10-12",
+  "status": "VALIDATED_PRODUCTIVE_SAMPLE",
+  "command": "& .\\scripts\\run_phase2_production.ps1",
+  "products": 3018,
+  "categories": 10,
+  "all_categories_complete": true,
+  "output": "C:\\Proyectos\\scraper\\output\\concentrado_fase2.xlsx",
+  "baseline": "C:\\Proyectos\\scraper\\output\\fase2_muestra_inicial_valida.xlsx",
+  "baseline_status": "CREADA - MUESTRA INICIAL VALIDA",
+  "retailers": {
+    "Farmacias Guadalajara": {
+      "products": 870,
+      "categories": {
+        "vias-respiratorias": {
+          "target": 284,
+          "products": 284,
+          "coverage": 1,
+          "product_name_complete": 284,
+          "product_name_invalid": 0
+        },
+        "lavanderia": {
+          "target": 170,
+          "products": 170,
+          "coverage": 1,
+          "product_name_complete": 170,
+          "product_name_invalid": 0
+        },
+        "cuidado-bucal": {
+          "target": 358,
+          "products": 358,
+          "coverage": 1,
+          "product_name_complete": 358,
+          "product_name_invalid": 0
+        },
+        "preservativos": {
+          "target": 58,
+          "products": 58,
+          "coverage": 1,
+          "product_name_complete": 58,
+          "product_name_invalid": 0
+        }
+      }
+    },
+    "Soriana": {
+      "products": 2148,
+      "categories": {
+        "cuidado-bucal": {
+          "products": 348,
+          "total_pages": 15
+        },
+        "limpiadores": {
+          "products": 1075,
+          "total_pages": 45
+        },
+        "detergentes": {
+          "products": 197,
+          "total_pages": 9
+        },
+        "afeitado-depilacion-dama": {
+          "products": 59,
+          "total_pages": 3
+        },
+        "desodorantes-para-caballero": {
+          "products": 273,
+          "total_pages": 12
+        },
+        "desodorantes-para-dama": {
+          "products": 196,
+          "total_pages": 9
+        }
+      }
+    }
+  },
+  "quality": {
+    "all_status_complete": true,
+    "sku_complete_equals_products": true,
+    "price_complete_equals_products": true,
+    "url_complete_equals_products": true,
+    "farmacias_guadalajara_product_name_complete": true,
+    "farmacias_guadalajara_product_name_invalid_zero": true
+  },
+  "note": "Muestra productiva válida de Fase 2. Los conteos reflejan el catálogo observado el 2026-10-12 y no son gates fijos."
+}
