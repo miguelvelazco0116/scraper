@@ -87,7 +87,7 @@ Cada fase integrada crea además un checkpoint inmutable en:
 output\checkpoints_validos\
 ```
 
-La Fase 1 inicia una nueva construcción del master. La Fase 2 sólo se incorpora cuando el master ya contiene una Fase 1 válida. Una fase reejecutada reemplaza su propia partición y no duplica filas.
+La Fase 1 inicia una nueva construcción del master. La Fase 2 sólo se incorpora cuando el master ya contiene Fase 1 válida. La Fase 3 sólo se incorpora cuando Fase 1 y Fase 2 ya están validadas en ese master. Una fase reejecutada reemplaza su propia partición y no duplica filas.
 
 ## Fase 3 — Bodega Aurrera + Walmart
 
