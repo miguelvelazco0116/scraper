@@ -1,0 +1,23 @@
+{
+  "phase": "Fase 2",
+  "status": "OFFICIAL_CORRECTED_BASELINE_CREATED",
+  "validated_at": "2026-10-12",
+  "command": "& .\\scripts\\create_phase2_corrected_baseline.ps1",
+  "source": "C:\\Proyectos\\scraper\\output\\concentrado_fase2.xlsx",
+  "corrected_baseline": "C:\\Proyectos\\scraper\\output\\fase2_muestra_inicial_valida_v2_2026-10-12.xlsx",
+  "metadata": "C:\\Proyectos\\scraper\\output\\fase2_muestra_inicial_valida_v2_2026-10-12.json",
+  "original_baseline": "C:\\Proyectos\\scraper\\output\\fase2_muestra_inicial_valida.xlsx",
+  "result": {
+    "rows": 3018,
+    "categories": 10,
+    "farmacias_guadalajara_products": 870,
+    "farmacias_guadalajara_invalid_product_names": 0,
+    "corrected_baseline_created": true,
+    "metadata_created": true,
+    "original_baseline_overwritten": false
+  },
+  "role": {
+    "official_corrected_reference": "fase2_muestra_inicial_valida_v2_2026-10-12.xlsx",
+    "historical_reference": "fase2_muestra_inicial_valida.xlsx"
+  }
+}
