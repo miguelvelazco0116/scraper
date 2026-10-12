@@ -101,10 +101,23 @@ class IbarraMayoreoScraper:
     @staticmethod
     def _install_low_memory_routes(context) -> None:
         def handle(route, request):
-            if request.resource_type in {"image", "media", "font"}:
-                route.abort()
-            else:
-                route.continue_()
+            """Low-memory routing must never break the scrape.
+
+            During rapid product-detail navigation Chrome can cancel an
+            in-flight request while Playwright is dispatching this route
+            callback. abort()/continue_() then raises a PlaywrightError from
+            the event listener even though the page itself is healthy.
+            Routing here is only a memory optimization, so those transient
+            route errors are intentionally ignored; navigation failures are
+            still detected by _goto().
+            """
+            try:
+                if request.resource_type in {"image", "media", "font"}:
+                    route.abort()
+                else:
+                    route.continue_()
+            except PlaywrightError:
+                return
 
         context.route("**/*", handle)
 
