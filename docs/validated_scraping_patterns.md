@@ -371,8 +371,23 @@ Hardening aplicado:
 - los fallos reales de navegación siguen siendo detectados por `_goto()`
 
 Estado:
-- PENDIENTE DE VALIDACIÓN LIVE
-- validar primero con `detergentes-lavatrastes-jab-abarrotes` en headless + low-memory antes de repetir la corrida integral
+- VALIDADO LIVE el 2026-10-12
+- categoría: detergentes-lavatrastes-jab-abarrotes
+- modo: HEADLESS + LOW-MEMORY
+- target_products: 152
+- last_page: 13
+- product_links: 152
+- discovery_complete: True
+- discovery_coverage: 1.0
+- products_with_sale_price: 152
+- products_with_box_price: 152
+- unit_count_complete: 152
+- unit_price_complete: 152
+- products_without_box_price: 0
+- parse_errors: 0
+- resultado: SUCCESS
+- total filas con precio utilizable: 152
+- fix estable: `cce903d89f14b0f2deb1de99c5a017f92685af8d`
 
 ## Regla de mantenimiento
 
