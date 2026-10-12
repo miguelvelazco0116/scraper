@@ -18,8 +18,8 @@ import pandas as pd
 from main import COLUMNS
 from scraper.io_utils import atomic_output_path
 
-MASTER_PATH = ROOT / "output" / "concentrado_productivo_total.xlsx"
 CHECKPOINT_DIR = ROOT / "output" / "checkpoints_validos"
+CURRENT_MASTER_POINTER = CHECKPOINT_DIR / "current_master.json"
 DIAG_PATH = ROOT / "diagnostics" / "phase_checkpoint" / "last_run.json"
 
 PHASES = {
@@ -157,14 +157,62 @@ def _validate_phase(
     return notes
 
 
-def _read_existing_master() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    if not MASTER_PATH.exists():
+def _master_path_for_date(capture_date: str) -> Path:
+    return (
+        ROOT
+        / "output"
+        / f"concentrado_productivo_total_{capture_date}.xlsx"
+    )
+
+
+def _read_current_master_pointer() -> Path | None:
+    if not CURRENT_MASTER_POINTER.exists():
+        return None
+
+    try:
+        payload = json.loads(
+            CURRENT_MASTER_POINTER.read_text(encoding="utf-8")
+        )
+        raw_path = str(payload.get("master") or "").strip()
+        if not raw_path:
+            return None
+        return Path(raw_path)
+    except Exception:
+        return None
+
+
+def _write_current_master_pointer(
+    *,
+    master_path: Path,
+    capture_date: str,
+    completed_phases: list[int],
+) -> None:
+    CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "master": str(master_path),
+        "capture_date": capture_date,
+        "completed_phases": completed_phases,
+        "updated_at": datetime.now().astimezone().isoformat(
+            timespec="seconds"
+        ),
+    }
+    with atomic_output_path(CURRENT_MASTER_POINTER) as temporary:
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+
+def _read_existing_master(
+    master_path: Path,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    if not master_path.exists():
         return (
             pd.DataFrame(columns=COLUMNS),
             pd.DataFrame(),
             pd.DataFrame(),
         )
-    return _read_workbook(MASTER_PATH)
+    return _read_workbook(master_path)
 
 
 def _retailer_summary(frame: pd.DataFrame) -> pd.DataFrame:
@@ -220,12 +268,13 @@ def _style(writer: pd.ExcelWriter) -> None:
 
 
 def _write_master(
+    master_path: Path,
     concentrated: pd.DataFrame,
     summary: pd.DataFrame,
     control: pd.DataFrame,
 ) -> None:
     retailers = _retailer_summary(concentrated)
-    with atomic_output_path(MASTER_PATH) as temp:
+    with atomic_output_path(master_path) as temp:
         with pd.ExcelWriter(temp, engine="openpyxl") as writer:
             concentrated.to_excel(writer, index=False, sheet_name="Concentrado")
             summary.to_excel(writer, index=False, sheet_name="Resumen")
@@ -283,11 +332,23 @@ def main() -> int:
     generated_at = now.isoformat(timespec="seconds")
 
     if phase == 1:
+        capture_date = now.strftime("%Y-%m-%d")
+        master_path = _master_path_for_date(capture_date)
         existing_frame = pd.DataFrame(columns=COLUMNS)
         existing_summary = pd.DataFrame()
         completed = []
     else:
-        existing_frame, existing_summary, existing_control = _read_existing_master()
+        master_path = _read_current_master_pointer()
+        if master_path is None:
+            print(
+                "ERROR: no existe referencia al concentrado activo. "
+                "Primero integra una Fase 1 válida."
+            )
+            return 2
+        capture_date = master_path.stem.rsplit("_", 1)[-1]
+        existing_frame, existing_summary, existing_control = (
+            _read_existing_master(master_path)
+        )
         if existing_frame.empty or existing_control.empty:
             print("ERROR: primero integra una Fase 1 válida al concentrado.")
             return 2
@@ -359,19 +420,25 @@ def main() -> int:
                         ]
                     )
                 ),
-                "master": str(MASTER_PATH),
+                "capture_date": capture_date,
+                "master": str(master_path),
             }
         ]
     )
 
-    _write_master(concentrated, summary, control)
+    _write_master(master_path, concentrated, summary, control)
+    _write_current_master_pointer(
+        master_path=master_path,
+        capture_date=capture_date,
+        completed_phases=completed,
+    )
 
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
     checkpoint = (
         CHECKPOINT_DIR
         / f"checkpoint_fase{phase}_{run_id}.xlsx"
     )
-    shutil.copy2(MASTER_PATH, checkpoint)
+    shutil.copy2(master_path, checkpoint)
 
     metadata = {
         "status": "CHECKPOINT_VALIDATED",
@@ -379,7 +446,8 @@ def main() -> int:
         "completed_phases": completed,
         "generated_at": generated_at,
         "source": str(source),
-        "master": str(MASTER_PATH),
+        "capture_date": capture_date,
+        "master": str(master_path),
         "checkpoint": str(checkpoint),
         "products": len(concentrated),
         "categories": len(summary),
@@ -400,7 +468,8 @@ def main() -> int:
     print(f"Filas acumuladas  : {len(concentrated)}")
     print(f"Categorías        : {len(summary)}")
     print(f"Retailers         : {control.iloc[0]['retailers']}")
-    print(f"Master            : {MASTER_PATH}")
+    print(f"Fecha concentrado : {capture_date}")
+    print(f"Master            : {master_path}")
     print(f"Checkpoint        : {checkpoint}")
     return 0
 
