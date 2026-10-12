@@ -1,0 +1,26 @@
+{
+  "retailer": "Soriana",
+  "phase": "Fase 2",
+  "status": "VALIDATED_CATEGORY",
+  "validated_at": "2026-10-12",
+  "browser_mode": "manual_existing_chrome",
+  "connection_method": "existing_chrome_cdp",
+  "command": "& .\\scripts\\test_soriana_manual_phase2.ps1 -Category cuidado-bucal",
+  "category_id": "cuidado-bucal",
+  "target_products": null,
+  "products": 348,
+  "coverage": null,
+  "total_pages": 15,
+  "sku_complete": 348,
+  "price_complete": 348,
+  "url_complete": 348,
+  "result": "COMPLETE",
+  "quality_gate_when_target_missing": {
+    "require_products_gt_zero": true,
+    "require_full_detected_pagination": true,
+    "require_sku_complete": true,
+    "require_price_complete": true,
+    "require_url_complete": true
+  },
+  "output": "C:\\Proyectos\\scraper\\output\\soriana_manual_phase2_test.xlsx"
+}
