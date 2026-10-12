@@ -281,8 +281,12 @@ Corrección implementada:
 - añadir gate bloqueante `product_name_invalid = 0`
 
 Estado:
-- CORRECCIÓN PENDIENTE DE VALIDACIÓN LIVE
-- no considerar corregida la baseline hasta que Guadalajara vuelva a pasar una prueba real con nombres válidos
+- CORRECCIÓN VALIDADA LIVE el 2026-10-12
+- la muestra aislada de Farmacias Guadalajara ya devuelve nombres reales de producto
+- `product_name_invalid = 0`
+- SKU, precio, URL, cobertura y expansión permanecen correctos
+- el fix estable está en el commit `d7615c34f59d8157c9a41a7e8994d50732e4e17e`
+- la baseline original de Fase 2 no se sobrescribe automáticamente; tras una corrida completa válida se debe crear una referencia corregida conservando la evidencia histórica anterior
 
 ## Regla de mantenimiento
 
