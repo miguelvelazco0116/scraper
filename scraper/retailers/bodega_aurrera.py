@@ -455,6 +455,30 @@ class BodegaAurreraScraper:
         return rows
 
     @staticmethod
+    def _target_count(page) -> int | None:
+        try:
+            text = page.locator("body").inner_text(timeout=5_000)
+        except Exception:
+            return None
+
+        values: list[int] = []
+        patterns = (
+            r"\b([0-9][0-9,.]{0,8})\s+productos?\b",
+            r"\b([0-9][0-9,.]{0,8})\s+resultados?\b",
+            r"\bde\s+([0-9][0-9,.]{0,8})\s+productos?\b",
+        )
+        for pattern in patterns:
+            for raw in re.findall(pattern, text, flags=re.IGNORECASE):
+                try:
+                    values.append(
+                        int(raw.replace(",", "").replace(".", ""))
+                    )
+                except ValueError:
+                    continue
+
+        return max(values) if values else None
+
+    @staticmethod
     def _product_link_count(page) -> int:
         try:
             return page.locator('a[href*="/ip/"]').count()
@@ -651,6 +675,7 @@ class BodegaAurreraScraper:
             visited_requested.add(requested_url)
 
             self._goto(page, requested_url)
+            page_target = self._target_count(page)
 
             try:
                 page.wait_for_selector(
@@ -667,6 +692,7 @@ class BodegaAurreraScraper:
                         "scroll_rounds": 0,
                         "stabilized": False,
                         "no_product_links": True,
+                        "target_products": page_target,
                     }
                 )
                 all_stabilized = False
@@ -709,6 +735,7 @@ class BodegaAurreraScraper:
                     "product_links": expansion.get("product_links"),
                     "scroll_rounds": expansion.get("scroll_rounds"),
                     "stabilized": expansion.get("stabilized"),
+                    "target_products": page_target,
                     "discovered_page_urls": len(discovered_pages),
                 }
             )
@@ -745,11 +772,26 @@ class BodegaAurreraScraper:
             )
         )
 
+        target_candidates = [
+            int(item["target_products"])
+            for item in page_meta
+            if item.get("target_products") not in (None, 0)
+        ]
+        source_target = max(target_candidates) if target_candidates else None
+        source_coverage = (
+            len(unique_source) / source_target
+            if source_target not in (None, 0)
+            else None
+        )
+
         source_meta = {
             "source_url": source_url,
             "actual_url": page.url,
             "rows": len(unique_source),
             "new_rows": len(new_rows),
+            "target_products": source_target,
+            "coverage": source_coverage,
+            "coverage_threshold": 0.90,
             "product_links": max(
                 [
                     int(item.get("product_links") or 0)
@@ -852,6 +894,21 @@ class BodegaAurreraScraper:
             bool(row.get("url")) for row in rows
         )
 
+        source_targets = [
+            int(item["target_products"])
+            for item in self.run_meta.get("sources", [])
+            if item.get("target_products") not in (None, 0)
+        ]
+        target_products = sum(source_targets) if source_targets else None
+        coverage = (
+            len(rows) / target_products
+            if target_products not in (None, 0)
+            else None
+        )
+        self.run_meta["target_products"] = target_products
+        self.run_meta["coverage"] = coverage
+        self.run_meta["coverage_threshold"] = 0.90
+
         stabilized = all(
             bool(item.get("stabilized"))
             and bool(item.get("explicit_pages_stabilized", True))
@@ -864,9 +921,13 @@ class BodegaAurreraScraper:
             for item in self.run_meta.get("sources", [])
         )
         self.run_meta["pagination_verified"] = stabilized
+        coverage_ok = bool(
+            coverage is not None and coverage >= 0.90
+        )
+        self.run_meta["coverage_ok"] = coverage_ok
         self.run_meta["status"] = (
             "SUCCESS"
-            if rows and stabilized
+            if rows and (coverage_ok or stabilized)
             else "PARTIAL"
             if rows
             else "EMPTY"
