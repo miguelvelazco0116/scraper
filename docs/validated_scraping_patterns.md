@@ -179,8 +179,8 @@ Reglas:
 Fase 3 acordada:
 - Bodega Aurrera
 - Walmart
-- todavía NO integrada al consolidator
-- implementar sólo cuando ambos métodos/runners estén validados para esta nueva fase
+- ya integrada técnicamente al consolidator mediante `-Phase 3`
+- permanece PENDIENTE DE VALIDACIÓN LIVE antes de incorporarla al master oficial
 
 ## Fase 3 - Bodega Aurrera + Walmart
 
@@ -202,6 +202,8 @@ Total:
 Runner:
 - `scripts\run_phase3_production.ps1`
 - `scripts\run_phase3_production.py`
+- comando: `& .\scripts\run_phase3_production.ps1`
+- el wrapper descubre `DevToolsActivePort` del Chrome existente
 
 Validaciones Bodega Aurrera:
 - status SUCCESS en las 2 categorías
@@ -226,10 +228,15 @@ Validaciones Walmart:
 - price_order_errors=0
 - duplicates_sku_url=0
 
-Memoria:
-- Bodega corre en un child process y termina completamente antes de Walmart
-- Walmart corre en otro child process
-- no se mantienen los dos navegadores/scrapers simultáneamente
+Navegador y memoria:
+- Chrome lo abre manualmente el usuario antes de iniciar la Fase 3
+- remote debugging debe estar habilitado
+- deben existir una pestaña de Bodega Aurrera y otra de Walmart
+- Bodega se conecta por CDP a su pestaña existente; no abre ni cierra Chrome
+- después termina su child process y libera Python/Playwright, conservando Chrome
+- Walmart se conecta por CDP a su pestaña existente; no abre ni cierra Chrome
+- Walmart debe conservar SC Toreo / tienda 2344 / CP 11220
+- no se lanzan navegadores adicionales para Fase 3
 
 Salida candidata:
 - `output\concentrado_fase3.xlsx`
