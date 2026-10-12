@@ -74,24 +74,35 @@ def _count_nonempty(series: pd.Series) -> int:
     )
 
 
-def _read_workbook(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _read_workbook(
+    path: Path,
+) -> tuple[pd.DataFrame, pd.DataFrame, str | None]:
     if not path.exists():
         return (
             pd.DataFrame(columns=COLUMNS),
             pd.DataFrame(),
+            f"archivo no generado: {path}",
         )
 
-    concentrated = pd.read_excel(
-        path,
-        sheet_name="Concentrado",
-        dtype={"sku": str, "store_id": str},
-    )
-    summary = pd.read_excel(
-        path,
-        sheet_name="Resumen",
-        dtype={"category_id": str},
-    )
-    return _canonical_frame(concentrated), summary
+    try:
+        concentrated = pd.read_excel(
+            path,
+            sheet_name="Concentrado",
+            dtype={"sku": str, "store_id": str},
+        )
+        summary = pd.read_excel(
+            path,
+            sheet_name="Resumen",
+            dtype={"category_id": str},
+        )
+    except Exception as exc:
+        return (
+            pd.DataFrame(columns=COLUMNS),
+            pd.DataFrame(),
+            f"no se pudo leer {path}: {type(exc).__name__}: {exc}",
+        )
+
+    return _canonical_frame(concentrated), summary, None
 
 
 def _safe_int(value: Any) -> int | None:
@@ -164,7 +175,9 @@ def _validate_fg(
 
         if source_status not in {None, "SUCCESS"}:
             notes.append(f"status_origen {source_status}")
-        if return_code not in {None, 0}:
+        if return_code is None:
+            notes.append("return_code no disponible")
+        elif return_code != 0:
             notes.append(f"return_code {return_code}")
         if products <= 0:
             notes.append("sin productos")
@@ -519,9 +532,11 @@ def main() -> int:
         SORIANA_TEST_OUTPUT,
     )
 
-    fg_frame, fg_source_summary = _read_workbook(FG_TEST_OUTPUT)
-    soriana_frame, soriana_source_summary = _read_workbook(
-        SORIANA_TEST_OUTPUT
+    fg_frame, fg_source_summary, fg_read_error = _read_workbook(
+        FG_TEST_OUTPUT
+    )
+    soriana_frame, soriana_source_summary, soriana_read_error = (
+        _read_workbook(SORIANA_TEST_OUTPUT)
     )
 
     summary_rows = _validate_fg(
@@ -554,6 +569,14 @@ def main() -> int:
     if soriana_code != 0:
         publication_notes.append(
             f"Soriana exit_code={soriana_code}"
+        )
+    if fg_read_error:
+        publication_notes.append(
+            f"Farmacias Guadalajara: {fg_read_error}"
+        )
+    if soriana_read_error:
+        publication_notes.append(
+            f"Soriana: {soriana_read_error}"
         )
     if len(summary) != expected_cases:
         publication_notes.append(
