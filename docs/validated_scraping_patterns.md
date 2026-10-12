@@ -112,6 +112,73 @@ Regla de operación:
 - futuras corridas actualizan concentrado_productivo.xlsx
 - la baseline inicial nunca se sobrescribe
 
+## Fase 1 - nueva muestra productiva válida 2026-10-12
+
+Estado: VALIDADO / PRODUCTIVO
+
+Corrida:
+- comando: `& .\scripts\run_phase1_production.ps1`
+- 10/10 categorías COMPLETE
+- 1,498 filas productivas
+- SKU/precio/URL completos en las 1,498 filas observadas
+- baseline Fase 1 creada y marcada como muestra inicial válida
+
+Detalle:
+- Farmacias del Ahorro: 288 productos
+  - congestion-nasal: 55/55
+  - preservativos: 73/73
+  - enjuagues-bucales: 45/45
+  - cremas-dentales: 115/115
+- Ibarra Mayoreo: 572 productos
+  - detergentes-lavatrastes-jab-abarrotes: 152/152
+  - detergentes-lavatrastes-jab-marca-propia: 2/2
+  - dentifricos-abarrotes: 86/86
+  - perfumeria-abarrotes: 332/333 = 99.7%, aceptado por gate >=90%
+- Chedraui: 638 productos
+  - higiene-bucal: 299/299
+  - lavanderia: 339/339
+
+Evidencia:
+- `docs/validation_results/phase1_productive_valid_2026-10-12_144858.json`
+
+Regla:
+- estos conteos son una fotografía del catálogo y no son gates fijos
+- esta muestra es válida aunque difiera de la baseline histórica anterior por cambios reales de catálogo
+
+## Consolidación incremental por fases
+
+Estado: CANDIDATO A VALIDACIÓN LIVE
+
+Objetivo:
+- reducir presión de RAM en Windows Server 2022 / 4 GB
+- ejecutar y cerrar una fase antes de iniciar la siguiente
+- integrar únicamente outputs productivos ya validados
+
+Master incremental:
+- `output\concentrado_productivo_total.xlsx`
+
+Checkpoints inmutables:
+- `output\checkpoints_validos\checkpoint_fase1_YYYYMMDD_HHMMSS.xlsx`
+- `output\checkpoints_validos\checkpoint_fase2_YYYYMMDD_HHMMSS.xlsx`
+
+Comandos:
+- integrar Fase 1: `& .\scripts\integrate_validated_phase.ps1 -Phase 1`
+- integrar Fase 2: `& .\scripts\integrate_validated_phase.ps1 -Phase 2`
+
+Reglas:
+- Fase 1 inicia/reinicia el master de la nueva corrida
+- Fase 2 exige que Fase 1 ya esté integrada
+- reejecutar una fase reemplaza su propia partición; no duplica retailers
+- cada integración valida nuevamente el workbook de la fase antes de publicarlo
+- el master usa `CHECKPOINT_VALIDATED` mientras se construye por fases
+- no mantener procesos de scraping de dos fases simultáneamente
+
+Fase 3 acordada:
+- Bodega Aurrera
+- Walmart
+- todavía NO integrada al consolidator
+- implementar sólo cuando ambos métodos/runners estén validados para esta nueva fase
+
 ## Fase 2
 
 ### Farmacias Guadalajara
@@ -324,7 +391,13 @@ Estado:
 
 ## Producción integral Fase 1 + Fase 2
 
-Estado: EN VALIDACIÓN LIVE
+Estado: REEMPLAZADA OPERATIVAMENTE POR CONSOLIDACIÓN INCREMENTAL EN SERVIDOR DE 4 GB
+
+Nota:
+- el runner monolítico se conserva como referencia histórica
+- para producción actual usar ejecución por fases + `integrate_validated_phase.ps1`
+- razón: liberar navegador/Python/Playwright entre fases y reducir presión de memoria
+
 
 Runner:
 - scripts\run_validated_production.ps1
