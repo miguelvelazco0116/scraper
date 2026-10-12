@@ -322,6 +322,40 @@ Estado:
 - el fix estable está en el commit `d7615c34f59d8157c9a41a7e8994d50732e4e17e`
 - la baseline original de Fase 2 no se sobrescribe automáticamente; tras una corrida completa válida se debe crear una referencia corregida conservando la evidencia histórica anterior
 
+## Producción integral Fase 1 + Fase 2
+
+Estado: EN VALIDACIÓN LIVE
+
+Runner:
+- scripts\run_validated_production.ps1
+- scripts\run_validated_production.py
+
+Método:
+- ejecutar Fase 1 productiva completa
+- abortar si Fase 1 falla
+- ejecutar Fase 2 productiva completa sobre Chrome manual
+- volver a leer y validar los workbooks publicados por ambas fases
+- exigir 10/10 categorías COMPLETE en Fase 1
+- exigir 10/10 categorías COMPLETE en Fase 2
+- volver a exigir product_name_invalid = 0 para Farmacias Guadalajara
+- consolidar exclusivamente las dos corridas frescas exitosas
+- publicar desde un staging validado
+
+Salidas:
+- master vigente: output\concentrado_productivo_total.xlsx
+- baseline global: output\muestra_inicial_valida_total.xlsx
+- histórico: output\extractos_validos\extracto_validado_YYYYMMDD_HHMMSS.xlsx
+- metadata por extracto: output\extractos_validos\extracto_validado_YYYYMMDD_HHMMSS.json
+- índice histórico: output\extractos_validos\manifest.csv
+- diagnóstico: diagnostics\production_master\last_run.json
+
+Reglas:
+- cada corrida válida genera un extracto histórico nuevo e inmutable
+- el master vigente se reemplaza sólo después de validar ambas fases
+- la primera baseline global se crea una sola vez
+- nunca usar un output viejo de una fase para publicar el master cuando el child process de esa fase falla
+- este runner sólo pasa a VALIDADO después de una corrida real exitosa en el Windows Server
+
 ## Regla de mantenimiento
 
 Cuando una corrección pase una prueba real:
