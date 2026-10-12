@@ -196,6 +196,16 @@ def main() -> int:
             frame["url"].fillna("").astype(str).str.strip().ne("").sum()
         ) if not frame.empty else 0
 
+        if (
+            completed.returncode == 0
+            and status == "SUCCESS"
+            and (
+                product_name_complete < products
+                or product_name_invalid > 0
+            )
+        ):
+            status = "PARTIAL"
+
         retry_attempts = 1 if completed.returncode == 0 else 2
         summary = {
             "retailer": "Farmacias Guadalajara",
