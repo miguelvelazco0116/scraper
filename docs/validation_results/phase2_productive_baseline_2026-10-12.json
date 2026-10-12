@@ -1,0 +1,96 @@
+{
+  "phase": "Fase 2",
+  "status": "VALIDATED_PRODUCTIVE_BASELINE",
+  "validated_at": "2026-10-12",
+  "runner_commit": "8e1dd24010e2627407000382c7f94f032a98210c",
+  "retry_hardening_commit": "f5e930684bb46cd434606cfb26702d27480ca7fa",
+  "output": "C:\\Proyectos\\scraper\\output\\concentrado_fase2.xlsx",
+  "baseline": "C:\\Proyectos\\scraper\\output\\fase2_muestra_inicial_valida.xlsx",
+  "baseline_status": "CREATED_VALID_INITIAL_SAMPLE",
+  "diagnostic": "C:\\Proyectos\\scraper\\diagnostics\\phase2_production\\last_run.json",
+  "log": "C:\\Proyectos\\scraper\\diagnostics\\phase2_production\\phase2_20261012_101105.log",
+  "totals": {
+    "categories_complete": 10,
+    "categories_total": 10,
+    "products": 2997,
+    "sku_complete": 2997,
+    "price_complete": 2997,
+    "url_complete": 2997
+  },
+  "retailers": {
+    "Farmacias Guadalajara": {
+      "products": 870,
+      "categories": [
+        {
+          "category_id": "vias-respiratorias",
+          "target_products": 284,
+          "products": 284,
+          "coverage": 1,
+          "status": "COMPLETE"
+        },
+        {
+          "category_id": "lavanderia",
+          "target_products": 170,
+          "products": 170,
+          "coverage": 1,
+          "status": "COMPLETE"
+        },
+        {
+          "category_id": "cuidado-bucal",
+          "target_products": 358,
+          "products": 358,
+          "coverage": 1,
+          "status": "COMPLETE"
+        },
+        {
+          "category_id": "preservativos",
+          "target_products": 58,
+          "products": 58,
+          "coverage": 1,
+          "status": "COMPLETE"
+        }
+      ]
+    },
+    "Soriana": {
+      "products": 2127,
+      "categories": [
+        {
+          "category_id": "cuidado-bucal",
+          "products": 327,
+          "total_pages": 15,
+          "status": "COMPLETE"
+        },
+        {
+          "category_id": "limpiadores",
+          "products": 1075,
+          "total_pages": 45,
+          "status": "COMPLETE"
+        },
+        {
+          "category_id": "detergentes",
+          "products": 197,
+          "total_pages": 9,
+          "status": "COMPLETE"
+        },
+        {
+          "category_id": "afeitado-depilacion-dama",
+          "products": 59,
+          "total_pages": 3,
+          "status": "COMPLETE"
+        },
+        {
+          "category_id": "desodorantes-para-caballero",
+          "products": 273,
+          "total_pages": 12,
+          "status": "COMPLETE"
+        },
+        {
+          "category_id": "desodorantes-para-dama",
+          "products": 196,
+          "total_pages": 9,
+          "status": "COMPLETE"
+        }
+      ]
+    }
+  }
+}

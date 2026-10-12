@@ -113,7 +113,16 @@ El archivo canónico de Fase 2 es:
 output\concentrado_fase2.xlsx
 ```
 
-La primera corrida que publique correctamente crea una baseline inmutable:
+La primera corrida productiva de Fase 2 ya fue validada el **12 de octubre de 2026**:
+
+- 10/10 categorías COMPLETE
+- Farmacias Guadalajara: 870 productos
+- Soriana: 2,127 productos
+- Total Fase 2: **2,997 productos**
+- SKU, precio y URL completos en las 2,997 filas
+- Baseline inicial creada correctamente
+
+La baseline inmutable es:
 
 ```text
 output\fase2_muestra_inicial_valida.xlsx
