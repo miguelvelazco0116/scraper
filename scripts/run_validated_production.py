@@ -430,7 +430,7 @@ def _create_baseline_if_missing(
         "status": "VALID_GLOBAL_BASELINE",
         "generated_at": generated_at,
         "run_id": run_id,
-        "source": str(source_path),
+        "source": str(MASTER_OUTPUT),
         "baseline": str(MASTER_BASELINE),
         "products": products,
         "categories": categories,
@@ -846,6 +846,10 @@ def main() -> int:
         / f".validated_production_{run_id}.staging.xlsx"
     )
 
+    extract_path: Path | None = None
+    extract_meta_path: Path | None = None
+    baseline_created = False
+
     try:
         _write_workbook(
             staging_path,
@@ -881,6 +885,30 @@ def main() -> int:
             categories=len(summary),
             retailers=all_retailers,
         )
+    except Exception as exc:
+        payload = {
+            "status": "PUBLICATION_ERROR",
+            "run_id": run_id,
+            "generated_at": generated_at,
+            "phase1_exit_code": phase1_code,
+            "phase2_exit_code": phase2_code,
+            "phase1_products": len(phase1_frame),
+            "phase2_products": len(phase2_frame),
+            "products": len(concentrated),
+            "error": f"{type(exc).__name__}: {exc}",
+            "extract_created": (
+                str(extract_path)
+                if extract_path is not None
+                else None
+            ),
+            "master_exists": MASTER_OUTPUT.exists(),
+        }
+        _write_diagnostic(payload)
+        print("")
+        print("ERROR DE PUBLICACIÓN DEL MASTER GENERAL.")
+        print(f"- {type(exc).__name__}: {exc}")
+        print(f"Diagnóstico: {DIAGNOSTIC_PATH}")
+        return 3
     finally:
         staging_path.unlink(missing_ok=True)
 
