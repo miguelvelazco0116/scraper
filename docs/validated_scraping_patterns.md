@@ -266,6 +266,25 @@ Regla:
 - si alguna categoría falla, el master anterior se conserva
 - no sustituir los métodos validados de Guadalajara o Soriana sin una prueba aislada exitosa
 
+Revalidación corregida del 2026-10-12:
+- 10/10 categorías COMPLETE
+- Farmacias Guadalajara: 870 productos
+- Guadalajara product_name_complete: 870/870
+- Guadalajara product_name_invalid: 0
+- Soriana: 2,148 productos
+- total Fase 2: 3,018 productos
+- SKU completos: 3,018/3,018
+- precios completos: 3,018/3,018
+- URLs completas: 3,018/3,018
+- concentrado_fase2.xlsx publicado correctamente
+- baseline original conservada sin sobrescribir
+
+Baseline corregida versionada:
+- output\fase2_muestra_inicial_valida_v2_2026-10-12.xlsx
+- output\fase2_muestra_inicial_valida_v2_2026-10-12.json
+- se crea únicamente mediante scripts\create_phase2_corrected_baseline.ps1
+- el creador vuelve a validar las 10 categorías, SKU/precio/URL y los gates de nombre de Guadalajara antes de copiar el master
+
 ## Incidencia de calidad - Farmacias Guadalajara product
 
 Detectada el 2026-10-12:
