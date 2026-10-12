@@ -135,8 +135,8 @@ def run_category(category, location, page):
     scraper = BodegaAurreraScraper(
         headless=False,
         browser_channel="chrome",
-        max_pages=30,
-        wait_ms=1200,
+        max_pages=100,
+        wait_ms=2500,
         manual_verification_timeout_ms=180_000,
     )
 
@@ -170,6 +170,19 @@ def run_category(category, location, page):
         )
 
     meta = scraper.run_meta or {}
+    target_products = meta.get("target_products")
+    coverage = meta.get("coverage")
+    coverage_ok = bool(
+        coverage is not None and float(coverage) >= 0.90
+    )
+    pagination_verified = bool(meta.get("pagination_verified"))
+    catalogue_gate_ok = bool(
+        coverage_ok
+        or (
+            target_products in (None, 0)
+            and pagination_verified
+        )
+    )
     price_audit = audit_visible_prices(df, category.id)
 
     sources = []
@@ -235,7 +248,17 @@ def run_category(category, location, page):
         "category": category.name,
         "subcategory": category.subcategory,
         "category_id": category.id,
-        "status": status,
+        "status": (
+            "SUCCESS"
+            if status == "SUCCESS" and catalogue_gate_ok
+            else "PARTIAL"
+            if status == "SUCCESS"
+            else status
+        ),
+        "target_products": target_products,
+        "coverage": coverage,
+        "coverage_threshold": 0.90,
+        "coverage_ok": coverage_ok,
         "products": len(df),
         "sku_complete": int(
             df["sku"].fillna("").astype(str).str.strip().ne("").sum()
@@ -247,7 +270,8 @@ def run_category(category, location, page):
         ) if not df.empty else 0,
         "sources_discovered": int(meta.get("sources_discovered") or 0),
         "sources_visited": len(meta.get("sources") or []),
-        "pagination_verified": bool(meta.get("pagination_verified")),
+        "pagination_verified": pagination_verified,
+        "catalogue_gate_ok": catalogue_gate_ok,
         "explicit_pages": sum(
             int(item.get("explicit_pages") or 0)
             for item in (meta.get("sources") or [])
@@ -270,7 +294,12 @@ def run_category(category, location, page):
     print("RESULTADO")
     for key in (
         "status",
+        "target_products",
         "products",
+        "coverage",
+        "coverage_threshold",
+        "coverage_ok",
+        "catalogue_gate_ok",
         "sku_complete",
         "price_complete",
         "url_complete",
@@ -370,6 +399,12 @@ def main() -> int:
             extraction.extend(category_extraction)
             price_audits.append(category_price_audit)
 
+            print(
+                "Pausa Bodega entre categorías: 4 segundos.",
+                flush=True,
+            )
+            page.wait_for_timeout(4_000)
+
         # No browser.close(): la sesión pertenece al usuario.
 
     concentrated = (
@@ -414,7 +449,10 @@ def main() -> int:
                 "department",
                 "category_id",
                 "status",
+                "target_products",
                 "products",
+                "coverage",
+                "coverage_threshold",
                 "sku_complete",
                 "price_complete",
                 "url_complete",
@@ -441,7 +479,7 @@ def main() -> int:
             and summary["price_complete"] == summary["products"]
             and summary["url_complete"] == summary["products"]
             and summary["sources_discovered"] == summary["sources_visited"]
-            and summary["pagination_verified"]
+            and summary["catalogue_gate_ok"]
             and summary["price_validation_errors"] == 0
         )
 
