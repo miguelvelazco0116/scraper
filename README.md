@@ -52,6 +52,55 @@ Farmacias Guadalajara
 
 La Comer está implementado pero sigue fuera del runner principal hasta completar validación live.
 
+## Producción integral validada
+
+El flujo final del proyecto une Fase 1 + Fase 2 en una sola corrida fresca. Ejecuta primero Fase 1 y, sólo si pasa, ejecuta Fase 2. El master general se publica únicamente cuando ambas fases terminan correctamente y vuelven a pasar sus gates.
+
+Requisito para Fase 2: dejar abiertas en el mismo Chrome con remote debugging una pestaña de Farmacias Guadalajara y otra de Soriana.
+
+Comando:
+
+```powershell
+& .\scripts\run_validated_production.ps1
+```
+
+Salida vigente:
+
+```text
+output\concentrado_productivo_total.xlsx
+```
+
+Primera baseline global inmutable:
+
+```text
+output\muestra_inicial_valida_total.xlsx
+output\muestra_inicial_valida_total.json
+```
+
+Cada corrida integral válida crea además un extracto histórico inmutable:
+
+```text
+output\extractos_validos\extracto_validado_YYYYMMDD_HHMMSS.xlsx
+output\extractos_validos\extracto_validado_YYYYMMDD_HHMMSS.json
+```
+
+El índice acumulativo de corridas válidas es:
+
+```text
+output\extractos_validos\manifest.csv
+```
+
+El workbook general contiene:
+
+- `Concentrado`: todas las filas productivas de las dos fases.
+- `Resumen`: las 20 categorías con su fase de origen.
+- `Retailers`: resumen agregado por retailer.
+- `Control`: run ID, timestamps, totales de cada fase y estado productivo.
+
+Si alguna fase o gate falla, no se publica un nuevo master general ni un nuevo extracto histórico. Los archivos válidos anteriores se conservan.
+
+Estado actual del runner integral: **PENDIENTE DE PRIMERA VALIDACIÓN LIVE**.
+
 ## Fase 1 productiva
 
 La primera corrida productiva está limitada a los retailers estables:
