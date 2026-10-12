@@ -16,7 +16,7 @@ No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadi
 
 | Retailer | Categorías activas | Productos validados | Precio actual | SKU/URL | Estado |
 |---|---:|---:|---:|---:|---|
-| Soriana | 6 | 2,152 | 100% | 100% | Activo |
+| Soriana | 6 | 2,148 | 100% | 100% | Validado / Fase 2 |
 | Chedraui | 2 | 655 | 100% | 100% | Activo |
 | Farmacias del Ahorro | 4 | 288 | 100% | 100% | Activo |
 | Farmacias San Pablo | 4 | 232 | 100% | 100% en última validación | Activo |
@@ -25,7 +25,7 @@ No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadi
 | Farmacias Similares | 2 | 30 | 100% | 100% | Activo |
 | La Comer | 2 | Pendiente | Pendiente | Pendiente | Implementado, no activo |
 | Walmart | 3 | Pausado | — | — | Pausado |
-| Farmacias Guadalajara | 4 | Pausado | — | — | Pausado |
+| Farmacias Guadalajara | 4 | 870 | 100% | 100% | Validado / Fase 2 |
 
 **Total validado en el stack activo: 4,486 filas** considerando la última validación individual de San Pablo (232 productos).
 
@@ -82,12 +82,57 @@ Ese archivo representa la **primera muestra válida oficial de Fase 1** y no se 
 
 El archivo productivo contiene las hojas `Concentrado`, `Resumen` y `Control`. La publicación es atómica: el archivo productivo sólo se reemplaza cuando todas las categorías cumplen sus gates de calidad. Si una categoría falla, queda `PARTIAL`, se bloquea o no alcanza la cobertura requerida, el master productivo anterior se conserva sin cambios y el detalle se guarda en `diagnostics\phase1_production\last_run.json`.
 
-## Fase 2 - testing
+## Fase 2 productiva
 
 Fase 2 incorpora inicialmente:
 
 - **Farmacias Guadalajara**: 4 categorías activas usando **Chrome abierto manualmente por el usuario**. El script se conecta a esa sesión mediante CDP y navega las categorías sin abrir ni cerrar otro navegador. La categoría se considera aceptable con cobertura de catálogo **>= 90%**, siempre que todas las filas extraídas tengan SKU, precio actual y URL completos.
 - **Soriana**: 6 categorías activas usando **Chrome abierto manualmente por el usuario**. El script se conecta a esa sesión mediante CDP, navega las categorías y recorre la paginación sin abrir ni cerrar otro navegador.
+
+
+### Runner productivo Fase 2
+
+Farmacias Guadalajara y Soriana ya cuentan con métodos de extracción validados. El runner productivo los reutiliza sin modificar su lógica de scraping.
+
+Antes de ejecutar, deja abiertas en el mismo Chrome con remote debugging:
+
+```text
+https://www.farmaciasguadalajara.com/
+https://www.soriana.com/
+```
+
+Ejecuta:
+
+```powershell
+& .\scripts\run_phase2_production.ps1
+```
+
+El archivo canónico de Fase 2 es:
+
+```text
+output\concentrado_fase2.xlsx
+```
+
+La primera corrida que publique correctamente crea una baseline inmutable:
+
+```text
+output\fase2_muestra_inicial_valida.xlsx
+output\fase2_muestra_inicial_valida.json
+```
+
+El workbook productivo contiene `Concentrado`, `Resumen` y `Control`.
+
+La publicación es atómica. Si cualquiera de las 10 categorías falla sus gates, `concentrado_fase2.xlsx` no se reemplaza. El diagnóstico queda en:
+
+```text
+diagnostics\phase2_production\last_run.json
+diagnostics\phase2_production\phase2_YYYYMMDD_HHMMSS.log
+```
+
+Gates productivos:
+
+- **Farmacias Guadalajara**: cobertura por categoría >= 90%, SKU/precio/URL completos y ejecución exitosa.
+- **Soriana**: recorrido de toda la paginación detectada, productos > 0 y SKU/precio/URL completos.
 
 ### Farmacias Guadalajara - navegador manual
 
@@ -507,7 +552,7 @@ La implementación se conserva, incluyendo utilidades de sesión y perfil persis
 
 ### Farmacias Guadalajara
 
-Permanece en pausa por problemas de conectividad/bloqueo observados en validaciones anteriores.
+Validado en Fase 2 mediante Chrome abierto manualmente + CDP directo por WebSocket. La corrida completa validada obtuvo 870/870 productos en 4 categorías con SKU, precio y URL completos.
 
 ## Scripts principales
 
