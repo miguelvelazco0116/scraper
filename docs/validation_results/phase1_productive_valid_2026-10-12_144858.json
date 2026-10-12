@@ -1,0 +1,66 @@
+{
+  "phase": "Fase 1",
+  "validated_at": "2026-10-12",
+  "status": "VALIDATED_PRODUCTIVE_SAMPLE",
+  "command": "& .\\scripts\\run_phase1_production.ps1",
+  "products": 1498,
+  "categories": 10,
+  "all_categories_complete": true,
+  "output": "C:\\Proyectos\\scraper\\output\\concentrado_productivo.xlsx",
+  "baseline": "C:\\Proyectos\\scraper\\output\\fase1_muestra_inicial_valida.xlsx",
+  "baseline_status": "CREADA - MUESTRA INICIAL VALIDA",
+  "retailers": {
+    "Farmacias del Ahorro": {
+      "products": 288,
+      "categories": {
+        "congestion-nasal": 55,
+        "preservativos": 73,
+        "enjuagues-bucales": 45,
+        "cremas-dentales": 115
+      }
+    },
+    "Ibarra Mayoreo": {
+      "products": 572,
+      "categories": {
+        "detergentes-lavatrastes-jab-abarrotes": {
+          "target": 152,
+          "products": 152
+        },
+        "detergentes-lavatrastes-jab-marca-propia": {
+          "target": 2,
+          "products": 2
+        },
+        "dentifricos-abarrotes": {
+          "target": 86,
+          "products": 86
+        },
+        "perfumeria-abarrotes": {
+          "target": 333,
+          "products": 332,
+          "coverage": 0.996996996996997
+        }
+      }
+    },
+    "Chedraui": {
+      "products": 638,
+      "categories": {
+        "higiene-bucal": {
+          "target": 299,
+          "products": 299
+        },
+        "lavanderia": {
+          "target": 339,
+          "products": 339
+        }
+      }
+    }
+  },
+  "quality": {
+    "all_status_complete": true,
+    "sku_complete_equals_products": true,
+    "price_complete_equals_products": true,
+    "url_complete_equals_products": true,
+    "ibarra_perfumeria_coverage_above_90pct": true
+  },
+  "note": "Nueva muestra productiva válida de Fase 1. Los conteos reflejan el catálogo observado el 2026-10-12 y no deben convertirse en gates fijos."
+}
