@@ -271,7 +271,7 @@ class FarmaciasGuadalajaraScraper:
                 const named = source.querySelector('[class*="brand" i]');
                 
                 const cleanCandidate = value => String(value || '')
-                  .replace(/\s+/g, ' ')
+                  .replace(/\\s+/g, ' ')
                   .trim();
                 
                 const isBadName = value => {
@@ -341,7 +341,7 @@ class FarmaciasGuadalajaraScraper:
                 
                 if (!candidates.length) {
                   const lines = text
-                    .split(/\n+/)
+                    .split(/\\n+/)
                     .map(x => x.trim())
                     .filter(Boolean);
                   for (const line of lines) addCandidate(line);
@@ -355,9 +355,9 @@ class FarmaciasGuadalajaraScraper:
                     const slug = decodeURIComponent(
                       pathname.split('/').filter(Boolean).pop() || ''
                     )
-                      .replace(/-\d{5,14}\.html$/i, '')
+                      .replace(/-\\d{5,14}\\.html$/i, '')
                       .replace(/[-_]+/g, ' ')
-                      .replace(/\s+/g, ' ')
+                      .replace(/\\s+/g, ' ')
                       .trim();
                     addCandidate(slug);
                     name = candidates[0] || '';
