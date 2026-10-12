@@ -212,26 +212,59 @@ Regla:
 
 ## Fase 2 productiva
 
-Estado: EN VALIDACIÓN
+Estado: VALIDADO / PRODUCTIVO
 
-Runner:
+Runner oficial:
 - scripts\run_phase2_production.ps1
 - scripts\run_phase2_production.py
 
-Objetivo:
-- reutilizar sin modificar los métodos validados de Farmacias Guadalajara y Soriana
-- ejecutar las 10 categorías activas
-- validar nuevamente las filas generadas
-- publicar de forma atómica output\concentrado_fase2.xlsx
-- crear una sola vez output\fase2_muestra_inicial_valida.xlsx
-- conservar el master anterior si cualquier gate falla
+Métodos reutilizados:
+- Farmacias Guadalajara: Chrome manual + CDP directo por WebSocket + cdp_mouse_ranked
+- Soriana: Chrome manual + sesión existente + paginación detectada completa
 
-Requisito operativo:
-- Chrome abierto manualmente con remote debugging
-- una pestaña abierta de Farmacias Guadalajara
-- una pestaña abierta de Soriana
+Commit productivo base:
+- 8e1dd24010e2627407000382c7f94f032a98210c
 
-Este runner sólo pasa a VALIDADO después de una corrida productiva real exitosa.
+Hardening de retry Guadalajara:
+- f5e930684bb46cd434606cfb26702d27480ca7fa
+
+Validación productiva real reportada el 2026-10-12:
+- 10/10 categorías COMPLETE
+- Farmacias Guadalajara: 870 productos
+- Soriana: 2,127 productos
+- total Fase 2: 2,997 productos
+- SKU completos: 2,997/2,997
+- precios completos: 2,997/2,997
+- URLs completas: 2,997/2,997
+- publicación atómica: exitosa
+- baseline inicial: creada
+
+Detalle Guadalajara:
+- vias-respiratorias: 284/284
+- lavanderia: 170/170
+- cuidado-bucal: 358/358
+- preservativos: 58/58
+
+Detalle Soriana:
+- cuidado-bucal: 327 productos, 15 páginas
+- limpiadores: 1,075 productos, 45 páginas
+- detergentes: 197 productos, 9 páginas
+- afeitado-depilacion-dama: 59 productos, 3 páginas
+- desodorantes-para-caballero: 273 productos, 12 páginas
+- desodorantes-para-dama: 196 productos, 9 páginas
+
+Master productivo:
+- output\concentrado_fase2.xlsx
+
+Baseline inmutable:
+- output\fase2_muestra_inicial_valida.xlsx
+- output\fase2_muestra_inicial_valida.json
+
+Regla:
+- concentrado_fase2.xlsx puede actualizarse en futuras corridas válidas
+- fase2_muestra_inicial_valida.xlsx no debe sobrescribirse
+- si alguna categoría falla, el master anterior se conserva
+- no sustituir los métodos validados de Guadalajara o Soriana sin una prueba aislada exitosa
 
 ## Regla de mantenimiento
 
