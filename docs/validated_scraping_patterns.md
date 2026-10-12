@@ -409,26 +409,29 @@ Estado:
 - validar primero `perfumeria-abarrotes` en HEADLESS + LOW-MEMORY
 - esperado para el caso observado: 332/333 aceptado como SUCCESS si no hay parse_errors
 
-## Incidencia Ibarra - ficha individual puede aparentar congelamiento
+## Incidencia Ibarra - watchdog de detalle descartado
 
-Detectada el 2026-10-12 durante perfumeria-abarrotes:
-- la corrida avanzó normalmente hasta 282/332 fichas
-- después dejó de imprimir progreso durante varios minutos
-- la navegación genérica `_goto()` permitía hasta 4 intentos de 120 segundos por URL
-- como el log sólo se imprimía después de cargar la ficha, una URL lenta podía aparentar un proceso congelado
+Prueba live del 2026-10-12 en `perfumeria-abarrotes`:
+- target_products: 333
+- product_links: 332
+- products_with_sale_price: 27
+- parse_errors: 305
+- status: PARTIAL
+- discovery_coverage calculada sobre filas útiles: 27/333 = 8.1%
 
-Hardening aplicado:
-- conservar `_goto()` robusto para descubrimiento/paginación
-- usar navegación específica de detalle con máximo 3 intentos de 30 segundos
-- reciclar el renderer entre intentos fallidos
-- imprimir `cargando intento X/3` antes de cada navegación
-- si los 3 intentos fallan, registrar la ficha como parse/error y continuar en lugar de congelar toda la categoría
-- mantener intactos parser, precios, unidades, SKU, URLs, cobertura y LOW-MEMORY
+Conclusión:
+- el watchdog de detalle de 3 x 30 segundos degradó severamente la extracción
+- NO VALIDADO
+- NO USAR
+- se revirtió por completo
 
-Estado:
-- PENDIENTE DE VALIDACIÓN LIVE
-- validar `perfumeria-abarrotes` en HEADLESS + LOW-MEMORY
-- esperado: avance visible hasta el final o error acotado por ficha; nunca varios minutos sin diagnóstico
+Se conserva como baseline operativa:
+- listener LOW-MEMORY fail-safe validado
+- recovery omitido cuando la cobertura inicial es >= 90%
+- navegación de detalle previa a este watchdog
+
+Siguiente diagnóstico:
+- leer los `parse_errors` guardados en `diagnostics/ibarra_mayoreo_perfumeria-abarrotes.json` antes de aplicar otro cambio
 
 ## Regla de mantenimiento
 
