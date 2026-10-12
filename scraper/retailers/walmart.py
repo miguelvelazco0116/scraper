@@ -699,8 +699,11 @@ class WalmartScraper:
         location: Location,
         *,
         establish_reference: bool,
+        page: Page | None = None,
     ) -> list[dict[str, Any]]:
-        page = context.pages[0] if context.pages else context.new_page()
+        page = page or (
+            context.pages[0] if context.pages else context.new_page()
+        )
         rows: list[dict[str, Any]] = []
         seen_skus: set[str] = set()
         no_new_pages = 0
@@ -786,6 +789,40 @@ class WalmartScraper:
         self.run_meta["unique_products"] = len(seen_skus)
         self._save_diagnostics(page, f"success_{category.id}_{location.id}")
         return rows
+
+    def scrape_category_on_page(
+        self,
+        page: Page,
+        category: Category,
+        location: Location,
+    ) -> list[dict[str, Any]]:
+        """Run Walmart on a page from the user's already-open Chrome.
+
+        The caller owns the browser/context. This method never closes the
+        manual Chrome session.
+        """
+        if self.require_store_context and (
+            not location.store_id or not location.store
+        ):
+            raise WalmartStoreContextError(
+                "Walmart requiere una tienda configurada para esta corrida."
+            )
+
+        self.run_meta = {
+            "retailer": "Walmart",
+            "category_id": category.id,
+            "category_url": category.url,
+            "browser_session_method": "existing_chrome_cdp",
+        }
+        self._active_store_context_method = None
+
+        return self._scrape_with_context(
+            page.context,
+            category,
+            location,
+            establish_reference=False,
+            page=page,
+        )
 
     def scrape_category(self, category: Category, location: Location) -> list[dict[str, Any]]:
         if self.require_store_context and (not location.store_id or not location.store):
