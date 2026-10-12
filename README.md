@@ -24,7 +24,7 @@ No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadi
 | Bodega Aurrera | 2 | 555 | 100% | 100% | Activo |
 | Farmacias Similares | 2 | 30 | 100% | 100% | Activo |
 | La Comer | 2 | Pendiente | Pendiente | Pendiente | Implementado, no activo |
-| Walmart | 3 | Pausado | — | — | Pausado |
+| Walmart | 3 | Pendiente de validación Fase 3 | — | — | En validación / Fase 3 |
 | Farmacias Guadalajara | 4 | 870 | 100% | 100% | Validado / Fase 2 |
 
 Las Fases 1 y 2 actualmente cubren **5 retailers y 20 categorías**. La primera corrida integral todavía debe validarse live antes de fijar su baseline global.
@@ -43,11 +43,7 @@ Bodega Aurrera
 Farmacias Similares
 ```
 
-En pausa:
-
-```text
-Walmart
-```
+Walmart está implementado dentro de Fase 3 y pendiente de su primera validación live con Chrome existente.
 
 Farmacias Guadalajara ya está validado y productivo dentro de Fase 2.
 
