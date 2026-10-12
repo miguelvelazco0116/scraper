@@ -44,6 +44,16 @@ PHASES = {
         "categories": 10,
         "require_fg_names": True,
     },
+    3: {
+        "label": "FASE 3",
+        "source": ROOT / "output" / "concentrado_fase3.xlsx",
+        "retailers": {
+            "Bodega Aurrera",
+            "Walmart",
+        },
+        "categories": 5,
+        "require_fg_names": False,
+    },
 }
 
 
@@ -153,6 +163,76 @@ def _validate_phase(
                 notes.append("Guadalajara product_name_invalid > 0")
         else:
             notes.append("Faltan gates de nombres de Guadalajara")
+
+    if phase == 3:
+        walmart = summary.loc[
+            summary["retailer"].astype(str).eq("Walmart")
+        ].copy()
+        bodega = summary.loc[
+            summary["retailer"].astype(str).eq("Bodega Aurrera")
+        ].copy()
+
+        if len(walmart) != 3:
+            notes.append(f"Walmart categorías={len(walmart)}/3")
+        else:
+            required = {
+                "products",
+                "store_context_complete",
+                "store_context_verified",
+                "price_order_errors",
+                "duplicates_sku_url",
+            }
+            if not required.issubset(walmart.columns):
+                notes.append("Faltan gates Walmart en Fase 3")
+            else:
+                products = pd.to_numeric(
+                    walmart["products"], errors="coerce"
+                ).fillna(-1)
+                store_complete = pd.to_numeric(
+                    walmart["store_context_complete"],
+                    errors="coerce",
+                ).fillna(-2)
+                if not store_complete.eq(products).all():
+                    notes.append(
+                        "Walmart store_context_complete incompleto"
+                    )
+                if not walmart["store_context_verified"].map(bool).all():
+                    notes.append(
+                        "Walmart store_context_verified=False"
+                    )
+                price_errors = pd.to_numeric(
+                    walmart["price_order_errors"],
+                    errors="coerce",
+                ).fillna(-1)
+                if not price_errors.eq(0).all():
+                    notes.append(
+                        "Walmart price_order_errors > 0"
+                    )
+                duplicates = pd.to_numeric(
+                    walmart["duplicates_sku_url"],
+                    errors="coerce",
+                ).fillna(-1)
+                if not duplicates.eq(0).all():
+                    notes.append(
+                        "Walmart duplicates_sku_url > 0"
+                    )
+
+        if len(bodega) != 2:
+            notes.append(f"Bodega Aurrera categorías={len(bodega)}/2")
+        else:
+            if "price_validation_errors" not in bodega.columns:
+                notes.append(
+                    "Falta price_validation_errors de Bodega Aurrera"
+                )
+            else:
+                price_errors = pd.to_numeric(
+                    bodega["price_validation_errors"],
+                    errors="coerce",
+                ).fillna(-1)
+                if not price_errors.eq(0).all():
+                    notes.append(
+                        "Bodega Aurrera price_validation_errors > 0"
+                    )
 
     return notes
 
@@ -295,7 +375,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Integra una fase productiva validada al concentrado maestro."
     )
-    parser.add_argument("--phase", type=int, choices=[1, 2], required=True)
+    parser.add_argument("--phase", type=int, choices=[1, 2, 3], required=True)
     args = parser.parse_args()
 
     phase = args.phase
@@ -416,6 +496,15 @@ def main() -> int:
                         concentrated.loc[
                             concentrated["retailer"].astype(str).isin(
                                 PHASES[2]["retailers"]
+                            )
+                        ]
+                    )
+                ),
+                "phase3_products": int(
+                    len(
+                        concentrated.loc[
+                            concentrated["retailer"].astype(str).isin(
+                                PHASES[3]["retailers"]
                             )
                         ]
                     )
