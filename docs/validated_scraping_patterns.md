@@ -389,6 +389,26 @@ Estado:
 - total filas con precio utilizable: 152
 - fix estable: `cce903d89f14b0f2deb1de99c5a017f92685af8d`
 
+## Incidencia Ibarra - recovery innecesario con cobertura válida
+
+Detectada el 2026-10-12 durante la primera corrida integral:
+- perfumeria-abarrotes publicó target 333
+- primera pasada detectó 332 productos
+- cobertura: 99.7%
+- el scraper inició una segunda pasada completa de 28 páginas sólo por 1 producto faltante
+- durante esa recuperación aparecieron múltiples `socket.send() raised exception`
+
+Ajuste:
+- si la primera pasada queda >= 90% de cobertura, no ejecutar recovery
+- conservar recovery únicamente para cobertura < 90%
+- alinear el status interno del scraper con el gate oficial >= 90%
+- mantener intactos descubrimiento, fichas, parser, precios, unidades, URLs y LOW-MEMORY
+
+Estado:
+- PENDIENTE DE VALIDACIÓN LIVE
+- validar primero `perfumeria-abarrotes` en HEADLESS + LOW-MEMORY
+- esperado para el caso observado: 332/333 aceptado como SUCCESS si no hay parse_errors
+
 ## Regla de mantenimiento
 
 Cuando una corrección pase una prueba real:
