@@ -692,6 +692,48 @@ class WalmartScraper:
         )
         return rows
 
+    @staticmethod
+    def _pagination_total_hint(page: Page) -> int | None:
+        values: list[int] = []
+
+        try:
+            hrefs = page.locator('a[href*="page="]').evaluate_all(
+                "anchors => anchors.map(a => a.href || '').filter(Boolean)"
+            )
+            for href in hrefs:
+                try:
+                    query = dict(
+                        parse_qsl(
+                            urlsplit(href).query,
+                            keep_blank_values=True,
+                        )
+                    )
+                    value = int(query.get("page", "0"))
+                    if value > 0:
+                        values.append(value)
+                except (TypeError, ValueError):
+                    continue
+        except Exception:
+            pass
+
+        try:
+            text = page.locator("body").inner_text(timeout=5_000)
+            for raw in re.findall(
+                r"(?:p[aá]gina|page)\s+\d+\s+(?:de|of)\s+(\d+)",
+                text,
+                flags=re.IGNORECASE,
+            ):
+                try:
+                    value = int(raw)
+                    if value > 0:
+                        values.append(value)
+                except ValueError:
+                    pass
+        except Exception:
+            pass
+
+        return max(values) if values else None
+
     def _scrape_with_context(
         self,
         context: BrowserContext,
@@ -709,6 +751,9 @@ class WalmartScraper:
         no_new_pages = 0
         session_verified = not self.require_store_context
         verification_method: str | None = None
+        pagination_verified = False
+        pagination_stop_reason: str | None = None
+        total_pages_hint: int | None = None
 
         if establish_reference:
             self._establish_store_reference(page, location)
@@ -720,10 +765,29 @@ class WalmartScraper:
             page.wait_for_timeout(self.wait_ms)
 
             try:
-                page.wait_for_selector('a[href*="/ip/"]', timeout=20_000)
+                page.wait_for_selector(
+                    'a[href*="/ip/"]',
+                    timeout=20_000,
+                )
             except PlaywrightTimeoutError:
-                self._save_diagnostics(page, f"no_products_page_{page_number}")
+                self._save_diagnostics(
+                    page,
+                    f"no_products_page_{page_number}",
+                )
+                pagination_stop_reason = (
+                    "no_product_links_after_catalog"
+                    if page_number > 1
+                    else "no_product_links_first_page"
+                )
+                pagination_verified = page_number > 1
                 break
+
+            hint = self._pagination_total_hint(page)
+            if hint is not None and hint > 1:
+                total_pages_hint = max(
+                    total_pages_hint or 0,
+                    hint,
+                )
 
             if not session_verified:
                 session_verified, verification_method = self._verify_store_context(
@@ -782,11 +846,41 @@ class WalmartScraper:
             self.run_meta["pages"][-1]["new_rows"] = len(new_rows)
 
             no_new_pages = no_new_pages + 1 if not new_rows else 0
-            if no_new_pages >= 2:
+
+            print(
+                f"Walmart page={page_number}: "
+                f"rows={len(page_rows)}, "
+                f"new={len(new_rows)}, "
+                f"cumulative={len(rows)}, "
+                f"total_pages_hint={total_pages_hint}",
+                flush=True,
+            )
+
+            # Deliberate pacing: keep requests serial and add breathing room
+            # between catalogue pages on the low-resource server.
+            page.wait_for_timeout(self.wait_ms)
+
+            if (
+                total_pages_hint is not None
+                and page_number >= total_pages_hint
+            ):
+                pagination_verified = True
+                pagination_stop_reason = "published_total_pages_reached"
                 break
+
+            if no_new_pages >= 2:
+                pagination_verified = True
+                pagination_stop_reason = "two_consecutive_no_new_pages"
+                break
+        else:
+            pagination_stop_reason = "max_pages_reached"
+            pagination_verified = False
 
         self.run_meta["store_context_verified"] = session_verified
         self.run_meta["unique_products"] = len(seen_skus)
+        self.run_meta["pagination_verified"] = pagination_verified
+        self.run_meta["pagination_stop_reason"] = pagination_stop_reason
+        self.run_meta["total_pages_hint"] = total_pages_hint
         self._save_diagnostics(page, f"success_{category.id}_{location.id}")
         return rows
 
