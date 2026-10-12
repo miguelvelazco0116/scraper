@@ -1,0 +1,18 @@
+{
+  "retailer": "Farmacias Guadalajara",
+  "phase": "Fase 2",
+  "validated_at": "2026-10-12",
+  "status": "VALIDATED_PRODUCT_NAME_FIX",
+  "fix_commit": "d7615c34f59d8157c9a41a7e8994d50732e4e17e",
+  "scope": "isolated live validation before full Phase 2 rerun",
+  "result": {
+    "product_names": "corrected",
+    "product_name_invalid": 0,
+    "sku": "unchanged and valid",
+    "prices": "unchanged and valid",
+    "urls": "unchanged and valid",
+    "coverage": "unchanged and valid",
+    "expansion": "unchanged and valid"
+  },
+  "next_step": "Run full Phase 2 production test across all 10 active categories."
+}
