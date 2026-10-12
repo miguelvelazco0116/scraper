@@ -53,6 +53,37 @@ Farmacias Guadalajara ya está validado y productivo dentro de Fase 2.
 
 La Comer está implementado pero sigue fuera del runner principal hasta completar validación live.
 
+## Producción por fases — recomendada para servidor de 4 GB
+
+Para reducir consumo de memoria, la operación productiva se ejecuta y consolida por checkpoints:
+
+```text
+Fase 1 -> validar -> integrar al master -> liberar recursos
+Fase 2 -> validar -> integrar al master -> liberar recursos
+Fase 3 -> Bodega Aurrera + Walmart (pendiente de implementación/validación)
+```
+
+Comandos de integración:
+
+```powershell
+& .\scripts\integrate_validated_phase.ps1 -Phase 1
+& .\scripts\integrate_validated_phase.ps1 -Phase 2
+```
+
+Master incremental:
+
+```text
+output\concentrado_productivo_total.xlsx
+```
+
+Cada fase integrada crea además un checkpoint inmutable en:
+
+```text
+output\checkpoints_validos\
+```
+
+La Fase 1 inicia una nueva construcción del master. La Fase 2 sólo se incorpora cuando el master ya contiene una Fase 1 válida. Una fase reejecutada reemplaza su propia partición y no duplica filas.
+
 ## Producción integral validada
 
 El flujo final del proyecto une Fase 1 + Fase 2 en una sola corrida fresca. Ejecuta primero Fase 1 y, sólo si pasa, ejecuta Fase 2. El master general se publica únicamente cuando ambas fases terminan correctamente y vuelven a pasar sus gates.
