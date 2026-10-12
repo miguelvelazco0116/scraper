@@ -722,7 +722,7 @@ class BodegaAurreraScraper:
                 if (
                     discovered_url not in queued
                     and discovered_url not in visited_requested
-                    and len(queued) + len(visited_requested) < max_page_urls
+                    and len(queued) < max_page_urls
                 ):
                     queued.add(discovered_url)
                     queue.append(discovered_url)
