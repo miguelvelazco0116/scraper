@@ -1,0 +1,77 @@
+{
+  "retailer": "Soriana",
+  "phase": "Fase 2",
+  "status": "VALIDATED_PRODUCTIVE",
+  "validated_at": "2026-10-12",
+  "implementation_commit": "806825e03af02d15975abf2495e54288c478472c",
+  "method": "manual_existing_chrome_cdp",
+  "command": "& .\\scripts\\test_soriana_manual_phase2.ps1",
+  "target_products_exposed": false,
+  "validation_rule": "complete detected pagination plus complete critical fields",
+  "categories": [
+    {
+      "category_id": "cuidado-bucal",
+      "products": 348,
+      "total_pages": 15,
+      "sku_complete": 348,
+      "price_complete": 348,
+      "url_complete": 348,
+      "status": "COMPLETE"
+    },
+    {
+      "category_id": "limpiadores",
+      "products": 1075,
+      "total_pages": 45,
+      "sku_complete": 1075,
+      "price_complete": 1075,
+      "url_complete": 1075,
+      "status": "COMPLETE"
+    },
+    {
+      "category_id": "detergentes",
+      "products": 197,
+      "total_pages": 9,
+      "sku_complete": 197,
+      "price_complete": 197,
+      "url_complete": 197,
+      "status": "COMPLETE"
+    },
+    {
+      "category_id": "afeitado-depilacion-dama",
+      "products": 59,
+      "total_pages": 3,
+      "sku_complete": 59,
+      "price_complete": 59,
+      "url_complete": 59,
+      "status": "COMPLETE"
+    },
+    {
+      "category_id": "desodorantes-para-caballero",
+      "products": 273,
+      "total_pages": 12,
+      "sku_complete": 273,
+      "price_complete": 273,
+      "url_complete": 273,
+      "status": "COMPLETE"
+    },
+    {
+      "category_id": "desodorantes-para-dama",
+      "products": 196,
+      "total_pages": 9,
+      "sku_complete": 196,
+      "price_complete": 196,
+      "url_complete": 196,
+      "status": "COMPLETE"
+    }
+  ],
+  "totals": {
+    "products": 2148,
+    "total_pages": 93,
+    "categories_complete": 6,
+    "categories_total": 6,
+    "sku_complete": 2148,
+    "price_complete": 2148,
+    "url_complete": 2148
+  },
+  "output": "C:\\Proyectos\\scraper\\output\\soriana_manual_phase2_test.xlsx"
+}
