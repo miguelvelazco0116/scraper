@@ -148,6 +148,16 @@ Validación real reportada el 2026-10-11:
 - return_code: 0
 - resultado: SUCCESS
 
+Validación completa reportada el 2026-10-12:
+- vias-respiratorias: 284/284, 100% cobertura, SKU/precio/URL 284/284
+- lavanderia: 170/170, 100% cobertura, SKU/precio/URL 170/170
+- cuidado-bucal: 358/358, 100% cobertura, SKU/precio/URL 358/358
+- preservativos: 58/58, 100% cobertura, SKU/precio/URL 58/58
+- total: 870/870 productos
+- 4/4 categorías: SUCCESS
+- return_code: 0 en todas
+- resultado retailer: PRODUCTIVO / VALIDADO
+
 Gate oficial:
 - cobertura >= 90%
 - SKU completo en filas extraídas
