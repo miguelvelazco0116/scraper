@@ -424,8 +424,6 @@ def _create_baseline_if_missing(
     if MASTER_BASELINE.exists():
         return False
 
-    _atomic_copy(source_path, MASTER_BASELINE)
-
     metadata = {
         "status": "VALID_GLOBAL_BASELINE",
         "generated_at": generated_at,
@@ -440,14 +438,25 @@ def _create_baseline_if_missing(
             "No sobrescribir en corridas futuras."
         ),
     }
-    MASTER_BASELINE_META.write_text(
-        json.dumps(
-            metadata,
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
+
+    try:
+        _atomic_copy(source_path, MASTER_BASELINE)
+        with atomic_output_path(
+            MASTER_BASELINE_META
+        ) as temporary:
+            temporary.write_text(
+                json.dumps(
+                    metadata,
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+    except Exception:
+        MASTER_BASELINE.unlink(missing_ok=True)
+        MASTER_BASELINE_META.unlink(missing_ok=True)
+        raise
+
     return True
 
 
@@ -478,8 +487,6 @@ def _publish_historical_extract(
             f"Ya existe un extracto para run_id={run_id}"
         )
 
-    _atomic_copy(source_path, extract_path)
-
     metadata = {
         "status": "VALIDATED_EXTRACT",
         "run_id": run_id,
@@ -491,14 +498,24 @@ def _publish_historical_extract(
         "categories": categories,
         "retailers": retailers,
     }
-    metadata_path.write_text(
-        json.dumps(
-            metadata,
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
+
+    try:
+        _atomic_copy(source_path, extract_path)
+        with atomic_output_path(
+            metadata_path
+        ) as temporary:
+            temporary.write_text(
+                json.dumps(
+                    metadata,
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+    except Exception:
+        extract_path.unlink(missing_ok=True)
+        metadata_path.unlink(missing_ok=True)
+        raise
 
     manifest_row = pd.DataFrame(
         [
@@ -543,14 +560,19 @@ def _publish_historical_extract(
             keep="last",
         )
 
-        with atomic_output_path(
-            MANIFEST_PATH
-        ) as temporary:
-            combined.to_csv(
-                temporary,
-                index=False,
-                encoding="utf-8-sig",
-            )
+        try:
+            with atomic_output_path(
+                MANIFEST_PATH
+            ) as temporary:
+                combined.to_csv(
+                    temporary,
+                    index=False,
+                    encoding="utf-8-sig",
+                )
+        except Exception:
+            extract_path.unlink(missing_ok=True)
+            metadata_path.unlink(missing_ok=True)
+            raise
 
     return extract_path, metadata_path
 
