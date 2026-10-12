@@ -479,11 +479,20 @@ class IbarraMayoreoScraper:
                 break
 
         recovery_pages: list[dict] = []
-        if (
+        pre_recovery_coverage = (
+            len(products) / int(target)
+            if target not in (None, 0)
+            else None
+        )
+        recovery_required = bool(
             target is not None
             and len(products) < target
+            and pre_recovery_coverage is not None
+            and pre_recovery_coverage < 0.90
             and (last_page is not None or pages)
-        ):
+        )
+
+        if recovery_required:
             recovery_last_page = (
                 int(last_page)
                 if last_page is not None
@@ -560,6 +569,18 @@ class IbarraMayoreoScraper:
             ),
             "pages": pages,
             "recovery_pages": recovery_pages,
+            "pre_recovery_coverage": pre_recovery_coverage,
+            "recovery_required": recovery_required,
+            "recovery_skipped_reason": (
+                "coverage_at_or_above_90pct"
+                if (
+                    target not in (None, 0)
+                    and len(products) < int(target)
+                    and pre_recovery_coverage is not None
+                    and pre_recovery_coverage >= 0.90
+                )
+                else None
+            ),
             "recovery_attempted": bool(recovery_pages),
             "recovery_recovered": (
                 max(len(products) - (pages[-1]["cumulative_links"] if pages else 0), 0)
