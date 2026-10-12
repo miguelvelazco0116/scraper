@@ -43,10 +43,11 @@ Estado: VALIDADO
 Método:
 - Playwright headless
 - low-memory
-- bloqueo de image/media/font
-- reciclaje del renderer durante recorridos largos
+- NO usar `context.route()` para bloquear recursos en Ibarra
+- bloqueo de imágenes/fuentes mediante flags de Chrome
+- reciclaje completo de navegador + BrowserContext durante recorridos largos
 - reintentos de navegación
-- segunda pasada de descubrimiento cuando falta catálogo
+- recovery de descubrimiento sólo cuando cobertura inicial <90%
 
 Reglas:
 - cobertura mínima aceptable por categoría: 90%
@@ -83,9 +84,9 @@ Método:
 - reintentos estructurados
 - store context verificado
 
-Resultado productivo de referencia:
-- higiene-bucal: 304/304
-- lavanderia: 363/363
+Resultado productivo de referencia más reciente:
+- higiene-bucal: 299/299
+- lavanderia: 339/339
 
 Reglas:
 - target completo
