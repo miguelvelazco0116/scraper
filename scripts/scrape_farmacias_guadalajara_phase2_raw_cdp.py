@@ -987,6 +987,10 @@ def main() -> int:
         print(f"Productos extraídos: {len(frame)}")
         print(f"Nombres completos  : {product_name_complete}")
         print(f"Nombres inválidos  : {product_name_invalid}")
+        if not frame.empty:
+            print("Muestra nombres     :")
+            for value in frame["product"].head(5).tolist():
+                print(f"  - {value}")
         print(f"SKU completos      : {int(frame['sku'].fillna('').astype(str).str.strip().ne('').sum())}")
         print(f"Precios completos  : {int(frame['price_current'].notna().sum())}")
         print(f"URLs completas     : {int(frame['url'].fillna('').astype(str).str.strip().ne('').sum())}")
