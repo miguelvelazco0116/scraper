@@ -285,6 +285,21 @@ Baseline corregida versionada:
 - se crea únicamente mediante scripts\create_phase2_corrected_baseline.ps1
 - el creador vuelve a validar las 10 categorías, SKU/precio/URL y los gates de nombre de Guadalajara antes de copiar el master
 
+Creación confirmada en entorno real el 2026-10-12:
+- filas: 3,018
+- categorías: 10
+- Farmacias Guadalajara: 870 productos
+- nombres inválidos Guadalajara: 0
+- baseline v2 creada correctamente
+- metadata v2 creada correctamente
+- baseline original conservada sin sobrescribir
+
+Referencia oficial corregida de Fase 2:
+- output\fase2_muestra_inicial_valida_v2_2026-10-12.xlsx
+
+Referencia histórica:
+- output\fase2_muestra_inicial_valida.xlsx
+
 ## Incidencia de calidad - Farmacias Guadalajara product
 
 Detectada el 2026-10-12:
