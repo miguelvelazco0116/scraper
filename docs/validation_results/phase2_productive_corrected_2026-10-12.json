@@ -1,0 +1,94 @@
+{
+  "phase": "Fase 2",
+  "status": "VALIDATED_PRODUCTIVE_CORRECTED",
+  "validated_at": "2026-10-12",
+  "source_run_log": "diagnostics/phase2_production/phase2_20261012_104807.log",
+  "output": "C:\\Proyectos\\scraper\\output\\concentrado_fase2.xlsx",
+  "original_baseline": "C:\\Proyectos\\scraper\\output\\fase2_muestra_inicial_valida.xlsx",
+  "corrected_baseline_target": "C:\\Proyectos\\scraper\\output\\fase2_muestra_inicial_valida_v2_2026-10-12.xlsx",
+  "totals": {
+    "categories_complete": 10,
+    "categories_total": 10,
+    "products": 3018,
+    "sku_complete": 3018,
+    "price_complete": 3018,
+    "url_complete": 3018
+  },
+  "farmacias_guadalajara": {
+    "products": 870,
+    "product_name_complete": 870,
+    "product_name_invalid": 0,
+    "categories": [
+      {
+        "category_id": "vias-respiratorias",
+        "target_products": 284,
+        "products": 284,
+        "coverage": 1,
+        "status": "COMPLETE"
+      },
+      {
+        "category_id": "lavanderia",
+        "target_products": 170,
+        "products": 170,
+        "coverage": 1,
+        "status": "COMPLETE"
+      },
+      {
+        "category_id": "cuidado-bucal",
+        "target_products": 358,
+        "products": 358,
+        "coverage": 1,
+        "status": "COMPLETE"
+      },
+      {
+        "category_id": "preservativos",
+        "target_products": 58,
+        "products": 58,
+        "coverage": 1,
+        "status": "COMPLETE"
+      }
+    ]
+  },
+  "soriana": {
+    "products": 2148,
+    "categories": [
+      {
+        "category_id": "cuidado-bucal",
+        "products": 348,
+        "total_pages": 15,
+        "status": "COMPLETE"
+      },
+      {
+        "category_id": "limpiadores",
+        "products": 1075,
+        "total_pages": 45,
+        "status": "COMPLETE"
+      },
+      {
+        "category_id": "detergentes",
+        "products": 197,
+        "total_pages": 9,
+        "status": "COMPLETE"
+      },
+      {
+        "category_id": "afeitado-depilacion-dama",
+        "products": 59,
+        "total_pages": 3,
+        "status": "COMPLETE"
+      },
+      {
+        "category_id": "desodorantes-para-caballero",
+        "products": 273,
+        "total_pages": 12,
+        "status": "COMPLETE"
+      },
+      {
+        "category_id": "desodorantes-para-dama",
+        "products": 196,
+        "total_pages": 9,
+        "status": "COMPLETE"
+      }
+    ]
+  },
+  "note": "Full Phase 2 rerun after Guadalajara product-name fix. Product names validated and original baseline preserved for traceability."
+}

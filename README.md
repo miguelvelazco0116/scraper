@@ -122,11 +122,32 @@ La primera corrida productiva de Fase 2 ya fue validada el **12 de octubre de 20
 - SKU, precio y URL completos en las 2,997 filas
 - Baseline inicial creada correctamente
 
-La baseline inmutable es:
+La baseline original se conserva por trazabilidad:
 
 ```text
 output\fase2_muestra_inicial_valida.xlsx
 output\fase2_muestra_inicial_valida.json
+```
+
+Después de corregir y revalidar el nombre de producto de Farmacias Guadalajara, la corrida completa del **12 de octubre de 2026** cerró con:
+
+- 10/10 categorías COMPLETE
+- Farmacias Guadalajara: 870 productos y `product_name_invalid = 0`
+- Soriana: 2,148 productos
+- Total Fase 2: **3,018 productos**
+- SKU, precio y URL completos en las 3,018 filas
+
+Para crear la baseline corregida versionada sin sobrescribir la original:
+
+```powershell
+& .\scripts\create_phase2_corrected_baseline.ps1
+```
+
+Esto genera:
+
+```text
+output\fase2_muestra_inicial_valida_v2_2026-10-12.xlsx
+output\fase2_muestra_inicial_valida_v2_2026-10-12.json
 ```
 
 El workbook productivo contiene `Concentrado`, `Resumen` y `Control`.
