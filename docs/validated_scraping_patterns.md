@@ -455,6 +455,33 @@ Estado:
 - validar primero `perfumeria-abarrotes` en HEADLESS + LOW-MEMORY
 - esperado: product_links 332/333 (~99.7%), parse_errors=0 y reinicios de sesión visibles
 
+## Incidencia Ibarra - OOM del driver Playwright por routing
+
+Diagnóstico confirmado el 2026-10-12:
+- log real: `Fatal process out of memory: Zone`
+- Playwright lanzó `MemoryError` dentro de `connection.dispatch`
+- el stack repetido termina en el callback LOW-MEMORY de Ibarra y `route.abort()`
+- después aparecen errores repetidos de event listener y finalmente `socket.send() raised exception`
+- por lo tanto el problema raíz no es una ficha específica ni sólo el BrowserContext: el proceso Node/V8 que usa Playwright agota memoria mientras mantiene routing interceptado
+
+Cambio:
+- eliminar completamente `context.route("**/*")` de Ibarra
+- no usar `route.abort()` ni `route.continue_()` para LOW-MEMORY
+- bloquear imágenes mediante Chrome: `--blink-settings=imagesEnabled=false`
+- desactivar fuentes remotas mediante Chrome: `--disable-remote-fonts`
+- conservar `--renderer-process-limit=2`
+- conservar reciclaje completo Chrome + BrowserContext cada 50 fichas
+- conservar recuperación de sesión cerrada y reintento de la misma ficha
+- conservar parser, precios, unidades, SKU, URLs, paginación y gate >= 90%
+
+Supersede:
+- el hardening previo del listener LOW-MEMORY queda retirado para Ibarra; aunque pasó una categoría corta, el log de categoría larga demuestra que el routing no es seguro en el Windows Server de 4 GB
+
+Estado:
+- PENDIENTE DE VALIDACIÓN LIVE
+- validar `perfumeria-abarrotes` en HEADLESS + LOW-MEMORY
+- esperado: sin `MemoryError: Route.abort`, sin `Fatal process out of memory: Zone`, cobertura ~332/333, parse_errors=0
+
 ## Regla de mantenimiento
 
 Cuando una corrección pase una prueba real:
