@@ -433,6 +433,28 @@ Se conserva como baseline operativa:
 Siguiente diagnóstico:
 - leer los `parse_errors` guardados en `diagnostics/ibarra_mayoreo_perfumeria-abarrotes.json` antes de aplicar otro cambio
 
+## Incidencia Ibarra - cierre de BrowserContext en categorías largas
+
+Diagnóstico confirmado el 2026-10-12:
+- `perfumeria-abarrotes` descubrió 332/333 links = 99.7% de cobertura
+- los errores posteriores fueron `TargetClosedError: BrowserContext.new_page: Target page, context or browser has been closed`
+- el problema está en la vida útil de la sesión Chrome/BrowserContext durante cientos de navegaciones, no en paginación, parser ni cobertura
+
+Hardening aplicado:
+- conservar la navegación validada `_goto()`
+- conservar el listener LOW-MEMORY fail-safe
+- conservar la regla de no recovery cuando cobertura inicial >= 90%
+- reiniciar navegador + BrowserContext antes de comenzar las fichas en LOW-MEMORY
+- reiniciar navegador + BrowserContext cada 50 fichas
+- si ocurre `TargetClosedError` entre checkpoints, recrear la sesión y reintentar esa misma ficha una vez
+- si el error no es de sesión cerrada, conservar el comportamiento de error existente
+- separar correctamente `discovery_coverage = product_links / target` de las filas de detalle procesadas
+
+Estado:
+- PENDIENTE DE VALIDACIÓN LIVE
+- validar primero `perfumeria-abarrotes` en HEADLESS + LOW-MEMORY
+- esperado: product_links 332/333 (~99.7%), parse_errors=0 y reinicios de sesión visibles
+
 ## Regla de mantenimiento
 
 Cuando una corrección pase una prueba real:
