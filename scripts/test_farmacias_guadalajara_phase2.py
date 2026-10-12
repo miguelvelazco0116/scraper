@@ -4,6 +4,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +26,61 @@ CATEGORY_ORDER = [
 OUTPUT = ROOT / "output" / "farmacias_guadalajara_phase2_test.xlsx"
 TEMP_DIR = ROOT / "output" / "_farmacias_guadalajara_phase2_raw_cdp"
 DIAG_DIR = ROOT / "diagnostics" / "phase2" / "farmacias_guadalajara_raw_cdp"
+
+
+
+def _run_category(
+    *,
+    category_id: str,
+    cdp_url: str,
+    category_output: Path,
+    meta_path: Path,
+    attempts: int = 2,
+) -> subprocess.CompletedProcess:
+    last: subprocess.CompletedProcess | None = None
+
+    for attempt in range(1, attempts + 1):
+        category_output.unlink(missing_ok=True)
+        meta_path.unlink(missing_ok=True)
+
+        if attempt > 1:
+            print(
+                f"RETRY {attempt}/{attempts}: {category_id} "
+                "usando el mismo método raw-CDP validado"
+            )
+            time.sleep(2.0)
+
+        cmd = [
+            sys.executable,
+            str(
+                ROOT
+                / "scripts"
+                / "scrape_farmacias_guadalajara_phase2_raw_cdp.py"
+            ),
+            "--category",
+            category_id,
+            "--ws-url",
+            cdp_url,
+            "--output",
+            str(category_output),
+        ]
+
+        last = subprocess.run(
+            cmd,
+            cwd=ROOT,
+            text=True,
+        )
+
+        if last.returncode == 0:
+            return last
+
+        print(
+            f"Intento {attempt}/{attempts} falló "
+            f"para {category_id}: return_code={last.returncode}"
+        )
+
+    assert last is not None
+    return last
 
 
 def main() -> int:
@@ -58,25 +114,16 @@ def main() -> int:
         print(f"[{index}/{len(categories)}] {category_id}")
 
         category_output = TEMP_DIR / f"{category_id}.xlsx"
+        meta_path = DIAG_DIR / f"{category_id}_meta.json"
 
-        cmd = [
-            sys.executable,
-            str(ROOT / "scripts" / "scrape_farmacias_guadalajara_phase2_raw_cdp.py"),
-            "--category",
-            category_id,
-            "--ws-url",
-            args.cdp_url,
-            "--output",
-            str(category_output),
-        ]
-
-        completed = subprocess.run(
-            cmd,
-            cwd=ROOT,
-            text=True,
+        completed = _run_category(
+            category_id=category_id,
+            cdp_url=args.cdp_url,
+            category_output=category_output,
+            meta_path=meta_path,
+            attempts=2,
         )
 
-        meta_path = DIAG_DIR / f"{category_id}_meta.json"
         meta = {}
         if meta_path.exists():
             try:
@@ -129,6 +176,7 @@ def main() -> int:
             frame["url"].fillna("").astype(str).str.strip().ne("").sum()
         ) if not frame.empty else 0
 
+        retry_attempts = 1 if completed.returncode == 0 else 2
         summary = {
             "retailer": "Farmacias Guadalajara",
             "category_id": category_id,
@@ -142,6 +190,7 @@ def main() -> int:
             "url_complete": url_complete,
             "expansion_rounds": len(meta.get("expansion_trace") or []),
             "return_code": completed.returncode,
+            "max_attempts": 2,
         }
         summaries.append(summary)
 
@@ -152,7 +201,10 @@ def main() -> int:
         )
 
         if completed.returncode != 0:
-            print("La prueba se detiene para no forzar la sesión.")
+            print(
+                "La prueba se detiene después del retry controlado "
+                "para no forzar la sesión."
+            )
             break
 
     concentrated = (
