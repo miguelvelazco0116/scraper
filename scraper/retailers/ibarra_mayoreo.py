@@ -121,6 +121,46 @@ class IbarraMayoreoScraper:
 
         context.route("**/*", handle)
 
+    def _open_browser_session(self, playwright, launch_kwargs):
+        browser = playwright.chromium.launch(**launch_kwargs)
+        context = browser.new_context(
+            locale="es-MX",
+            viewport={"width": 1440, "height": 1000},
+        )
+        if self.low_memory:
+            self._install_low_memory_routes(context)
+        page = context.new_page()
+        return browser, context, page
+
+    @staticmethod
+    def _close_browser_session(browser, context) -> None:
+        try:
+            context.close()
+        except Exception:
+            pass
+        try:
+            browser.close()
+        except Exception:
+            pass
+
+    @staticmethod
+    def _is_target_closed_error(exc: BaseException) -> bool:
+        current: BaseException | None = exc
+        seen: set[int] = set()
+        parts: list[str] = []
+
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            parts.append(f"{type(current).__name__}: {current}")
+            current = current.__cause__
+
+        blob = " | ".join(parts).casefold()
+        return (
+            "target page, context or browser has been closed" in blob
+            or "browsercontext.new_page: target page" in blob
+            or "targetclosederror" in blob
+        )
+
     @staticmethod
     def _page_url(base_url: str, page_number: int) -> str:
         parts = urlsplit(base_url)
@@ -201,6 +241,10 @@ class IbarraMayoreoScraper:
                 raise
             except PlaywrightError as exc:
                 last_error = exc
+                if self._is_target_closed_error(exc):
+                    raise IbarraMayoreoNetworkUnavailable(
+                        f"Sesión de navegador cerrada al cargar {url}: {exc}"
+                    ) from exc
                 if attempt < 4:
                     try:
                         page.wait_for_timeout(min(1_500 * attempt, 4_500))
@@ -739,18 +783,27 @@ class IbarraMayoreoScraper:
             if self.low_memory:
                 launch_kwargs["args"] = self._low_memory_browser_args()
 
-            browser = p.chromium.launch(**launch_kwargs)
-            context = browser.new_context(
-                locale="es-MX",
-                viewport={"width": 1440, "height": 1000},
+            browser, context, page = self._open_browser_session(
+                p,
+                launch_kwargs,
             )
-            if self.low_memory:
-                self._install_low_memory_routes(context)
-            page = context.new_page()
 
             try:
                 links, meta = self._discover_product_links(page, category)
                 self.last_meta.update(meta)
+
+                session_restarts = 0
+                if self.low_memory and links:
+                    self._close_browser_session(browser, context)
+                    browser, context, page = self._open_browser_session(
+                        p,
+                        launch_kwargs,
+                    )
+                    session_restarts += 1
+                    print(
+                        "Ibarra low-memory: navegador/contexto reiniciado "
+                        "antes de procesar fichas"
+                    )
 
                 rows: list[dict] = []
                 no_box: list[dict] = []
@@ -758,28 +811,75 @@ class IbarraMayoreoScraper:
                 now = datetime.now().astimezone().isoformat(timespec="seconds")
 
                 for index, item in enumerate(links, start=1):
+                    if (
+                        self.low_memory
+                        and index > 1
+                        and (index - 1) % self.page_recycle_interval == 0
+                    ):
+                        self._close_browser_session(browser, context)
+                        browser, context, page = self._open_browser_session(
+                            p,
+                            launch_kwargs,
+                        )
+                        session_restarts += 1
+                        print(
+                            "Ibarra low-memory: navegador/contexto reciclado "
+                            f"antes del producto {index}"
+                        )
+
                     href = clean_text(item.get("href"))
                     fallback_title = clean_text(item.get("title"))
                     if not href:
                         continue
 
-                    try:
-                        self._goto(page, href)
-                        body = self._body_text(page)
-                        detail = self._parse_box_detail(body, fallback_title)
-                    except (
-                        IbarraMayoreoBlocked,
-                        IbarraMayoreoNetworkUnavailable,
-                    ):
-                        raise
-                    except Exception as exc:
-                        parse_errors.append(
-                            {
-                                "url": href,
-                                "title": fallback_title,
-                                "error": f"{type(exc).__name__}: {exc}",
-                            }
-                        )
+                    detail = None
+                    for detail_attempt in range(1, 3):
+                        try:
+                            self._goto(page, href)
+                            body = self._body_text(page)
+                            detail = self._parse_box_detail(
+                                body,
+                                fallback_title,
+                            )
+                            break
+                        except IbarraMayoreoBlocked:
+                            raise
+                        except IbarraMayoreoNetworkUnavailable as exc:
+                            if (
+                                detail_attempt == 1
+                                and self._is_target_closed_error(exc)
+                            ):
+                                print(
+                                    f"Ibarra detail {index}/{len(links)}: "
+                                    "sesión cerrada; reiniciando navegador "
+                                    "y reintentando la misma ficha"
+                                )
+                                self._close_browser_session(
+                                    browser,
+                                    context,
+                                )
+                                browser, context, page = (
+                                    self._open_browser_session(
+                                        p,
+                                        launch_kwargs,
+                                    )
+                                )
+                                session_restarts += 1
+                                continue
+                            raise
+                        except Exception as exc:
+                            parse_errors.append(
+                                {
+                                    "url": href,
+                                    "title": fallback_title,
+                                    "error": (
+                                        f"{type(exc).__name__}: {exc}"
+                                    ),
+                                }
+                            )
+                            break
+
+                    if detail is None:
                         continue
 
                     print(
@@ -870,21 +970,6 @@ class IbarraMayoreoScraper:
                         }
                     )
 
-                    if (
-                        self.low_memory
-                        and index < len(links)
-                        and index % self.page_recycle_interval == 0
-                    ):
-                        try:
-                            page.close(run_before_unload=False)
-                        except Exception:
-                            pass
-                        page = context.new_page()
-                        print(
-                            f"Ibarra low-memory: renderer reciclado "
-                            f"despues de {index} productos"
-                        )
-
                 unique: dict[str, dict] = {}
                 for row in rows:
                     key = (
@@ -905,8 +990,11 @@ class IbarraMayoreoScraper:
                     self.last_meta.get("discovery_complete")
                 )
                 target_products = self.last_meta.get("target_products")
+                product_links = int(
+                    self.last_meta.get("product_links") or 0
+                )
                 discovery_coverage = (
-                    len(rows) / int(target_products)
+                    product_links / int(target_products)
                     if target_products not in (None, 0)
                     else None
                 )
@@ -948,6 +1036,7 @@ class IbarraMayoreoScraper:
                         "url_complete": sum(bool(x.get("url")) for x in rows),
                         "products_without_box_price": no_box,
                         "parse_errors": parse_errors,
+                        "browser_session_restarts": session_restarts,
                         "discovery_coverage": discovery_coverage,
                         "discovery_coverage_ok": discovery_coverage_ok,
                         "discovery_threshold": 0.90,
@@ -962,8 +1051,7 @@ class IbarraMayoreoScraper:
                 )
                 return rows
             finally:
-                context.close()
-                browser.close()
+                self._close_browser_session(browser, context)
 
 
 __all__ = [

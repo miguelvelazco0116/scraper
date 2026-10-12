@@ -92,8 +92,8 @@ def run_category(
         "product_links": links,
         "discovery_complete": discovery_complete,
         "discovery_coverage": (
-            len(df) / int(target)
-            if target not in (None, 0)
+            int(links) / int(target)
+            if target not in (None, 0) and links is not None
             else None
         ),
         "discovery_threshold": 0.90,
@@ -122,6 +122,9 @@ def run_category(
         ) if not df.empty else 0,
         "products_without_box_price": len(without_box),
         "parse_errors": len(parse_errors),
+        "browser_session_restarts": int(
+            meta.get("browser_session_restarts") or 0
+        ),
         "status": status,
         "error": error,
     }
@@ -146,6 +149,10 @@ def run_category(
     print(f"url_complete               : {summary['url_complete']}")
     print(f"products_without_box_price : {len(without_box)}")
     print(f"parse_errors               : {len(parse_errors)}")
+    print(
+        "browser_session_restarts    : "
+        f"{summary['browser_session_restarts']}"
+    )
     if error:
         print(f"error                      : {error}")
 
@@ -186,7 +193,7 @@ def main() -> int:
     parser.add_argument(
         "--low-memory",
         action="store_true",
-        help="Bloquea recursos pesados y recicla renderer.",
+        help="Bloquea recursos pesados y recicla navegador/contexto.",
     )
     args = parser.parse_args()
 
@@ -283,6 +290,7 @@ def main() -> int:
                     "unit_price_complete",
                     "products_without_box_price",
                     "parse_errors",
+                    "browser_session_restarts",
                 ]
             ].to_string(index=False)
         )
