@@ -1,5 +1,7 @@
 # Patrones de scraping validados
 
+Registro autoritativo de estado por fase: `docs/phase_status.json`.
+
 Este archivo registra los enfoques que ya fueron probados con éxito en el entorno productivo del proyecto. Antes de modificar un retailer, revisar primero este registro y reutilizar el último patrón validado. Un método sólo pasa a VALIDADO después de una prueba real reportada como exitosa.
 
 ## Entorno de referencia
@@ -182,6 +184,43 @@ Fase 3 acordada:
 - ya integrada técnicamente al consolidator mediante `-Phase 3`
 - permanece PENDIENTE DE VALIDACIÓN LIVE antes de incorporarla al master oficial
 
+## Incidencia Bodega Aurrera - usar fuentes /browse directas
+
+Detectada el 2026-10-12 durante la validación de Fase 3.
+
+Problema:
+- las páginas padre configuradas podían mostrar únicamente el banner de categoría
+- no garantizaban acceso directo al grid de productos
+
+Fuentes directas confirmadas manualmente:
+- cuidado-bucal / pasta dental:
+  `https://www.bodegaaurrera.com.mx/browse/cuidado-personal/cuidado-bucal/pasta-dental/264479_950014_950022`
+- cuidado-bucal / enjuagues bucales:
+  `https://www.bodegaaurrera.com.mx/browse/cuidado-personal/cuidado-bucal/enjuagues-bucales/264479_950014_950025`
+- cuidado-de-la-ropa / detergente en polvo:
+  `https://www.bodegaaurrera.com.mx/browse/cuidado-de-la-ropa/detergente/detergente-en-polvo/3680083_3570057_3570059`
+- cuidado-de-la-ropa / detergente líquido:
+  `https://www.bodegaaurrera.com.mx/browse/cuidado-de-la-ropa/detergente/detergente-liquido/3680083_3570057_3570058`
+
+Patrón candidato:
+- mantener 2 categorías de negocio en el concentrado
+- cada categoría puede declarar varias `source_urls`
+- cuando existen `source_urls`, NO descubrir subcategorías desde el banner padre
+- navegar directamente todas las fuentes configuradas
+- descubrir y recorrer recursivamente todas las páginas publicadas de cada fuente
+- navegación estrictamente secuencial
+- pausa de 2.5 segundos entre páginas y 4 segundos entre categorías
+- máximo de seguridad 100 páginas por fuente/categoría; llegar al límite sin demostrar cobertura impide validar
+
+Gate de cobertura Fase 3:
+- si el sitio publica un target confiable: cobertura >= 90% es aceptable
+- si no publica target: se exige `pagination_verified=True`
+- SKU/precio/URL de las filas extraídas siguen exigiéndose al 100%
+- Walmart además exige contexto de tienda al 100%
+
+Estado:
+- PENDIENTE DE VALIDACIÓN LIVE
+
 ## Fase 3 - Bodega Aurrera + Walmart
 
 Estado: EN VALIDACIÓN LIVE
@@ -208,18 +247,21 @@ Runner:
 Validaciones Bodega Aurrera:
 - status SUCCESS en las 2 categorías
 - productos > 0
-- SKU completo
-- precio completo
-- URL completa
-- todas las fuentes descubiertas visitadas
-- pagination_verified=True
+- si hay target: coverage >= 90%
+- si no hay target: pagination_verified=True
+- SKU completo en todas las filas extraídas
+- precio completo en todas las filas extraídas
+- URL completa en todas las filas extraídas
+- todas las fuentes directas configuradas visitadas
 - price_validation_errors=0
 - blocked_detected=False
 
 Validaciones Walmart:
 - 3/3 categorías COMPLETE
 - productos > 0
-- SKU/precio/URL completos
+- si hay target: coverage >= 90%
+- si no hay target: pagination_verified=True
+- SKU/precio/URL completos en todas las filas extraídas
 - store_context_complete=products
 - store_context_verified=True
 - tienda: SC Toreo
