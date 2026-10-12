@@ -16,7 +16,7 @@ from ..config import Category, Location
 from ..parsers import clean_text, extract_sku
 
 
-BASE_URL = "https://despensa.bodegaaurrera.com.mx/"
+BASE_URL = "https://www.bodegaaurrera.com.mx/"
 DIAGNOSTICS = Path("diagnostics")
 
 BLOCK_MARKERS = (
@@ -438,7 +438,7 @@ class BodegaAurreraScraper:
                     "store_context_method": (
                         "bodega_public_catalog_no_store_context"
                     ),
-                    "url": urljoin(BASE_URL, href),
+                    "url": urljoin(page.url, href),
                     "price_raw": text,
                 }
             )
@@ -749,16 +749,28 @@ class BodegaAurreraScraper:
             "browser_session_method": "existing_chrome_cdp",
         }
 
-        # Open the configured category first so we can discover content
-        # subsections instead of inventing ?page=N URLs.
-        self._goto(page, category.url)
-        child_urls = self._content_child_urls(page, category)
-        sources = [category.url] + [
-            url for url in child_urls if url != category.url
+        explicit_sources = [
+            str(url).strip()
+            for url in getattr(category, "source_urls", ())
+            if str(url).strip()
         ]
 
-        self.run_meta["content_child_urls"] = child_urls
+        if explicit_sources:
+            sources = list(dict.fromkeys(explicit_sources))
+            self.run_meta["source_strategy"] = "configured_direct_browse_urls"
+            self.run_meta["content_child_urls"] = []
+        else:
+            # Fallback retained for categories that still use a parent page.
+            self._goto(page, category.url)
+            child_urls = self._content_child_urls(page, category)
+            sources = [category.url] + [
+                url for url in child_urls if url != category.url
+            ]
+            self.run_meta["source_strategy"] = "parent_discovery"
+            self.run_meta["content_child_urls"] = child_urls
+
         self.run_meta["sources_discovered"] = len(sources)
+        self.run_meta["configured_source_urls"] = sources
 
         rows: list[dict] = []
         seen_skus: set[str] = set()
