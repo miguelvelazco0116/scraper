@@ -84,8 +84,10 @@ def _validate_bodega(
         if not values.eq(products).all():
             notes.append(f"Bodega {metric} incompleto")
 
-    if not summary["pagination_verified"].map(bool).all():
-        notes.append("Bodega pagination_verified=False")
+    if "catalogue_gate_ok" not in summary.columns:
+        notes.append("Bodega sin catalogue_gate_ok")
+    elif not summary["catalogue_gate_ok"].map(bool).all():
+        notes.append("Bodega cobertura/paginación por debajo del gate")
 
     discovered = pd.to_numeric(
         summary["sources_discovered"], errors="coerce"
@@ -148,6 +150,11 @@ def _validate_walmart(
 
     if not summary["store_context_verified"].map(bool).all():
         notes.append("Walmart store_context_verified=False")
+
+    if "catalogue_gate_ok" not in summary.columns:
+        notes.append("Walmart sin catalogue_gate_ok")
+    elif not summary["catalogue_gate_ok"].map(bool).all():
+        notes.append("Walmart cobertura/paginación por debajo del gate")
 
     price_errors = pd.to_numeric(
         summary["price_order_errors"], errors="coerce"

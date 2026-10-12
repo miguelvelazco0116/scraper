@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-10-12",
+  "operating_rule": "A validated phase remains validated and must not be reworked unless a new concrete failure proves necessary. A pending phase is added only after a successful live Windows Server run.",
+  "phases": {
+    "1": {
+      "name": "Fase 1",
+      "status": "VALIDATED",
+      "validated_at": "2026-10-12T14:48:58",
+      "products": 1498,
+      "categories": 10,
+      "retailers": [
+        "Farmacias del Ahorro",
+        "Ibarra Mayoreo",
+        "Chedraui"
+      ],
+      "evidence": "docs/validation_results/phase1_productive_valid_2026-10-12_144858.json",
+      "source_workbook": "output/concentrado_productivo.xlsx",
+      "integration_command": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 1"
+    },
+    "2": {
+      "name": "Fase 2",
+      "status": "VALIDATED",
+      "validated_at": "2026-10-12T16:52:07",
+      "products": 3018,
+      "categories": 10,
+      "retailers": [
+        "Farmacias Guadalajara",
+        "Soriana"
+      ],
+      "evidence": "docs/validation_results/phase2_productive_valid_2026-10-12_165207.json",
+      "source_workbook": "output/concentrado_fase2.xlsx",
+      "integration_command": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 2"
+    },
+    "3": {
+      "name": "Fase 3",
+      "status": "PENDING_LIVE_VALIDATION",
+      "categories": 5,
+      "retailers": [
+        "Bodega Aurrera",
+        "Walmart"
+      ],
+      "source_workbook": "output/concentrado_fase3.xlsx",
+      "integration_command": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 3",
+      "validation_rules": {
+        "coverage_threshold_when_target_available": 0.9,
+        "extracted_row_sku_completeness": 1,
+        "extracted_row_price_completeness": 1,
+        "extracted_row_url_completeness": 1,
+        "walmart_store_context_completeness": 1
+      },
+      "note": "Do not integrate or mark VALIDATED until a complete live Phase 3 run passes."
+    }
+  }
+}

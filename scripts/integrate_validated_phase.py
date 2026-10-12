@@ -181,6 +181,7 @@ def _validate_phase(
                 "store_context_verified",
                 "price_order_errors",
                 "duplicates_sku_url",
+                "catalogue_gate_ok",
             }
             if not required.issubset(walmart.columns):
                 notes.append("Faltan gates Walmart en Fase 3")
@@ -216,6 +217,10 @@ def _validate_phase(
                     notes.append(
                         "Walmart duplicates_sku_url > 0"
                     )
+                if not walmart["catalogue_gate_ok"].map(bool).all():
+                    notes.append(
+                        "Walmart coverage/pagination gate incompleto"
+                    )
 
         if len(bodega) != 2:
             notes.append(f"Bodega Aurrera categorías={len(bodega)}/2")
@@ -233,6 +238,14 @@ def _validate_phase(
                     notes.append(
                         "Bodega Aurrera price_validation_errors > 0"
                     )
+            if "catalogue_gate_ok" not in bodega.columns:
+                notes.append(
+                    "Falta catalogue_gate_ok de Bodega Aurrera"
+                )
+            elif not bodega["catalogue_gate_ok"].map(bool).all():
+                notes.append(
+                    "Bodega Aurrera coverage/pagination gate incompleto"
+                )
 
     return notes
 
@@ -440,8 +453,20 @@ def main() -> int:
             for x in completed_raw.split("|")
             if x.strip().isdigit()
         ]
-        if 1 not in completed:
-            print("ERROR: el concentrado no contiene una Fase 1 validada.")
+        required_previous = list(range(1, phase))
+        missing_previous = [
+            item
+            for item in required_previous
+            if item not in completed
+        ]
+        if missing_previous:
+            missing_text = ", ".join(
+                f"Fase {item}" for item in missing_previous
+            )
+            print(
+                "ERROR: faltan fases previas validadas en el concentrado: "
+                f"{missing_text}."
+            )
             return 2
 
         phase_retailers = cfg["retailers"]

@@ -1,5 +1,7 @@
 # Patrones de scraping validados
 
+Registro autoritativo de estado por fase: `docs/phase_status.json`.
+
 Este archivo registra los enfoques que ya fueron probados con éxito en el entorno productivo del proyecto. Antes de modificar un retailer, revisar primero este registro y reutilizar el último patrón validado. Un método sólo pasa a VALIDADO después de una prueba real reportada como exitosa.
 
 ## Entorno de referencia
@@ -41,10 +43,11 @@ Estado: VALIDADO
 Método:
 - Playwright headless
 - low-memory
-- bloqueo de image/media/font
-- reciclaje del renderer durante recorridos largos
+- NO usar `context.route()` para bloquear recursos en Ibarra
+- bloqueo de imágenes/fuentes mediante flags de Chrome
+- reciclaje completo de navegador + BrowserContext durante recorridos largos
 - reintentos de navegación
-- segunda pasada de descubrimiento cuando falta catálogo
+- recovery de descubrimiento sólo cuando cobertura inicial <90%
 
 Reglas:
 - cobertura mínima aceptable por categoría: 90%
@@ -81,9 +84,9 @@ Método:
 - reintentos estructurados
 - store context verificado
 
-Resultado productivo de referencia:
-- higiene-bucal: 304/304
-- lavanderia: 363/363
+Resultado productivo de referencia más reciente:
+- higiene-bucal: 299/299
+- lavanderia: 339/339
 
 Reglas:
 - target completo
@@ -163,14 +166,17 @@ Master incremental fechado:
 Checkpoints inmutables:
 - `output\checkpoints_validos\checkpoint_fase1_YYYYMMDD_HHMMSS.xlsx`
 - `output\checkpoints_validos\checkpoint_fase2_YYYYMMDD_HHMMSS.xlsx`
+- `output\checkpoints_validos\checkpoint_fase3_YYYYMMDD_HHMMSS.xlsx`
 
 Comandos:
 - integrar Fase 1: `& .\scripts\integrate_validated_phase.ps1 -Phase 1`
 - integrar Fase 2: `& .\scripts\integrate_validated_phase.ps1 -Phase 2`
+- integrar Fase 3: `& .\scripts\integrate_validated_phase.ps1 -Phase 3`
 
 Reglas:
 - Fase 1 inicia/reinicia el master de la nueva corrida
 - Fase 2 exige que Fase 1 ya esté integrada
+- Fase 3 exige que Fase 1 y Fase 2 ya estén integradas
 - reejecutar una fase reemplaza su propia partición; no duplica retailers
 - cada integración valida nuevamente el workbook de la fase antes de publicarlo
 - el master usa `CHECKPOINT_VALIDATED` mientras se construye por fases
@@ -181,6 +187,43 @@ Fase 3 acordada:
 - Walmart
 - ya integrada técnicamente al consolidator mediante `-Phase 3`
 - permanece PENDIENTE DE VALIDACIÓN LIVE antes de incorporarla al master oficial
+
+## Incidencia Bodega Aurrera - usar fuentes /browse directas
+
+Detectada el 2026-10-12 durante la validación de Fase 3.
+
+Problema:
+- las páginas padre configuradas podían mostrar únicamente el banner de categoría
+- no garantizaban acceso directo al grid de productos
+
+Fuentes directas confirmadas manualmente:
+- cuidado-bucal / pasta dental:
+  `https://www.bodegaaurrera.com.mx/browse/cuidado-personal/cuidado-bucal/pasta-dental/264479_950014_950022`
+- cuidado-bucal / enjuagues bucales:
+  `https://www.bodegaaurrera.com.mx/browse/cuidado-personal/cuidado-bucal/enjuagues-bucales/264479_950014_950025`
+- cuidado-de-la-ropa / detergente en polvo:
+  `https://www.bodegaaurrera.com.mx/browse/cuidado-de-la-ropa/detergente/detergente-en-polvo/3680083_3570057_3570059`
+- cuidado-de-la-ropa / detergente líquido:
+  `https://www.bodegaaurrera.com.mx/browse/cuidado-de-la-ropa/detergente/detergente-liquido/3680083_3570057_3570058`
+
+Patrón candidato:
+- mantener 2 categorías de negocio en el concentrado
+- cada categoría puede declarar varias `source_urls`
+- cuando existen `source_urls`, NO descubrir subcategorías desde el banner padre
+- navegar directamente todas las fuentes configuradas
+- descubrir y recorrer recursivamente todas las páginas publicadas de cada fuente
+- navegación estrictamente secuencial
+- pausa de 2.5 segundos entre páginas y 4 segundos entre categorías
+- máximo de seguridad 100 páginas por fuente/categoría; llegar al límite sin demostrar cobertura impide validar
+
+Gate de cobertura Fase 3:
+- si el sitio publica un target confiable: cobertura >= 90% es aceptable
+- si no publica target: se exige `pagination_verified=True`
+- SKU/precio/URL de las filas extraídas siguen exigiéndose al 100%
+- Walmart además exige contexto de tienda al 100%
+
+Estado:
+- PENDIENTE DE VALIDACIÓN LIVE
 
 ## Fase 3 - Bodega Aurrera + Walmart
 
@@ -208,18 +251,21 @@ Runner:
 Validaciones Bodega Aurrera:
 - status SUCCESS en las 2 categorías
 - productos > 0
-- SKU completo
-- precio completo
-- URL completa
-- todas las fuentes descubiertas visitadas
-- pagination_verified=True
+- si hay target: coverage >= 90%
+- si no hay target: pagination_verified=True
+- SKU completo en todas las filas extraídas
+- precio completo en todas las filas extraídas
+- URL completa en todas las filas extraídas
+- todas las fuentes directas configuradas visitadas
 - price_validation_errors=0
 - blocked_detected=False
 
 Validaciones Walmart:
 - 3/3 categorías COMPLETE
 - productos > 0
-- SKU/precio/URL completos
+- si hay target: coverage >= 90%
+- si no hay target: pagination_verified=True
+- SKU/precio/URL completos en todas las filas extraídas
 - store_context_complete=products
 - store_context_verified=True
 - tienda: SC Toreo

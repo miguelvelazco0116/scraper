@@ -15,6 +15,7 @@ class Category:
     department: str | None = None
     subcategory: str | None = None
     sub_subcategory: str | None = None
+    source_urls: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,11 @@ def load_categories(path: str | Path = "config/soriana/categories.yaml") -> list
             department=x.get("department"),
             subcategory=x.get("subcategory"),
             sub_subcategory=x.get("sub_subcategory"),
+            source_urls=tuple(
+                str(value)
+                for value in (x.get("source_urls") or [])
+                if value
+            ),
         )
         for x in data.get("categories", [])
         if x.get("enabled", True)
