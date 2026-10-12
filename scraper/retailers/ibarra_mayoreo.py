@@ -479,11 +479,20 @@ class IbarraMayoreoScraper:
                 break
 
         recovery_pages: list[dict] = []
-        if (
+        pre_recovery_coverage = (
+            len(products) / int(target)
+            if target not in (None, 0)
+            else None
+        )
+        recovery_required = bool(
             target is not None
             and len(products) < target
+            and pre_recovery_coverage is not None
+            and pre_recovery_coverage < 0.90
             and (last_page is not None or pages)
-        ):
+        )
+
+        if recovery_required:
             recovery_last_page = (
                 int(last_page)
                 if last_page is not None
@@ -560,6 +569,18 @@ class IbarraMayoreoScraper:
             ),
             "pages": pages,
             "recovery_pages": recovery_pages,
+            "pre_recovery_coverage": pre_recovery_coverage,
+            "recovery_required": recovery_required,
+            "recovery_skipped_reason": (
+                "coverage_at_or_above_90pct"
+                if (
+                    target not in (None, 0)
+                    and len(products) < int(target)
+                    and pre_recovery_coverage is not None
+                    and pre_recovery_coverage >= 0.90
+                )
+                else None
+            ),
             "recovery_attempted": bool(recovery_pages),
             "recovery_recovered": (
                 max(len(products) - (pages[-1]["cumulative_links"] if pages else 0), 0)
@@ -883,10 +904,24 @@ class IbarraMayoreoScraper:
                 discovery_complete = bool(
                     self.last_meta.get("discovery_complete")
                 )
+                target_products = self.last_meta.get("target_products")
+                discovery_coverage = (
+                    len(rows) / int(target_products)
+                    if target_products not in (None, 0)
+                    else None
+                )
+                discovery_coverage_ok = bool(
+                    discovery_complete
+                    or (
+                        discovery_coverage is not None
+                        and discovery_coverage >= 0.90
+                    )
+                )
+
                 status = "SUCCESS" if rows else "EMPTY"
                 if parse_errors:
                     status = "PARTIAL"
-                elif not discovery_complete:
+                elif not discovery_coverage_ok:
                     status = "PARTIAL"
 
                 self.last_meta.update(
@@ -913,6 +948,9 @@ class IbarraMayoreoScraper:
                         "url_complete": sum(bool(x.get("url")) for x in rows),
                         "products_without_box_price": no_box,
                         "parse_errors": parse_errors,
+                        "discovery_coverage": discovery_coverage,
+                        "discovery_coverage_ok": discovery_coverage_ok,
+                        "discovery_threshold": 0.90,
                         "status": status,
                     }
                 )
