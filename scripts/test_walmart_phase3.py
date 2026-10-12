@@ -54,6 +54,7 @@ def run_category(
     scraper = WalmartScraper(
         headless=False,
         max_pages=max_pages,
+        wait_ms=2500,
         manual_verification_timeout_ms=180_000,
     )
     session_method = "existing_chrome_cdp"
@@ -127,6 +128,19 @@ def run_category(
     meta = scraper.run_meta or {}
     pages_visited = len(meta.get("pages") or [])
     store_context_meta = bool(meta.get("store_context_verified"))
+    target_products = meta.get("target_products")
+    coverage = meta.get("coverage")
+    coverage_ok = bool(
+        coverage is not None and float(coverage) >= 0.90
+    )
+    pagination_verified = bool(meta.get("pagination_verified"))
+    catalogue_gate_ok = bool(
+        coverage_ok
+        or (
+            target_products in (None, 0)
+            and pagination_verified
+        )
+    )
 
     notes = []
     if source_status != "SUCCESS":
@@ -149,6 +163,13 @@ def run_category(
         notes.append(f"duplicados={duplicate_rows}")
     if pages_visited <= 0:
         notes.append("sin páginas visitadas")
+    if not catalogue_gate_ok:
+        if target_products not in (None, 0):
+            notes.append(
+                f"cobertura {coverage if coverage is not None else 0:.1%} < 90%"
+            )
+        else:
+            notes.append("paginación no verificada")
 
     status = "COMPLETE" if not notes else "PARTIAL"
 
@@ -160,7 +181,12 @@ def run_category(
         "category_id": category.id,
         "status": status,
         "source_status": source_status,
+        "target_products": target_products,
         "products": products,
+        "coverage": coverage,
+        "coverage_threshold": 0.90,
+        "coverage_ok": coverage_ok,
+        "catalogue_gate_ok": catalogue_gate_ok,
         "sku_complete": sku_complete,
         "price_complete": price_complete,
         "url_complete": url_complete,
@@ -168,6 +194,9 @@ def run_category(
         "store_context_verified": store_context_meta,
         "store_context_method": meta.get("store_context_method"),
         "pages_visited": pages_visited,
+        "pagination_verified": pagination_verified,
+        "pagination_stop_reason": meta.get("pagination_stop_reason"),
+        "total_pages_hint": meta.get("total_pages_hint"),
         "price_order_errors": price_order_errors,
         "duplicates_sku_url": duplicate_rows,
         "manual_verification_required": bool(
@@ -185,7 +214,12 @@ def run_category(
     for key in (
         "status",
         "source_status",
+        "target_products",
         "products",
+        "coverage",
+        "coverage_threshold",
+        "coverage_ok",
+        "catalogue_gate_ok",
         "sku_complete",
         "price_complete",
         "url_complete",
@@ -193,6 +227,8 @@ def run_category(
         "store_context_verified",
         "store_context_method",
         "pages_visited",
+        "pagination_verified",
+        "pagination_stop_reason",
         "price_order_errors",
         "duplicates_sku_url",
     ):
@@ -278,6 +314,12 @@ def main() -> int:
                 }
             )
 
+            print(
+                "Pausa Walmart entre categorías: 4 segundos.",
+                flush=True,
+            )
+            page.wait_for_timeout(4_000)
+
         # No browser.close(): la sesión pertenece al usuario.
 
     concentrated = (
@@ -338,7 +380,10 @@ def main() -> int:
             [
                 "category_id",
                 "status",
+                "target_products",
                 "products",
+                "coverage",
+                "coverage_threshold",
                 "sku_complete",
                 "price_complete",
                 "url_complete",
