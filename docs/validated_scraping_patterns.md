@@ -174,9 +174,9 @@ Regla:
 
 ### Soriana
 
-Estado: VALIDACIÓN PARCIAL
+Estado: VALIDADO / PRODUCTIVO
 
-Patrón validado para cuidado-bucal:
+Patrón oficial:
 - Chrome abierto manualmente por el usuario
 - remote debugging habilitado
 - conexión a la sesión existente
@@ -185,19 +185,21 @@ Patrón validado para cuidado-bucal:
 - navegación y paginación sobre la misma sesión
 
 Comando validado:
-- & .\scripts\test_soriana_manual_phase2.ps1 -Category cuidado-bucal
+- & .\scripts\test_soriana_manual_phase2.ps1
 
-Validación real reportada el 2026-10-12:
-- categoría: cuidado-bucal
-- productos extraídos: 348
-- páginas recorridas: 15
-- target publicado: no disponible
-- SKU completos: 348/348
-- precios completos: 348/348
-- URLs completas: 348/348
-- resultado: COMPLETE
+Validación completa reportada el 2026-10-12:
+- cuidado-bucal: 348 productos, 15 páginas, SKU/precio/URL 348/348
+- limpiadores: 1,075 productos, 45 páginas, SKU/precio/URL 1,075/1,075
+- detergentes: 197 productos, 9 páginas, SKU/precio/URL 197/197
+- afeitado-depilacion-dama: 59 productos, 3 páginas, SKU/precio/URL 59/59
+- desodorantes-para-caballero: 273 productos, 12 páginas, SKU/precio/URL 273/273
+- desodorantes-para-dama: 196 productos, 9 páginas, SKU/precio/URL 196/196
+- total: 2,148 productos
+- total páginas detectadas: 93
+- 6/6 categorías: COMPLETE
+- target publicado: no disponible en estas categorías
 
-Criterio mientras target_products no esté disponible:
+Criterio oficial mientras target_products no esté disponible:
 - recorrer toda la paginación detectada
 - productos > 0
 - SKU completo en todas las filas extraídas
@@ -205,8 +207,8 @@ Criterio mientras target_products no esté disponible:
 - URL completa
 
 Regla:
-- no cambiar este patrón para cuidado-bucal mientras continúe funcionando.
-- el retailer completo pasa a VALIDADO sólo después de que todas las categorías activas pasen sus pruebas reales.
+- no cambiar este patrón mientras continúe funcionando.
+- cualquier alternativa debe probarse de forma aislada antes de sustituir el método validado.
 
 ## Regla de mantenimiento
 
