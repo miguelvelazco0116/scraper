@@ -1,6 +1,6 @@
 # Scraper
 
-> **Registro de métodos validados:** antes de cambiar la estrategia de un retailer, revisar `docs/validated_scraping_patterns.md`. Los métodos sólo se marcan como VALIDADO después de una prueba real exitosa. multi-retailer
+> **Registro de métodos validados:** antes de cambiar la estrategia de un retailer, revisar `docs/validated_scraping_patterns.md`. El estado autoritativo de cada fase vive en `docs/phase_status.json`. Los métodos sólo se marcan como VALIDADO después de una prueba real exitosa. multi-retailer
 
 Proyecto modular para extraer catálogos públicos, precios y promociones de retailers en México y concentrar los resultados en un único Excel.
 
@@ -27,7 +27,7 @@ No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadi
 | Walmart | 3 | Pendiente de validación Fase 3 | — | — | En validación / Fase 3 |
 | Farmacias Guadalajara | 4 | 870 | 100% | 100% | Validado / Fase 2 |
 
-Las Fases 1 y 2 actualmente cubren **5 retailers y 20 categorías**. La primera corrida integral todavía debe validarse live antes de fijar su baseline global.
+Las Fases 1 y 2 actualmente cubren **5 retailers y 20 categorías** y quedan preservadas como éxitos validados en `docs/phase_status.json`. Fase 3 sólo se añadirá a ese registro y al concentrado cuando pase una corrida live completa.
 
 ## Retailers activos
 
@@ -120,6 +120,8 @@ Bodega Aurrera se conecta por CDP
 ```
 
 Bodega Aurrera y Walmart reutilizan el mismo Chrome abierto manualmente mediante remote debugging. Deben quedar abiertas una pestaña de Bodega Aurrera y otra de Walmart. En Walmart debe estar seleccionado SC Toreo, tienda 2344, CP 11220. El runner no abre ni cierra Chrome y no resuelve verificaciones de identidad.
+
+Bodega Aurrera usa las rutas `/browse/` directas de Pasta Dental, Enjuagues Bucales, Detergente en Polvo y Detergente Líquido. Tanto Bodega como Walmart recorren la paginación secuencialmente, con pausas de 2.5 s entre páginas y 4 s entre categorías. Si el sitio publica un target confiable, una cobertura de **>=90%** es válida; sin target se exige demostrar fin de paginación. La completitud de SKU/precio/URL de las filas extraídas sigue siendo 100%.
 
 Cuando Fase 3 pase sus gates:
 
