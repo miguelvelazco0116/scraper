@@ -1,0 +1,76 @@
+{
+  "retailer": "Farmacias Guadalajara",
+  "phase": "Fase 2",
+  "status": "VALIDATED_PRODUCTIVE",
+  "validated_at": "2026-10-12",
+  "implementation_commit": "52ebb6f921480da0aff0091fa610605ff7edd741",
+  "method": "manual_existing_chrome_raw_cdp_websocket",
+  "quality_gate": {
+    "minimum_coverage": 0.9,
+    "require_sku_complete": true,
+    "require_price_complete": true,
+    "require_url_complete": true
+  },
+  "categories": [
+    {
+      "category_id": "vias-respiratorias",
+      "target_products": 284,
+      "product_links": 284,
+      "products": 284,
+      "coverage": 1,
+      "sku_complete": 284,
+      "price_complete": 284,
+      "url_complete": 284,
+      "expansion_rounds": 14,
+      "return_code": 0,
+      "status": "SUCCESS"
+    },
+    {
+      "category_id": "lavanderia",
+      "target_products": 170,
+      "product_links": 170,
+      "products": 170,
+      "coverage": 1,
+      "sku_complete": 170,
+      "price_complete": 170,
+      "url_complete": 170,
+      "expansion_rounds": 8,
+      "return_code": 0,
+      "status": "SUCCESS"
+    },
+    {
+      "category_id": "cuidado-bucal",
+      "target_products": 358,
+      "product_links": 358,
+      "products": 358,
+      "coverage": 1,
+      "sku_complete": 358,
+      "price_complete": 358,
+      "url_complete": 358,
+      "expansion_rounds": 17,
+      "return_code": 0,
+      "status": "SUCCESS"
+    },
+    {
+      "category_id": "preservativos",
+      "target_products": 58,
+      "product_links": 58,
+      "products": 58,
+      "coverage": 1,
+      "sku_complete": 58,
+      "price_complete": 58,
+      "url_complete": 58,
+      "expansion_rounds": 2,
+      "return_code": 0,
+      "status": "SUCCESS"
+    }
+  ],
+  "totals": {
+    "target_products": 870,
+    "products": 870,
+    "coverage": 1,
+    "categories_success": 4,
+    "categories_total": 4
+  },
+  "output": "C:\\Proyectos\\scraper\\output\\farmacias_guadalajara_phase2_test.xlsx"
+}
