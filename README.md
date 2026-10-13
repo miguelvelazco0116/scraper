@@ -89,6 +89,70 @@ output\checkpoints_validos\
 
 La Fase 1 inicia una nueva construcción del master. La Fase 2 sólo se incorpora cuando el master ya contiene Fase 1 válida. La Fase 3 sólo se incorpora cuando Fase 1 y Fase 2 ya están validadas en ese master. Una fase reejecutada reemplaza su propia partición y no duplica filas.
 
+## Consolidación incremental por componentes validados
+
+Para Fase 3 se evita volver a scrapear categorías que ya pasaron validación.
+
+Flujo:
+
+```text
+test de categoría
+→ revisar resultado live
+→ promover categoría aprobada
+→ componente congelado en output\validated_phase3_components
+→ repetir sólo categorías pendientes
+→ construir concentrado_fase3.xlsx desde 5 componentes
+→ integrar -Phase 3 al master fechado
+```
+
+Promover una categoría ya aprobada:
+
+```powershell
+& .\scripts\promote_phase3_component.ps1 `
+    -Source ".\output\bodega_aurrera_test.xlsx" `
+    -Retailer "Bodega Aurrera" `
+    -CategoryId "cuidado-de-la-ropa"
+```
+
+Los componentes estables quedan en:
+
+```text
+output\validated_phase3_components\
+```
+
+y cada promoción genera además un checkpoint inmutable en:
+
+```text
+output\checkpoints_validos\phase3_components\
+```
+
+Cuando existan los 5 componentes esperados:
+
+```powershell
+& .\scripts\build_phase3_from_validated_components.ps1
+```
+
+Este comando NO navega retailers ni vuelve a scrapear. Sólo construye:
+
+```text
+output\concentrado_fase3.xlsx
+```
+
+con:
+- Bodega Aurrera / cuidado-bucal
+- Bodega Aurrera / cuidado-de-la-ropa
+- Walmart / cuidado-bucal
+- Walmart / cuidado-de-la-ropa
+- Walmart / depilacion-y-rasurado
+
+Después se integra al master activo:
+
+```powershell
+& .\scripts\integrate_validated_phase.ps1 -Phase 3
+```
+
+El integrador exige que Fase 1 y Fase 2 ya estén en el master y reemplaza únicamente la partición de Fase 3, sin modificar las fases anteriores.
+
 ## Fase 3 — Bodega Aurrera + Walmart
 
 Estado: **EN VALIDACIÓN LIVE**
