@@ -2,7 +2,9 @@ param(
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = "",
     [string]$CdpUrl = "",
-    [string]$Category = ""
+    [string]$Category = "",
+    [ValidateRange(0, 5)]
+    [int]$RetryFailedAtEnd = 1
 )
 
 $ErrorActionPreference = "Stop"
@@ -51,7 +53,11 @@ Write-Host "Chrome: SESION EXISTENTE"
 Write-Host "CDP   : $CdpUrl"
 Write-Host ""
 
-$ArgsList = @(".\scripts\test_walmart_phase3.py", "--cdp-url", $CdpUrl)
+$ArgsList = @(
+    ".\scripts\test_walmart_phase3.py",
+    "--cdp-url", $CdpUrl,
+    "--retry-failed-at-end", "$RetryFailedAtEnd"
+)
 if (-not [string]::IsNullOrWhiteSpace($Category)) {
     $ArgsList += @("--category", $Category)
     Write-Host "Category: $Category"
@@ -60,7 +66,27 @@ if (-not [string]::IsNullOrWhiteSpace($Category)) {
 $code = $LASTEXITCODE
 
 Write-Host "Salida: $ProjectDir\output\walmart_phase3_test.xlsx"
-if ($code -ne 0) {
+
+if ($code -eq 0 -and [string]::IsNullOrWhiteSpace($Category)) {
+    Write-Host ""
+    Write-Host "Walmart completo y valido."
+    Write-Host "Agregando la particion validada al concentrado diario..."
+
+    & ".\scripts\integrate_validated_phase.ps1" `
+        -Phase 3 `
+        -Retailer "Walmart" `
+        -ProjectDir $ProjectDir `
+        -PythonExe $PythonExe
+
+    $integrationCode = $LASTEXITCODE
+    if ($integrationCode -ne 0) {
+        Write-Warning "Walmart fue valido, pero NO pudo integrarse al concentrado diario."
+        $code = $integrationCode
+    } else {
+        Write-Host "WALMART VALIDADO E INTEGRADO AL CONCENTRADO."
+    }
+} elseif ($code -ne 0) {
     Write-Warning "El test termino con observaciones (exit_code=$code)."
 }
+
 exit $code
