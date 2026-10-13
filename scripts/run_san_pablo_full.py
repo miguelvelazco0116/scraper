@@ -52,6 +52,7 @@ class _PlaywrightDriverAdapter:
     def __init__(self, page):
         self.page = page
         self.switch_to = _SwitchToProxy()
+        self.occ_fallback_reason: str | None = None
 
     @property
     def current_url(self) -> str:
@@ -88,6 +89,57 @@ class _PlaywrightDriverAdapter:
         wrapped = "() => {\n" + str(script) + "\n}"
         return self.page.evaluate(wrapped)
 
+    def fetch_json_in_browser(self, url: str) -> dict:
+        """Fetch cross-origin OCC data through the user-owned Chrome page.
+
+        This keeps the request inside Chrome's network stack instead of
+        replaying it with urllib, which can be rejected by Akamai even when
+        the same browser session can access the storefront.
+        """
+        return self.page.evaluate(
+            """
+            async (url) => {
+              try {
+                const response = await fetch(url, {
+                  method: 'GET',
+                  credentials: 'include',
+                  headers: {
+                    'Accept': 'application/json, text/plain, */*'
+                  },
+                  redirect: 'follow'
+                });
+
+                const text = await response.text();
+                let data = null;
+                try {
+                  data = JSON.parse(text);
+                } catch (_) {}
+
+                return {
+                  ok: response.ok,
+                  status: response.status,
+                  statusText: response.statusText || '',
+                  url: response.url || url,
+                  data,
+                  textPreview: text.slice(0, 1200),
+                  error: ''
+                };
+              } catch (error) {
+                return {
+                  ok: false,
+                  status: 0,
+                  statusText: '',
+                  url,
+                  data: null,
+                  textPreview: '',
+                  error: String(error && (error.stack || error.message) || error)
+                };
+              }
+            }
+            """,
+            url,
+        ) or {}
+
     def get_cookies(self) -> list[dict]:
         try:
             return self.page.context.cookies()
@@ -100,6 +152,106 @@ class _PlaywrightDriverAdapter:
             return True
         except Exception:
             return False
+
+
+class _BrowserOccSanPabloScraper(FarmaciasSanPabloScraper):
+    """San Pablo OCC hardening for an existing Chrome/CDP session.
+
+    The catalog parser remains unchanged. Only the OCC transport is replaced
+    with an in-browser fetch. If OCC cannot be read, the existing DOM catalog
+    extractor is used instead of ending the category as EMPTY.
+    """
+
+    @staticmethod
+    def _fetch_occ_json(driver, url: str) -> dict:
+        fetcher = getattr(driver, "fetch_json_in_browser", None)
+        if not callable(fetcher):
+            return FarmaciasSanPabloScraper._fetch_occ_json(driver, url)
+
+        result = fetcher(url) or {}
+        status = int(result.get("status") or 0)
+        payload = result.get("data")
+
+        if 200 <= status < 300 and isinstance(payload, dict):
+            return payload
+
+        detail = (
+            str(result.get("error") or "").strip()
+            or str(result.get("textPreview") or "").strip()
+            or str(result.get("statusText") or "").strip()
+            or "sin detalle"
+        )
+        raise FarmaciasSanPabloNetworkUnavailable(
+            "OCC search-sponsored falló dentro de Chrome "
+            f"(HTTP {status or 'n/a'}): {detail[:500]}"
+        )
+
+    @classmethod
+    def _discover_occ_products(
+        cls,
+        driver,
+        category,
+        max_pages: int,
+    ):
+        try:
+            result = super()._discover_occ_products(
+                driver,
+                category,
+                max_pages,
+            )
+        except FarmaciasSanPabloNetworkUnavailable as exc:
+            driver.occ_fallback_reason = str(exc)
+            print(
+                f"OCC_BROWSER_FALLBACK [{category.id}]: "
+                "se usará el catálogo DOM de la misma pestaña. "
+                f"Motivo: {exc}"
+            )
+            return None
+
+        if result is not None:
+            products, _meta = result
+            if not products:
+                driver.occ_fallback_reason = (
+                    "OCC respondió sin productos; se usa fallback DOM."
+                )
+                print(
+                    f"OCC_BROWSER_FALLBACK [{category.id}]: "
+                    "OCC respondió 0 productos; se usará catálogo DOM."
+                )
+                return None
+
+        return result
+
+    def scrape_category_on_driver(
+        self,
+        driver,
+        category,
+        location,
+    ) -> list[dict]:
+        driver.occ_fallback_reason = None
+        rows = super().scrape_category_on_driver(
+            driver,
+            category,
+            location,
+        )
+
+        meta = dict(self.last_meta or {})
+        fallback_reason = getattr(driver, "occ_fallback_reason", None)
+
+        if fallback_reason:
+            meta["occ_transport"] = "dom_fallback_after_browser_occ"
+            meta["occ_fallback_reason"] = fallback_reason
+            meta["engine"] = "Playwright CDP + DOM fallback"
+        elif meta.get("source") == "occ_search_sponsored":
+            meta["occ_transport"] = "chrome_page_fetch"
+            meta["engine"] = "Playwright CDP + OCC browser fetch"
+        else:
+            meta["occ_transport"] = "dom_no_occ_resource"
+            meta["engine"] = "Playwright CDP + DOM"
+
+        self.last_meta = meta
+        self._write_diagnostics(driver, category, meta)
+        return rows
 
 
 def _find_san_pablo_page(browser):
@@ -186,7 +338,7 @@ def main() -> int:
     all_rows: list[dict] = []
     summaries: list[dict] = []
 
-    scraper = FarmaciasSanPabloScraper(
+    scraper = _BrowserOccSanPabloScraper(
         headless=False,
         max_pages=args.max_pages,
     )
@@ -219,6 +371,7 @@ def main() -> int:
     print(f"Consolidado: {CONSOLIDATED_PATH}")
     print("Chrome     : SESION EXISTENTE POR CDP")
     print(f"CDP        : {args.cdp_url}")
+    print("OCC        : FETCH DENTRO DE CHROME + FALLBACK DOM")
     print("El script NO abre ni cierra Chrome.")
     print("")
 
@@ -299,16 +452,24 @@ def main() -> int:
             df["url"].fillna("").astype(str).str.strip().ne("").sum()
         ) if not df.empty else 0
 
-        # Para San Pablo, el objetivo operativo es pricing/promoción.
-        # SKU y URL se reportan como métricas informativas, no bloqueantes.
-        if products == 0:
-            status = "EMPTY"
-        elif price_complete < products:
-            status = "PARTIAL"
-        elif target is not None and products < int(target):
-            status = "PARTIAL"
-        else:
-            status = "SUCCESS"
+        # Preserve real network/blocking errors. Only derive data-quality status
+        # when navigation/extraction itself completed.
+        terminal_failure = status in {
+            "BLOCKED",
+            "NETWORK_UNAVAILABLE",
+            "ERROR",
+        }
+        if not terminal_failure:
+            # Para San Pablo, el objetivo operativo es pricing/promoción.
+            # SKU y URL se reportan como métricas informativas, no bloqueantes.
+            if products == 0:
+                status = "EMPTY"
+            elif price_complete < products:
+                status = "PARTIAL"
+            elif target is not None and products < int(target):
+                status = "PARTIAL"
+            else:
+                status = "SUCCESS"
 
         summaries.append(
             {
@@ -321,6 +482,10 @@ def main() -> int:
                 "url_complete": url_complete,
                 "price_complete": price_complete,
                 "missing_identifier": missing_identifier,
+                "source": meta.get("source"),
+                "engine": meta.get("engine"),
+                "occ_transport": meta.get("occ_transport"),
+                "occ_fallback_reason": meta.get("occ_fallback_reason"),
                 "status": status,
                 "error": error,
             }
@@ -333,7 +498,8 @@ def main() -> int:
             f"target={target} products={products} "
             f"sku={sku_complete}/{products} url={url_complete}/{products} "
             f"price={price_complete}/{products} "
-            f"missing_id={missing_identifier}"
+            f"missing_id={missing_identifier} "
+            f"transport={meta.get('occ_transport') or '-'}"
         )
         print(f"Output actualizado: {OUTPUT_PATH}")
         print("")
@@ -344,7 +510,8 @@ def main() -> int:
     for item in summaries:
         print(
             f"{item['category_id']}: {item['status']} "
-            f"({item['products_extracted']}/{item['target_products']})"
+            f"({item['products_extracted']}/{item['target_products']}) "
+            f"transport={item.get('occ_transport') or '-'}"
         )
 
     print("")
