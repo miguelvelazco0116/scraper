@@ -29,4 +29,25 @@ if (-not [string]::IsNullOrWhiteSpace($CaptureDate)) {
 }
 
 & $PythonExe @ArgsList
-exit $LASTEXITCODE
+$code = $LASTEXITCODE
+
+if ($code -eq 0) {
+    Write-Host ""
+    Write-Host "Fase 3 valida construida desde sus componentes."
+    Write-Host "Integrando automaticamente al concentrado diario..."
+
+    & ".\scripts\integrate_validated_phase.ps1" `
+        -Phase 3 `
+        -ProjectDir $ProjectDir `
+        -PythonExe $PythonExe
+
+    $integrationCode = $LASTEXITCODE
+    if ($integrationCode -ne 0) {
+        Write-Warning "Fase 3 fue construida, pero NO pudo integrarse al concentrado diario."
+        $code = $integrationCode
+    } else {
+        Write-Host "FASE 3 VALIDADA E INTEGRADA AL CONCENTRADO."
+    }
+}
+
+exit $code
