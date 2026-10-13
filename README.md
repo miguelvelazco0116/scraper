@@ -121,7 +121,7 @@ Bodega Aurrera se conecta por CDP
 
 Bodega Aurrera y Walmart reutilizan el mismo Chrome abierto manualmente mediante remote debugging. Deben quedar abiertas una pestaña de Bodega Aurrera y otra de Walmart. En Walmart debe estar seleccionado SC Toreo, tienda 2344, CP 11220. El runner no abre ni cierra Chrome y no resuelve verificaciones de identidad.
 
-Bodega Aurrera usa las rutas `/browse/` directas de Pasta Dental, Enjuagues Bucales, Detergente en Polvo y Detergente Líquido. Tanto Bodega como Walmart recorren la paginación secuencialmente, con pausas de 2.5 s entre páginas y 4 s entre categorías. Si el sitio publica un target confiable, una cobertura de **>=90%** es válida; sin target se exige demostrar fin de paginación. La completitud de SKU/precio/URL de las filas extraídas sigue siendo 100%.
+Bodega Aurrera usa las rutas `/browse/` directas de Pasta Dental, Enjuagues Bucales, Detergente en Polvo y Detergente Líquido. En Bodega se ignoran banners patrocinados y nunca se pulsa el `Ver más` de esos bloques: el scraper hace scroll hasta el paginador numérico `1 2 3 … N >` y lo recorre una página a la vez. Tanto Bodega como Walmart trabajan secuencialmente, con pausas de 2.5 s entre páginas y 4 s entre categorías. Si el sitio publica un target confiable, una cobertura de **>=90%** es válida; sin target se exige demostrar fin de paginación. La completitud de SKU/precio/URL de las filas extraídas sigue siendo 100%.
 
 Cuando Fase 3 pase sus gates:
 
