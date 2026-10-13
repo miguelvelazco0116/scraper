@@ -235,6 +235,39 @@ class BodegaAurreraScraper:
                 const href = a.href || '';
                 if (!href || seen.has(href)) continue;
 
+                // Sponsored brand banners can contain real /ip/ links, prices,
+                // and a generic "Ver más" CTA. They are not catalogue cards
+                // and must never be counted as category coverage.
+                let sponsored = false;
+                let sponsorProbe = a;
+                for (
+                  let depth = 0;
+                  depth < 10 && sponsorProbe;
+                  depth++, sponsorProbe = sponsorProbe.parentElement
+                ) {
+                  const probeText = normalize(
+                    sponsorProbe.innerText || sponsorProbe.textContent
+                  ).toLowerCase();
+                  const probeClass = normalize(
+                    sponsorProbe.getAttribute('class')
+                  ).toLowerCase();
+                  const probeTestId = normalize(
+                    sponsorProbe.getAttribute('data-testid') ||
+                    sponsorProbe.getAttribute('data-automation-id')
+                  ).toLowerCase();
+
+                  if (
+                    probeText.includes('patrocinado por') ||
+                    probeText.includes('sponsored by') ||
+                    probeClass.includes('sponsor') ||
+                    probeTestId.includes('sponsor')
+                  ) {
+                    sponsored = true;
+                    break;
+                  }
+                }
+                if (sponsored) continue;
+
                 let card = a;
                 let found = null;
 
@@ -492,30 +525,39 @@ class BodegaAurreraScraper:
         source_url: str,
         max_rounds: int = 30,
     ) -> dict:
-        """Expand lazy-loaded content until the visible product set stabilizes."""
+        """Expand lazy-loaded content until the visible product set stabilizes.
+
+        Direct /browse/ catalogue sources never click generic "Ver más"
+        controls because sponsored banners use the same label. Those sources
+        are handled by the dedicated UI-pagination collector below.
+        """
         rounds: list[dict] = []
         stale_rounds = 0
         previous = self._product_link_count(page)
 
         for round_number in range(1, max_rounds + 1):
             clicked = False
-            for label in (
-                "Ver más",
-                "Ver mas",
-                "Mostrar más",
-                "Mostrar mas",
-                "Cargar más",
-                "Cargar mas",
-            ):
-                try:
-                    button = page.get_by_text(label, exact=False).first
-                    if button.count() and button.is_visible():
-                        button.click(timeout=2_000)
-                        clicked = True
-                        page.wait_for_timeout(500)
-                        break
-                except Exception:
-                    continue
+            if "/browse/" not in urlsplit(source_url).path.casefold():
+                for label in (
+                    "Ver más",
+                    "Ver mas",
+                    "Mostrar más",
+                    "Mostrar mas",
+                    "Cargar más",
+                    "Cargar mas",
+                ):
+                    try:
+                        button = page.get_by_text(
+                            label,
+                            exact=False,
+                        ).first
+                        if button.count() and button.is_visible():
+                            button.click(timeout=2_000)
+                            clicked = True
+                            page.wait_for_timeout(500)
+                            break
+                    except Exception:
+                        continue
 
             try:
                 page.evaluate(
@@ -549,6 +591,623 @@ class BodegaAurreraScraper:
             "scroll_rounds": len(rounds),
             "stabilized": stale_rounds >= 3,
             "rounds": rounds,
+        }
+
+    @staticmethod
+    def _pagination_snapshot(page) -> dict:
+        """Find the visible numeric paginator shown below the product grid."""
+        try:
+            result = page.locator("body").evaluate(
+                r"""
+                () => {
+                  const normalize = value =>
+                    String(value || '').replace(/\s+/g, ' ').trim();
+
+                  const visible = el => {
+                    if (!el) return false;
+                    const style = window.getComputedStyle(el);
+                    const rect = el.getBoundingClientRect();
+                    return (
+                      style.display !== 'none' &&
+                      style.visibility !== 'hidden' &&
+                      rect.width > 0 &&
+                      rect.height > 0
+                    );
+                  };
+
+                  const controlNumber = el => {
+                    const text = normalize(el.innerText || el.textContent);
+                    const aria = normalize(el.getAttribute('aria-label'));
+                    const title = normalize(el.getAttribute('title'));
+
+                    if (/^\d{1,4}$/.test(text)) {
+                      return Number(text);
+                    }
+
+                    for (const value of [aria, title]) {
+                      const match = value.match(
+                        /(?:page|p[aá]gina)\s*(\d{1,4})/i
+                      );
+                      if (match) return Number(match[1]);
+                    }
+                    return null;
+                  };
+
+                  const candidateSet = new Set();
+                  const selectors = [
+                    '[aria-label*="pagin" i]',
+                    '[aria-label*="page" i]',
+                    '[data-testid*="pagin" i]',
+                    '[data-automation-id*="pagin" i]',
+                    '[class*="pagin" i]',
+                    'nav',
+                    '[role="navigation"]'
+                  ];
+
+                  for (const selector of selectors) {
+                    for (const el of document.querySelectorAll(selector)) {
+                      if (visible(el)) candidateSet.add(el);
+                    }
+                  }
+
+                  // Fallback for pagers without semantic container metadata:
+                  // walk up from visible numeric controls and score ancestors.
+                  for (const control of document.querySelectorAll(
+                    'button,a,[role="button"]'
+                  )) {
+                    if (!visible(control)) continue;
+                    if (controlNumber(control) === null) continue;
+
+                    let parent = control.parentElement;
+                    for (let depth = 0; depth < 5 && parent; depth++) {
+                      if (visible(parent)) candidateSet.add(parent);
+                      parent = parent.parentElement;
+                    }
+                  }
+
+                  let best = null;
+                  for (const container of candidateSet) {
+                    const controls = Array.from(
+                      container.querySelectorAll(
+                        'button,a,[role="button"]'
+                      )
+                    ).filter(visible);
+
+                    const numbers = Array.from(
+                      new Set(
+                        controls
+                          .map(controlNumber)
+                          .filter(value => Number.isFinite(value))
+                      )
+                    ).sort((a, b) => a - b);
+
+                    if (numbers.length < 2) continue;
+
+                    const text = normalize(
+                      container.innerText || container.textContent
+                    );
+                    const currentControl = controls.find(el =>
+                      String(el.getAttribute('aria-current') || '')
+                        .toLowerCase() === 'page'
+                    );
+                    const current = currentControl
+                      ? controlNumber(currentControl)
+                      : null;
+
+                    const hasNext = controls.some(el => {
+                      const blob = normalize(
+                        [
+                          el.innerText,
+                          el.textContent,
+                          el.getAttribute('aria-label'),
+                          el.getAttribute('title'),
+                          el.getAttribute('data-testid'),
+                          el.getAttribute('data-automation-id')
+                        ].join(' ')
+                      ).toLowerCase();
+                      return (
+                        /\b(next|siguiente|pr[oó]xima)\b/i.test(blob) ||
+                        /^[>›»→]$/.test(normalize(
+                          el.innerText || el.textContent
+                        ))
+                      );
+                    });
+
+                    const score =
+                      numbers.length * 20 +
+                      (text.includes('…') || text.includes('...') ? 10 : 0) +
+                      (hasNext ? 10 : 0) +
+                      (current !== null ? 5 : 0);
+
+                    if (!best || score > best.score) {
+                      best = {
+                        score,
+                        numbers,
+                        current,
+                        max_page: Math.max(...numbers),
+                        has_next: hasNext,
+                        text: text.slice(0, 500)
+                      };
+                    }
+                  }
+
+                  return best || {
+                    score: 0,
+                    numbers: [],
+                    current: null,
+                    max_page: null,
+                    has_next: false,
+                    text: ''
+                  };
+                }
+                """
+            )
+        except Exception:
+            return {
+                "score": 0,
+                "numbers": [],
+                "current": None,
+                "max_page": None,
+                "has_next": False,
+                "text": "",
+            }
+
+        return result or {
+            "score": 0,
+            "numbers": [],
+            "current": None,
+            "max_page": None,
+            "has_next": False,
+            "text": "",
+        }
+
+    def _scroll_to_pagination(
+        self,
+        page,
+        *,
+        max_scrolls: int = 60,
+    ) -> dict:
+        """Scroll gradually until the numeric pager becomes visible."""
+        snapshot: dict = {}
+        last_y = -1
+
+        for round_number in range(1, max_scrolls + 1):
+            snapshot = self._pagination_snapshot(page)
+            if (
+                snapshot.get("max_page")
+                and len(snapshot.get("numbers") or []) >= 2
+            ):
+                snapshot["scroll_rounds"] = round_number - 1
+                return snapshot
+
+            try:
+                position = page.evaluate(
+                    r"""
+                    () => {
+                      const step = Math.max(
+                        700,
+                        Math.floor(window.innerHeight * 0.80)
+                      );
+                      window.scrollBy({top: step, behavior: 'auto'});
+                      return {
+                        y: Math.floor(window.scrollY),
+                        bottom:
+                          window.scrollY + window.innerHeight >=
+                          document.documentElement.scrollHeight - 8
+                      };
+                    }
+                    """
+                )
+            except Exception:
+                position = {"y": last_y, "bottom": False}
+
+            page.wait_for_timeout(
+                min(max(int(self.wait_ms * 0.45), 800), 1_500)
+            )
+
+            current_y = int((position or {}).get("y") or 0)
+            at_bottom = bool((position or {}).get("bottom"))
+            if at_bottom and current_y == last_y:
+                break
+            last_y = current_y
+
+        snapshot = self._pagination_snapshot(page)
+        snapshot["scroll_rounds"] = max_scrolls
+        return snapshot
+
+    @staticmethod
+    def _click_pagination_next(
+        page,
+        *,
+        expected_page: int,
+    ) -> dict:
+        """Click the next numbered page (or the pager arrow) inside pager only."""
+        try:
+            result = page.locator("body").evaluate(
+                r"""
+                ({expectedPage}) => {
+                  const normalize = value =>
+                    String(value || '').replace(/\s+/g, ' ').trim();
+
+                  const visible = el => {
+                    if (!el) return false;
+                    const style = window.getComputedStyle(el);
+                    const rect = el.getBoundingClientRect();
+                    return (
+                      style.display !== 'none' &&
+                      style.visibility !== 'hidden' &&
+                      rect.width > 0 &&
+                      rect.height > 0
+                    );
+                  };
+
+                  const disabled = el =>
+                    el.disabled === true ||
+                    el.getAttribute('aria-disabled') === 'true';
+
+                  const controlNumber = el => {
+                    const text = normalize(el.innerText || el.textContent);
+                    const aria = normalize(el.getAttribute('aria-label'));
+                    const title = normalize(el.getAttribute('title'));
+
+                    if (/^\d{1,4}$/.test(text)) return Number(text);
+                    for (const value of [aria, title]) {
+                      const match = value.match(
+                        /(?:page|p[aá]gina)\s*(\d{1,4})/i
+                      );
+                      if (match) return Number(match[1]);
+                    }
+                    return null;
+                  };
+
+                  const candidates = [];
+                  for (const container of document.querySelectorAll(
+                    '[aria-label*="pagin" i], [aria-label*="page" i], ' +
+                    '[data-testid*="pagin" i], ' +
+                    '[data-automation-id*="pagin" i], ' +
+                    '[class*="pagin" i], nav, [role="navigation"]'
+                  )) {
+                    if (!visible(container)) continue;
+                    const controls = Array.from(
+                      container.querySelectorAll(
+                        'button,a,[role="button"]'
+                      )
+                    ).filter(visible);
+                    const nums = controls
+                      .map(controlNumber)
+                      .filter(value => Number.isFinite(value));
+                    if (new Set(nums).size >= 2) {
+                      candidates.push({container, controls, nums});
+                    }
+                  }
+
+                  // Fallback from visible numeric controls.
+                  if (!candidates.length) {
+                    const numericControls = Array.from(
+                      document.querySelectorAll(
+                        'button,a,[role="button"]'
+                      )
+                    ).filter(el =>
+                      visible(el) &&
+                      Number.isFinite(controlNumber(el))
+                    );
+                    for (const control of numericControls) {
+                      let parent = control.parentElement;
+                      for (let depth = 0; depth < 5 && parent; depth++) {
+                        const controls = Array.from(
+                          parent.querySelectorAll(
+                            'button,a,[role="button"]'
+                          )
+                        ).filter(visible);
+                        const nums = controls
+                          .map(controlNumber)
+                          .filter(value => Number.isFinite(value));
+                        if (new Set(nums).size >= 2) {
+                          candidates.push({container: parent, controls, nums});
+                          break;
+                        }
+                        parent = parent.parentElement;
+                      }
+                    }
+                  }
+
+                  if (!candidates.length) {
+                    return {clicked: false, method: 'pager_not_found'};
+                  }
+
+                  candidates.sort(
+                    (a, b) =>
+                      new Set(b.nums).size - new Set(a.nums).size
+                  );
+                  const pager = candidates[0];
+
+                  let target = pager.controls.find(
+                    el =>
+                      !disabled(el) &&
+                      controlNumber(el) === expectedPage
+                  );
+                  let method = 'number';
+
+                  if (!target) {
+                    target = pager.controls.find(el => {
+                      if (disabled(el)) return false;
+                      const blob = normalize(
+                        [
+                          el.innerText,
+                          el.textContent,
+                          el.getAttribute('aria-label'),
+                          el.getAttribute('title'),
+                          el.getAttribute('data-testid'),
+                          el.getAttribute('data-automation-id')
+                        ].join(' ')
+                      ).toLowerCase();
+                      return (
+                        /\b(next|siguiente|pr[oó]xima)\b/i.test(blob) ||
+                        /^[>›»→]$/.test(
+                          normalize(el.innerText || el.textContent)
+                        )
+                      );
+                    });
+                    method = 'next';
+                  }
+
+                  if (!target) {
+                    const nonNumeric = pager.controls.filter(
+                      el =>
+                        !disabled(el) &&
+                        controlNumber(el) === null &&
+                        !/^(\.\.\.|…)$/.test(
+                          normalize(el.innerText || el.textContent)
+                        )
+                    );
+                    target = nonNumeric[nonNumeric.length - 1] || null;
+                    method = 'last_non_numeric';
+                  }
+
+                  if (!target) {
+                    return {clicked: false, method: 'next_not_found'};
+                  }
+
+                  target.scrollIntoView({
+                    block: 'center',
+                    inline: 'center',
+                    behavior: 'auto'
+                  });
+                  target.click();
+
+                  return {
+                    clicked: true,
+                    method,
+                    expected_page: expectedPage,
+                    label: normalize(
+                      target.getAttribute('aria-label') ||
+                      target.innerText ||
+                      target.textContent ||
+                      target.getAttribute('title')
+                    )
+                  };
+                }
+                """,
+                {"expectedPage": expected_page},
+            )
+        except Exception as exc:
+            return {
+                "clicked": False,
+                "method": "exception",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+
+        return result or {
+            "clicked": False,
+            "method": "unknown",
+        }
+
+    def _collect_browse_source(
+        self,
+        page,
+        source_url: str,
+        category: Category,
+        location: Location,
+        seen_skus: set[str],
+    ) -> tuple[list[dict], dict]:
+        """Traverse the actual numeric UI pager one page at a time."""
+        self._goto(page, source_url)
+
+        try:
+            page.wait_for_selector(
+                'a[href*="/ip/"]',
+                timeout=25_000,
+            )
+        except PlaywrightTimeoutError:
+            self._save_diagnostics(
+                page,
+                "no_products_browse_"
+                + str(len(self.run_meta.get("sources", [])) + 1),
+            )
+            return [], {
+                "source_url": source_url,
+                "actual_url": page.url,
+                "rows": 0,
+                "new_rows": 0,
+                "target_products": self._target_count(page),
+                "coverage": 0.0,
+                "coverage_threshold": 0.90,
+                "product_links": 0,
+                "stabilized": False,
+                "pagination_complete": False,
+                "pages_visited": 0,
+                "pagination_method": "ui_numeric",
+                "no_product_links": True,
+                "explicit_page_meta": [],
+            }
+
+        source_target = self._target_count(page)
+        pager = self._scroll_to_pagination(page)
+        max_page = pager.get("max_page")
+        if max_page is not None:
+            try:
+                max_page = int(max_page)
+            except (TypeError, ValueError):
+                max_page = None
+
+        if max_page is None or max_page < 1:
+            max_page = 1
+
+        max_page = min(max_page, max(1, self.max_pages))
+        unique_source: dict[str, dict] = {}
+        page_meta: list[dict] = []
+        pagination_complete = True
+
+        for page_number in range(1, max_page + 1):
+            if page_number > 1:
+                click_result = self._click_pagination_next(
+                    page,
+                    expected_page=page_number,
+                )
+                if not click_result.get("clicked"):
+                    pagination_complete = False
+                    page_meta.append(
+                        {
+                            "page_number": page_number,
+                            "click_result": click_result,
+                            "rows": 0,
+                            "stabilized": False,
+                        }
+                    )
+                    break
+
+                page.wait_for_timeout(self.wait_ms)
+                try:
+                    page.wait_for_selector(
+                        'a[href*="/ip/"]',
+                        timeout=20_000,
+                    )
+                except PlaywrightTimeoutError:
+                    pagination_complete = False
+                    page_meta.append(
+                        {
+                            "page_number": page_number,
+                            "click_result": click_result,
+                            "rows": 0,
+                            "stabilized": False,
+                            "no_product_links": True,
+                        }
+                    )
+                    break
+            else:
+                click_result = {
+                    "clicked": True,
+                    "method": "initial_page",
+                }
+
+            pager_snapshot = self._scroll_to_pagination(page)
+            rows = self._extract_rows(
+                page,
+                category,
+                location,
+            )
+
+            unique_before = len(unique_source)
+            for row in rows:
+                sku = clean_text(str(row.get("sku") or ""))
+                if sku:
+                    unique_source[sku] = row
+            new_on_page = len(unique_source) - unique_before
+
+            pager_current = pager_snapshot.get("current")
+            pager_proves_advance = bool(
+                pager_current is not None
+                and int(pager_current) == page_number
+            )
+            if (
+                page_number > 1
+                and new_on_page <= 0
+                and not pager_proves_advance
+            ):
+                pagination_complete = False
+
+            page_meta.append(
+                {
+                    "page_number": page_number,
+                    "actual_url": page.url,
+                    "rows": len(rows),
+                    "new_unique_rows": new_on_page,
+                    "unique_source": len(unique_source),
+                    "product_links": self._product_link_count(page),
+                    "pager_current": pager_current,
+                    "pager_proves_advance": pager_proves_advance,
+                    "pager_max_page": pager_snapshot.get("max_page"),
+                    "pager_numbers": pager_snapshot.get("numbers"),
+                    "pager_text": pager_snapshot.get("text"),
+                    "pager_scroll_rounds": pager_snapshot.get(
+                        "scroll_rounds"
+                    ),
+                    "click_result": click_result,
+                    "stabilized": True,
+                }
+            )
+
+            print(
+                "Bodega Aurrera UI page "
+                f"{page_number}/{max_page}: "
+                f"rows={len(rows)}, "
+                f"new={new_on_page}, "
+                f"unique_source={len(unique_source)}",
+                flush=True,
+            )
+
+            # Keep the low-resource/high-latency execution deliberately slow.
+            page.wait_for_timeout(self.wait_ms)
+
+        new_rows = [
+            row
+            for sku, row in unique_source.items()
+            if sku not in seen_skus
+        ]
+        for row in new_rows:
+            seen_skus.add(str(row.get("sku")))
+
+        source_coverage = (
+            len(unique_source) / source_target
+            if source_target not in (None, 0)
+            else None
+        )
+
+        if (
+            pager.get("max_page") not in (None, 0)
+            and int(pager.get("max_page")) > self.max_pages
+        ):
+            pagination_complete = False
+
+        return new_rows, {
+            "source_url": source_url,
+            "actual_url": page.url,
+            "rows": len(unique_source),
+            "new_rows": len(new_rows),
+            "target_products": source_target,
+            "coverage": source_coverage,
+            "coverage_threshold": 0.90,
+            "product_links": max(
+                [
+                    int(item.get("product_links") or 0)
+                    for item in page_meta
+                ]
+                or [0]
+            ),
+            "scroll_rounds": sum(
+                int(item.get("pager_scroll_rounds") or 0)
+                for item in page_meta
+            ),
+            "stabilized": bool(page_meta),
+            "explicit_pages": max(0, len(page_meta) - 1),
+            "explicit_pages_stabilized": pagination_complete,
+            "pagination_complete": pagination_complete,
+            "pages_visited": len(page_meta),
+            "queued_pages_remaining": 0,
+            "pagination_method": "ui_numeric_next",
+            "pager_max_page": pager.get("max_page"),
+            "sponsored_banner_clicks": 0,
+            "explicit_page_meta": page_meta,
         }
 
     @staticmethod
@@ -653,6 +1312,15 @@ class BodegaAurreraScraper:
         location: Location,
         seen_skus: set[str],
     ) -> tuple[list[dict], dict]:
+        if "/browse/" in urlsplit(source_url).path.casefold():
+            return self._collect_browse_source(
+                page,
+                source_url,
+                category,
+                location,
+                seen_skus,
+            )
+
         """Collect every published page for one direct browse source.
 
         Pagination URLs are discovered recursively from every visited page.
