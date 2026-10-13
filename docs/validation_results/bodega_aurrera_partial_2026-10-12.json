@@ -1,0 +1,48 @@
+{
+  "retailer": "Bodega Aurrera",
+  "validated_at": "2026-10-12",
+  "status": "PARTIAL_VALIDATION",
+  "command": "& .\\scripts\\test_bodega_aurrera.ps1",
+  "total_products": 1992,
+  "categories": {
+    "cuidado-bucal": {
+      "status": "PARTIAL",
+      "products": 1084,
+      "sku_complete": 1084,
+      "price_complete": 1084,
+      "url_complete": 1084,
+      "sources_discovered": 2,
+      "sources_visited": 2,
+      "pages_visited": 33,
+      "pagination_method": "ui_numeric_next",
+      "sponsored_banner_clicks": 0,
+      "explicit_pages": 31,
+      "pagination_verified": false,
+      "price_validation_errors": 0,
+      "blocked_detected": false
+    },
+    "cuidado-de-la-ropa": {
+      "status": "SUCCESS",
+      "products": 908,
+      "sku_complete": 908,
+      "price_complete": 908,
+      "url_complete": 908,
+      "sources_discovered": 2,
+      "sources_visited": 2,
+      "pages_visited": 28,
+      "pagination_method": "ui_numeric_next",
+      "sponsored_banner_clicks": 0,
+      "explicit_pages": 26,
+      "pagination_verified": true,
+      "price_validation_errors": 0,
+      "blocked_detected": false
+    }
+  },
+  "decision": {
+    "cuidado-de-la-ropa": "VALIDATED_WITHIN_BODEGA",
+    "cuidado-bucal": "PENDING_PAGINATION_DIAGNOSIS",
+    "bodega_aurrera": "NOT_YET_FULLY_VALIDATED",
+    "phase3": "PENDING_LIVE_VALIDATION"
+  },
+  "note": "Do not integrate Bodega/Phase 3 yet. Diagnose exact pagination stop reason for cuidado-bucal before changing extraction logic."
+}
