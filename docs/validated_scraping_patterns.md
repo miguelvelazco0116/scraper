@@ -225,6 +225,33 @@ Gate de cobertura Fase 3:
 Estado:
 - PENDIENTE DE VALIDACIÓN LIVE
 
+## Incidencia Bodega Aurrera - paginador UI debajo del catálogo
+
+Detectada durante validación live el 2026-10-12.
+
+Evidencia visual:
+- el sitio muestra banners patrocinados dentro del flujo de la categoría
+- esos banners contienen CTA `Ver más` y enlaces reales `/ip/`
+- el paginador real está debajo del grid y se muestra como `1 2 3 … N >`
+
+Corrección:
+- en fuentes `/browse/` NO hacer clic en ningún `Ver más`
+- ignorar productos cuyo ancestro esté marcado o contenga `Patrocinado por` / `Sponsored by`
+- hacer scroll gradual hasta localizar un contenedor de paginación con controles numéricos
+- leer la última página publicada, por ejemplo `23`
+- recorrer estrictamente una página a la vez usando el control numérico siguiente o la flecha de siguiente
+- después de cada clic exigir evidencia de avance mediante nueva página del paginador o nuevos SKUs
+- mantener pausa de 2.5 s y ejecución secuencial
+- registrar `pagination_method=ui_numeric_next`, `pages_visited` y `sponsored_banner_clicks=0`
+
+Gate:
+- con target confiable, coverage >=90% sigue siendo válido
+- sin target, se exige completar el paginador UI
+- si el control no avanza realmente, `pagination_verified=False`
+
+Estado:
+- PENDIENTE DE VALIDACIÓN LIVE
+
 ## Fase 3 - Bodega Aurrera + Walmart
 
 Estado: EN VALIDACIÓN LIVE
