@@ -85,6 +85,10 @@ class BenavidesScraper:
         r"Art[ií]culos(?:\s+\d+\s*-\s*\d+)?\s+de\s+(\d{1,6})",
         re.IGNORECASE,
     )
+    TARGET_SINGLE_RE = re.compile(
+        r"Art[ií]culos\s+(\d{1,6})(?!\s*-|\s+de)",
+        re.IGNORECASE,
+    )
     SKU_RE = re.compile(r"\bSKU\s*\n?\s*([A-Za-z0-9._-]+)", re.IGNORECASE)
     MONEY_RE = re.compile(r"\$\s*([0-9][0-9,]*(?:\.\d{1,2})?)")
     PRICE_PAIR_RE = re.compile(
@@ -120,6 +124,7 @@ class BenavidesScraper:
         self.wait_ms = wait_ms
         self.detail_pause_ms = detail_pause_ms
         self.run_meta: dict = {}
+        self._detail_transport = "request"
 
     @staticmethod
     def _normalize(value: str | None) -> str:
@@ -175,11 +180,12 @@ class BenavidesScraper:
     @classmethod
     def _target_count(cls, body: str) -> int | None:
         values: list[int] = []
-        for raw in cls.TARGET_RE.findall(body or ""):
-            try:
-                values.append(int(raw))
-            except ValueError:
-                continue
+        for pattern in (cls.TARGET_RE, cls.TARGET_SINGLE_RE):
+            for raw in pattern.findall(body or ""):
+                try:
+                    values.append(int(raw))
+                except ValueError:
+                    continue
         return max(values) if values else None
 
     @staticmethod
@@ -427,31 +433,46 @@ class BenavidesScraper:
             "availability_raw": " | ".join(dict.fromkeys(raw_parts)) or None,
         }
 
-    def _fetch_detail(self, request_context, href: str) -> tuple[str, int]:
+    def _fetch_detail(
+        self,
+        request_context,
+        page,
+        href: str,
+    ) -> tuple[str, int | None, str]:
+        if self._detail_transport == "browser":
+            self._goto(page, href)
+            return self._body_text(page), None, "browser"
+
         try:
             response = request_context.get(
                 href,
                 timeout=60_000,
                 fail_on_status_code=False,
             )
+            status = int(response.status)
+            body = response.text()
+            text = self._html_to_text(body)
         except PlaywrightError as exc:
-            raise BenavidesNetworkUnavailable(
-                f"No se pudo cargar ficha {href}: {exc}"
-            ) from exc
-
-        status = int(response.status)
-        body = response.text()
-        text = self._html_to_text(body)
-
-        if self._is_blocked_text(text, status):
-            raise BenavidesBlocked(
-                f"Farmacias Benavides bloqueó ficha {href} (HTTP {status})."
+            print(
+                "Benavides detail request falló; cambiando a navegación "
+                f"de Chrome: {type(exc).__name__}: {exc}",
+                flush=True,
             )
-        if status >= 500:
-            raise BenavidesNetworkUnavailable(
-                f"Farmacias Benavides devolvió HTTP {status} en {href}."
+            self._detail_transport = "browser"
+            self._goto(page, href)
+            return self._body_text(page), None, "browser"
+
+        if self._is_blocked_text(text, status) or status >= 500:
+            print(
+                f"Benavides detail HTTP {status}; cambiando a navegación "
+                "normal de Chrome.",
+                flush=True,
             )
-        return text, status
+            self._detail_transport = "browser"
+            self._goto(page, href)
+            return self._body_text(page), status, "browser"
+
+        return text, status, "request"
 
     def _discover_links(
         self,
@@ -565,6 +586,7 @@ class BenavidesScraper:
                 detail_errors: list[dict] = []
                 no_price: list[dict] = []
                 unknown_availability: list[dict] = []
+                detail_transport_counts = {"request": 0, "browser": 0}
 
                 for index, item in enumerate(links, start=1):
                     href = clean_text(item.get("href"))
@@ -575,9 +597,13 @@ class BenavidesScraper:
                     sku_hint = clean_text(item.get("sku_hint"))
 
                     try:
-                        text, http_status = self._fetch_detail(
+                        text, http_status, detail_transport = self._fetch_detail(
                             context.request,
+                            page,
                             href,
+                        )
+                        detail_transport_counts[detail_transport] = (
+                            detail_transport_counts.get(detail_transport, 0) + 1
                         )
                         detail = self._parse_detail(
                             text,
@@ -663,6 +689,7 @@ class BenavidesScraper:
                                     "price_regular": detail.get("price_regular"),
                                     "promotion": detail.get("promotion"),
                                     "http_status": http_status,
+                                    "detail_transport": detail_transport,
                                 },
                                 ensure_ascii=False,
                                 separators=(",", ":"),
@@ -706,6 +733,7 @@ class BenavidesScraper:
                         "detail_errors": detail_errors,
                         "products_without_price": no_price,
                         "unknown_availability": unknown_availability,
+                        "detail_transport_counts": detail_transport_counts,
                     }
                 )
 
