@@ -381,6 +381,92 @@ def _write_results(
     return concentrated, summary_df
 
 
+def _load_existing_valid_results(
+    categories,
+) -> dict[str, tuple]:
+    """Reuse only valid Walmart categories already captured today."""
+    if not OUTPUT_PATH.exists():
+        return {}
+
+    try:
+        concentrated = pd.read_excel(
+            OUTPUT_PATH,
+            sheet_name="Concentrado",
+            dtype={"sku": str, "store_id": str, "category_id": str},
+        )
+        summary_df = pd.read_excel(
+            OUTPUT_PATH,
+            sheet_name="Resumen",
+            dtype={"category_id": str},
+        )
+        meta_df = pd.read_excel(
+            OUTPUT_PATH,
+            sheet_name="Meta",
+            dtype={"category_id": str},
+        )
+    except Exception:
+        return {}
+
+    if concentrated.empty or summary_df.empty:
+        return {}
+
+    row_dates = set(
+        concentrated["scrape_timestamp"]
+        .dropna()
+        .astype(str)
+        .str.slice(0, 10)
+    )
+    today = datetime.now().astimezone().date().isoformat()
+    if row_dates != {today}:
+        return {}
+
+    configured_ids = {item.id for item in categories}
+    meta_by_id: dict[str, dict] = {}
+    if not meta_df.empty and {
+        "category_id",
+        "meta_json",
+    }.issubset(meta_df.columns):
+        for _, row in meta_df.iterrows():
+            category_id = str(row.get("category_id") or "").strip()
+            if not category_id:
+                continue
+            try:
+                meta_by_id[category_id] = json.loads(
+                    str(row.get("meta_json") or "{}")
+                )
+            except Exception:
+                meta_by_id[category_id] = {}
+
+    results: dict[str, tuple] = {}
+    for _, summary_row in summary_df.iterrows():
+        category_id = str(
+            summary_row.get("category_id") or ""
+        ).strip()
+        if category_id not in configured_ids:
+            continue
+
+        summary = summary_row.to_dict()
+        if not _summary_is_acceptable(summary):
+            continue
+
+        frame = concentrated.loc[
+            concentrated["category_id"]
+            .astype(str)
+            .eq(category_id)
+        ].copy()
+
+        if len(frame) != int(summary["products"]):
+            continue
+
+        results[category_id] = (
+            frame,
+            summary,
+            meta_by_id.get(category_id, {}),
+        )
+
+    return results
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -441,7 +527,19 @@ def main() -> int:
     print("")
 
     category_order = [category.id for category in categories]
-    results: dict[str, tuple] = {}
+    results: dict[str, tuple] = (
+        _load_existing_valid_results(categories)
+        if not args.category
+        else {}
+    )
+
+    if results:
+        print("")
+        print("CATEGORÍAS WALMART YA VÁLIDAS HOY:")
+        for category_id in category_order:
+            if category_id in results:
+                print(f"- {category_id}: REUTILIZADA, NO SE DESCARGA DE NUEVO")
+        _write_results(results, category_order, location)
 
     with sync_playwright() as playwright:
         try:
@@ -473,6 +571,14 @@ def main() -> int:
         category_by_id = {item.id: item for item in categories}
 
         for category in categories:
+            if category.id in results:
+                print("")
+                print(
+                    f"WALMART | {category.id}: "
+                    "YA VÁLIDA HOY, SE OMITE DESCARGA."
+                )
+                continue
+
             result = run_category(
                 category,
                 location,
