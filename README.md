@@ -56,7 +56,8 @@ Para reducir consumo de memoria, la operación productiva se ejecuta y consolida
 ```text
 Fase 1 -> validar -> integrar al master -> liberar recursos
 Fase 2 -> validar -> integrar al master -> liberar recursos
-Fase 3 -> Bodega Aurrera + Walmart (implementada, pendiente de validación live)
+Fase 3 -> Bodega Aurrera + Walmart
+Fase 4 -> Farmacias San Pablo (validada; integración incremental)
 ```
 
 Integración automática:
@@ -258,6 +259,46 @@ Cuando Fase 3 pase sus gates:
 ```
 
 Esto agrega exclusivamente Bodega Aurrera + Walmart al concentrado fechado activo sin volver a ejecutar Fase 1 o Fase 2.
+
+## Fase 4 — Farmacias San Pablo
+
+Estado del método: **VALIDADO**
+
+La Fase 4 agrega únicamente Farmacias San Pablo al master diario que ya contiene Fases 1, 2 y 3. No vuelve a ejecutar ni reemplaza las fases anteriores.
+
+Fuente validada:
+
+```text
+output\farmacias_san_pablo_test.xlsx
+```
+
+Validación live del 13 de octubre de 2026:
+
+```text
+descongestionantes   52 / 52
+preservativos        49 / 49
+enjuagues-bucales    46 / 46
+pastas-dentales      85 / 85
+Total               232 / 232
+```
+
+Las cuatro categorías terminaron `SUCCESS` usando `captured_storefront_response`.
+
+Integrar una corrida ya validada sin volver a scrapear:
+
+```powershell
+& .\scripts\integrate_validated_phase.ps1 -Phase 4
+```
+
+El integrador exige:
+- que el master activo ya contenga Fases 1, 2 y 3;
+- que la fecha de captura de San Pablo coincida con la fecha del master;
+- 4/4 categorías `SUCCESS`;
+- productos extraídos iguales al target OCC en cada categoría;
+- precio completo;
+- `occ_transport=captured_storefront_response`.
+
+En futuras corridas completas, `run_san_pablo_full.ps1` ejecuta automáticamente la integración de Fase 4 después de una validación exitosa. Las corridas de una sola categoría no se integran.
 
 ## Producción integral validada
 
