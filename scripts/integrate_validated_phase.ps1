@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet(1, 2, 3)]
+    [ValidateSet(1, 2, 3, 4)]
     [int]$Phase,
     [ValidateSet("", "Bodega Aurrera", "Walmart")]
     [string]$Retailer = "",
