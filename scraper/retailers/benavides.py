@@ -7,7 +7,7 @@ from datetime import datetime
 from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -71,6 +71,122 @@ class _VisibleTextParser(HTMLParser):
             for line in raw.splitlines()
         ]
         return "\n".join(line for line in lines if line)
+
+
+class _CategoryProductParser(HTMLParser):
+    """Extract Magento product links from server-rendered category HTML."""
+
+    def __init__(self, base_url: str) -> None:
+        super().__init__(convert_charrefs=True)
+        self.base_url = base_url
+        self.products: list[dict] = []
+        self._product_depth = 0
+        self._current: dict | None = None
+        self._capture_title = False
+        self._title_parts: list[str] = []
+
+    @staticmethod
+    def _attrs(attrs) -> dict[str, str]:
+        return {
+            str(key).casefold(): str(value or "")
+            for key, value in attrs
+        }
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        tag = tag.casefold()
+        data = self._attrs(attrs)
+        classes = set(data.get("class", "").split())
+
+        is_product_root = (
+            tag in {"li", "div"}
+            and (
+                "product-item" in classes
+                or (
+                    "product" in classes
+                    and "item" in classes
+                )
+            )
+        )
+
+        if is_product_root and self._product_depth == 0:
+            self._product_depth = 1
+            self._current = {
+                "href": "",
+                "title": "",
+                "sku_hint": (
+                    data.get("data-product-sku")
+                    or data.get("data-sku")
+                    or data.get("data-product-code")
+                    or data.get("data-product-id")
+                    or ""
+                ),
+            }
+            return
+
+        if self._product_depth:
+            self._product_depth += 1
+
+            for key in (
+                "data-product-sku",
+                "data-sku",
+                "data-product-code",
+                "data-product-id",
+            ):
+                value = data.get(key)
+                if value and self._current and not self._current.get("sku_hint"):
+                    self._current["sku_hint"] = value
+
+            if tag == "a" and self._current is not None:
+                href = data.get("href", "")
+                class_text = data.get("class", "")
+                if href and (
+                    "product-item-link" in class_text
+                    or "product-item-photo" in class_text
+                    or not self._current.get("href")
+                ):
+                    absolute = urljoin(self.base_url, href)
+                    if absolute.startswith("https://www.benavides.com.mx/"):
+                        self._current["href"] = absolute.split("?", 1)[0].rstrip("/")
+
+                if "product-item-link" in class_text:
+                    self._capture_title = True
+                    self._title_parts = []
+
+            if tag == "img" and self._current is not None:
+                alt = data.get("alt", "").strip()
+                if alt and not self._current.get("title"):
+                    self._current["title"] = alt
+
+    def handle_data(self, data: str) -> None:
+        if self._capture_title and data:
+            self._title_parts.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._capture_title and tag.casefold() == "a":
+            title = re.sub(r"\s+", " ", " ".join(self._title_parts)).strip()
+            if self._current is not None and title:
+                self._current["title"] = title
+            self._capture_title = False
+            self._title_parts = []
+
+        if not self._product_depth:
+            return
+
+        self._product_depth -= 1
+        if self._product_depth == 0:
+            current = self._current or {}
+            href = clean_text(current.get("href"))
+            title = clean_text(current.get("title"))
+            if href and title:
+                self.products.append(
+                    {
+                        "href": href,
+                        "title": title,
+                        "card_text": "",
+                        "sku_hint": clean_text(current.get("sku_hint")) or "",
+                    }
+                )
+            self._current = None
 
 
 class BenavidesScraper:
@@ -474,8 +590,67 @@ class BenavidesScraper:
 
         return text, status, "request"
 
+    def _fetch_category_html(
+        self,
+        request_context,
+        page,
+        url: str,
+    ) -> tuple[str, int | None, str]:
+        try:
+            response = request_context.get(
+                url,
+                timeout=60_000,
+                fail_on_status_code=False,
+            )
+            status = int(response.status)
+            html = response.text()
+            text = self._html_to_text(html)
+
+            if self._is_blocked_text(text, status):
+                raise BenavidesBlocked(
+                    f"Farmacias Benavides bloqueó categoría {url} "
+                    f"(HTTP {status})."
+                )
+            if status >= 500:
+                raise BenavidesNetworkUnavailable(
+                    f"Farmacias Benavides devolvió HTTP {status} en {url}."
+                )
+            if status >= 400:
+                raise BenavidesNetworkUnavailable(
+                    f"Farmacias Benavides devolvió HTTP {status} en {url}."
+                )
+            return html, status, "request"
+        except BenavidesBlocked:
+            raise
+        except Exception as exc:
+            print(
+                "Benavides category request falló; usando navegación "
+                f"de Chrome: {type(exc).__name__}: {exc}",
+                flush=True,
+            )
+            self._goto(page, url)
+            return page.content(), None, "browser"
+
+    @classmethod
+    def _product_links_from_html(
+        cls,
+        html: str,
+        base_url: str,
+    ) -> list[dict]:
+        parser = _CategoryProductParser(base_url)
+        parser.feed(html or "")
+        parser.close()
+
+        unique: dict[str, dict] = {}
+        for item in parser.products:
+            href = clean_text(item.get("href"))
+            if href:
+                unique[href] = item
+        return list(unique.values())
+
     def _discover_links(
         self,
+        request_context,
         page,
         category: Category,
     ) -> tuple[list[dict], dict]:
@@ -486,22 +661,18 @@ class BenavidesScraper:
 
         for page_number in range(1, self.max_pages + 1):
             url = self._page_url(category.url, page_number)
-            self._goto(page, url)
+            html, http_status, transport = self._fetch_category_html(
+                request_context,
+                page,
+                url,
+            )
+            body = self._html_to_text(html)
 
-            body = self._body_text(page)
             current_target = self._target_count(body)
             if current_target is not None:
                 target = max(target or 0, current_target)
 
-            try:
-                page.wait_for_selector(
-                    "a.product-item-link, li.product-item a[href], .product-item a[href]",
-                    timeout=15_000,
-                )
-            except PlaywrightTimeoutError:
-                links = []
-            else:
-                links = self._product_links(page)
+            links = self._product_links_from_html(html, url)
 
             before = len(found)
             for item in links:
@@ -513,7 +684,9 @@ class BenavidesScraper:
             pages.append(
                 {
                     "page": page_number,
-                    "url": page.url,
+                    "url": url,
+                    "http_status": http_status,
+                    "transport": transport,
                     "links_on_page": len(links),
                     "new_links": after - before,
                     "cumulative_links": after,
@@ -524,7 +697,8 @@ class BenavidesScraper:
             print(
                 f"Benavides [{category.id}] page={page_number}: "
                 f"links={len(links)}, new={after - before}, "
-                f"cumulative={after}, target={target}",
+                f"cumulative={after}, target={target}, "
+                f"transport={transport}",
                 flush=True,
             )
 
@@ -535,7 +709,7 @@ class BenavidesScraper:
             if stale_pages >= 2:
                 break
 
-            if links and len(links) < 12 and target is None:
+            if not links:
                 break
 
         return list(found.values()), {
@@ -578,7 +752,11 @@ class BenavidesScraper:
             page = context.new_page()
 
             try:
-                links, discovery = self._discover_links(page, category)
+                links, discovery = self._discover_links(
+                    context.request,
+                    page,
+                    category,
+                )
                 self.run_meta.update(discovery)
 
                 now = datetime.now().astimezone().isoformat(timespec="seconds")
