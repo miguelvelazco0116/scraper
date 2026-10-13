@@ -918,3 +918,50 @@ Cuando una corrección pase una prueba real:
 5. No sustituir ese método por uno nuevo sin una razón concreta.
 6. Probar cualquier mejora de forma aislada antes de reemplazar el patrón validado.
 7. Si una prueba falla, no marcar el nuevo enfoque como validado y volver al último método exitoso.
+
+## Farmacias San Pablo - OCC capturado desde el storefront
+
+Estado: VALIDADO / PRODUCTIVO
+
+Patrón oficial:
+- abrir Farmacias San Pablo en Chrome manual del usuario
+- habilitar remote debugging y reutilizar esa sesión por CDP
+- navegar cada categoría en el storefront real
+- capturar la respuesta `/rest/v2/fsp/products/search-sponsored` que genera esa navegación
+- conservar la respuesta únicamente después de `requestfinished`
+- parsear directamente el JSON OCC estructurado
+- NO volver a ejecutar el endpoint OCC con `urllib`, `requests` u otro cliente HTTP separado
+- NO usar el fallback DOM como método principal validado
+- no abrir ni cerrar Chrome desde el scraper
+
+Comando validado:
+- `& .\scripts\run_san_pablo_full.ps1`
+
+Validación live reportada el 2026-10-13:
+- descongestionantes: 52/52, SUCCESS
+- preservativos: 49/49, SUCCESS
+- enjuagues-bucales: 46/46, SUCCESS
+- pastas-dentales: 85/85, SUCCESS
+- total: 232/232 productos
+- 4/4 categorías: SUCCESS
+- transporte: `captured_storefront_response` en las 4 categorías
+- precio completo es gate bloqueante del runner
+
+Gate oficial:
+- productos > 0
+- precio actual completo en todas las filas extraídas
+- cuando OCC publica `target_products`: productos extraídos == target exacto
+- las cuatro categorías deben terminar SUCCESS
+- la corrida validada debe usar `captured_storefront_response`
+
+Evidencia:
+- `docs/validation_results/farmacias_san_pablo_validated_2026-10-13.json`
+
+Commit estable del método:
+- `36c37c60e5daf0d633912e2ded77c04ffaebfa17`
+
+Regla:
+- no sustituir este patrón mientras continúe funcionando
+- si OCC cambia, probar cualquier alternativa de forma aislada antes de reemplazar el método validado
+- esta validación es independiente de Fases 1, 2 y 3; no modifica su composición ni estado
+
