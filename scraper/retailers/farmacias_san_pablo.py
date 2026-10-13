@@ -15,6 +15,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
+from ..availability import availability_fields
 from ..config import Category, Location
 from ..parsers import clean_text
 
@@ -603,6 +604,7 @@ class FarmaciasSanPabloScraper:
                     brand = value
                     break
         brand = brand or cls._infer_brand(name)
+        availability = availability_fields(payload=product)
 
         return {
             "scrape_timestamp": now,
@@ -623,6 +625,9 @@ class FarmaciasSanPabloScraper:
             "price_current": current,
             "price_regular": regular,
             "promotion": " | ".join(promotion_parts) if promotion_parts else None,
+            "availability_status": availability["availability_status"],
+            "is_available": availability["is_available"],
+            "availability_raw": availability["availability_raw"],
             "pickup_available": None,
             "store_context_verified": False,
             "store_context_method": "san_pablo_occ_search_sponsored",
@@ -1244,6 +1249,7 @@ class FarmaciasSanPabloScraper:
                 continue
 
             current, regular, promotion = self._prices_from_text(text)
+            availability = availability_fields(text=text)
 
             # Keep the product even when the card has no visible price.
             # Catalog completeness and price completeness are measured
@@ -1272,6 +1278,9 @@ class FarmaciasSanPabloScraper:
                     "price_current": current,
                     "price_regular": regular,
                     "promotion": promotion,
+                    "availability_status": availability["availability_status"],
+                    "is_available": availability["is_available"],
+                    "availability_raw": availability["availability_raw"],
                     "pickup_available": None,
                     "store_context_verified": False,
                     "store_context_method": "selenium_chrome_category_card",
