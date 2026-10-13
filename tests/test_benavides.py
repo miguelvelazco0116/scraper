@@ -45,7 +45,7 @@ def test_benavides_target_count():
     ) == 456
     assert BenavidesScraper._target_count(
         "Higiene bucal\nArtículos 175"
-    ) is None
+    ) == 175
 
 
 def test_benavides_detail_parser_promotional_unavailable():
