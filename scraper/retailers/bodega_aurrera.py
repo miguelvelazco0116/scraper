@@ -1614,7 +1614,9 @@ class BodegaAurreraScraper:
                 f"rows={source_meta.get('rows')}, "
                 f"new={source_meta.get('new_rows')}, "
                 f"cumulative={len(rows)}, "
-                f"explicit_pages={source_meta.get('explicit_pages')}, "
+                f"pages_visited={source_meta.get('pages_visited')}, "
+                f"pager_max_page={source_meta.get('pager_max_page')}, "
+                f"pagination_method={source_meta.get('pagination_method')}, "
                 f"stabilized={source_meta.get('stabilized')}",
                 flush=True,
             )
