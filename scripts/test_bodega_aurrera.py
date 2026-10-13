@@ -348,6 +348,10 @@ def main() -> int:
         )
     )
     parser.add_argument("--cdp-url", required=True)
+    parser.add_argument(
+        "--category",
+        help="Ejecuta solo un category_id, por ejemplo cuidado-bucal.",
+    )
     args = parser.parse_args()
 
     categories = [
@@ -356,6 +360,18 @@ def main() -> int:
             ROOT / "config" / "bodega-aurrera" / "categories.yaml"
         )
     ]
+    if args.category:
+        categories = [
+            item
+            for item in categories
+            if item.id == args.category
+        ]
+        if not categories:
+            print(
+                f"ERROR: category_id no configurado: {args.category}"
+            )
+            return 12
+
     location = next(
         x
         for x in load_locations(ROOT / "config" / "locations.yaml")
