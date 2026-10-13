@@ -56,11 +56,20 @@ class _PlaywrightDriverAdapter:
         self.switch_to = _SwitchToProxy()
         self.occ_fallback_reason: str | None = None
         self._occ_responses = []
-        self.page.on("response", self._capture_occ_response)
+        # Store OCC only after Chrome reports the request as fully finished.
+        # Capturing on the earlier "response" event can expose headers before
+        # the body is complete and response.json() may then wait indefinitely.
+        self.page.on("requestfinished", self._capture_finished_occ_request)
 
-    def _capture_occ_response(self, response) -> None:
-        url = str(getattr(response, "url", "") or "")
-        if "/rest/v2/fsp/products/search-sponsored" in url:
+    def _capture_finished_occ_request(self, request) -> None:
+        url = str(getattr(request, "url", "") or "")
+        if "/rest/v2/fsp/products/search-sponsored" not in url:
+            return
+        try:
+            response = request.response()
+        except Exception:
+            response = None
+        if response is not None:
             self._occ_responses.append(response)
 
     def read_occ_payload(self) -> tuple[dict, str] | None:
