@@ -276,6 +276,21 @@ Estado:
 - NO VALIDADO
 - NO INTEGRAR a Fase 3
 
+## Bodega Aurrera - paginación dinámica por estado actual
+
+Regla operativa:
+- el número de páginas N nunca se considera estático
+- el scraper relee el paginador en cada página visitada
+- `pager_max_page` / `last_page_observed` son diagnósticos dinámicos, no constantes
+- la condición real para continuar es que exista un control "siguiente" habilitado
+- el control siguiente puede detectarse por texto/aria (`Next`, `Siguiente`, `>`) o geométricamente como el control habilitado inmediatamente a la derecha de los números
+- si el sitio cambia de 3 a 23, 31, 7 o cualquier otro número de páginas, el recorrido se adapta durante esa misma corrida
+- `max_pages=100` es únicamente un tope de seguridad para evitar loops infinitos; nunca representa el total esperado
+- llegar a ese tope con "siguiente" todavía habilitado invalida `pagination_verified`
+
+Estado:
+- PENDIENTE DE VALIDACIÓN LIVE
+
 ## Fase 3 - Bodega Aurrera + Walmart
 
 Estado: EN VALIDACIÓN LIVE

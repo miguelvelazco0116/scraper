@@ -615,6 +615,10 @@ class BodegaAurreraScraper:
                     );
                   };
 
+                  const disabled = el =>
+                    el.disabled === true ||
+                    el.getAttribute('aria-disabled') === 'true';
+
                   const controlNumber = el => {
                     const text = normalize(el.innerText || el.textContent);
                     const aria = normalize(el.getAttribute('aria-label'));
@@ -727,7 +731,7 @@ class BodegaAurreraScraper:
                       ? controlNumber(currentControl)
                       : null;
 
-                    const hasNext = controls.some(el => {
+                    const nextControls = controls.filter(el => {
                       const blob = normalize(
                         [
                           el.innerText,
@@ -746,6 +750,40 @@ class BodegaAurreraScraper:
                       );
                     });
 
+                    const numericControls = controls.filter(
+                      el => Number.isFinite(controlNumber(el))
+                    );
+                    const numericRightEdge = numericControls.length
+                      ? Math.max(
+                          ...numericControls.map(
+                            el => el.getBoundingClientRect().right
+                          )
+                        )
+                      : -Infinity;
+
+                    const geometricNextControls = controls.filter(el => {
+                      if (controlNumber(el) !== null) return false;
+                      const label = normalize(
+                        el.innerText || el.textContent
+                      );
+                      if (/^(\.\.\.|…)$/.test(label)) return false;
+                      return (
+                        el.getBoundingClientRect().left >=
+                        numericRightEdge - 2
+                      );
+                    });
+
+                    const allNextControls = Array.from(
+                      new Set([
+                        ...nextControls,
+                        ...geometricNextControls
+                      ])
+                    );
+                    const hasNext = allNextControls.length > 0;
+                    const nextEnabled = allNextControls.some(
+                      el => !disabled(el)
+                    );
+
                     const score =
                       controlNumbers.length * 20 +
                       (text.includes('…') || text.includes('...') ? 25 : 0) +
@@ -762,6 +800,7 @@ class BodegaAurreraScraper:
                         current,
                         max_page: Math.max(...numbers),
                         has_next: hasNext,
+                        next_enabled: nextEnabled,
                         text: text.slice(0, 500)
                       };
                     }
@@ -773,6 +812,7 @@ class BodegaAurreraScraper:
                     current: null,
                     max_page: null,
                     has_next: false,
+                    next_enabled: false,
                     text: ''
                   };
                 }
@@ -785,6 +825,7 @@ class BodegaAurreraScraper:
                 "current": None,
                 "max_page": None,
                 "has_next": False,
+                "next_enabled": False,
                 "text": "",
             }
 
@@ -794,6 +835,7 @@ class BodegaAurreraScraper:
             "current": None,
             "max_page": None,
             "has_next": False,
+            "next_enabled": False,
             "text": "",
         }
 
@@ -1100,65 +1142,35 @@ class BodegaAurreraScraper:
             }
 
         source_target = self._target_count(page)
-        pager = self._scroll_to_pagination(page)
-        max_page = pager.get("max_page")
-        if max_page is not None:
-            try:
-                max_page = int(max_page)
-            except (TypeError, ValueError):
-                max_page = None
-
-        if max_page is None or max_page < 1:
-            max_page = 1
-
-        max_page = min(max_page, max(1, self.max_pages))
         unique_source: dict[str, dict] = {}
         page_meta: list[dict] = []
-        pagination_complete = True
+        pagination_complete = False
+        page_number = 1
+        observed_last_page: int | None = None
+        click_result: dict = {
+            "clicked": True,
+            "method": "initial_page",
+        }
 
-        for page_number in range(1, max_page + 1):
-            if page_number > 1:
-                click_result = self._click_pagination_next(
-                    page,
-                    expected_page=page_number,
-                )
-                if not click_result.get("clicked"):
-                    pagination_complete = False
-                    page_meta.append(
-                        {
-                            "page_number": page_number,
-                            "click_result": click_result,
-                            "rows": 0,
-                            "stabilized": False,
-                        }
-                    )
-                    break
-
-                page.wait_for_timeout(self.wait_ms)
-                try:
-                    page.wait_for_selector(
-                        'a[href*="/ip/"]',
-                        timeout=20_000,
-                    )
-                except PlaywrightTimeoutError:
-                    pagination_complete = False
-                    page_meta.append(
-                        {
-                            "page_number": page_number,
-                            "click_result": click_result,
-                            "rows": 0,
-                            "stabilized": False,
-                            "no_product_links": True,
-                        }
-                    )
-                    break
-            else:
-                click_result = {
-                    "clicked": True,
-                    "method": "initial_page",
-                }
-
+        while page_number <= max(1, self.max_pages):
             pager_snapshot = self._scroll_to_pagination(page)
+
+            snapshot_last = pager_snapshot.get("max_page")
+            try:
+                snapshot_last = (
+                    int(snapshot_last)
+                    if snapshot_last not in (None, "")
+                    else None
+                )
+            except (TypeError, ValueError):
+                snapshot_last = None
+
+            if snapshot_last is not None and snapshot_last >= 1:
+                observed_last_page = max(
+                    observed_last_page or 1,
+                    snapshot_last,
+                )
+
             rows = self._extract_rows(
                 page,
                 category,
@@ -1177,11 +1189,12 @@ class BodegaAurreraScraper:
                 pager_current is not None
                 and int(pager_current) == page_number
             )
-            if (
-                page_number > 1
-                and new_on_page <= 0
-                and not pager_proves_advance
-            ):
+            page_valid = bool(
+                page_number == 1
+                or new_on_page > 0
+                or pager_proves_advance
+            )
+            if not page_valid:
                 pagination_complete = False
 
             page_meta.append(
@@ -1194,7 +1207,8 @@ class BodegaAurreraScraper:
                     "product_links": self._product_link_count(page),
                     "pager_current": pager_current,
                     "pager_proves_advance": pager_proves_advance,
-                    "pager_max_page": pager_snapshot.get("max_page"),
+                    "pager_max_page": snapshot_last,
+                    "observed_last_page": observed_last_page,
                     "pager_numbers": pager_snapshot.get("numbers"),
                     "pager_control_numbers": pager_snapshot.get(
                         "control_numbers"
@@ -1206,22 +1220,100 @@ class BodegaAurreraScraper:
                     "pager_scroll_rounds": pager_snapshot.get(
                         "scroll_rounds"
                     ),
+                    "has_next": bool(
+                        pager_snapshot.get("has_next")
+                    ),
+                    "next_enabled": bool(
+                        pager_snapshot.get("next_enabled")
+                    ),
                     "click_result": click_result,
-                    "stabilized": True,
+                    "stabilized": page_valid,
                 }
             )
 
+            page_display_total = (
+                observed_last_page
+                if observed_last_page is not None
+                else "?"
+            )
             print(
                 "Bodega Aurrera UI page "
-                f"{page_number}/{max_page}: "
+                f"{page_number}/{page_display_total}: "
                 f"rows={len(rows)}, "
                 f"new={new_on_page}, "
-                f"unique_source={len(unique_source)}",
+                f"unique_source={len(unique_source)}, "
+                f"next_enabled={bool(pager_snapshot.get('next_enabled'))}",
                 flush=True,
             )
 
+            if not page_valid:
+                break
+
+            next_enabled = bool(
+                pager_snapshot.get("next_enabled")
+            )
+            has_next = bool(
+                pager_snapshot.get("has_next")
+            )
+
+            # The real stopping condition is dynamic: the current paginator
+            # no longer exposes an enabled next control. The last-page number
+            # is diagnostic only and may change between runs or even while a
+            # catalogue is being served.
+            if not next_enabled:
+                if (
+                    observed_last_page is None
+                    or page_number >= observed_last_page
+                    or not has_next
+                ):
+                    pagination_complete = True
+                else:
+                    pagination_complete = False
+                break
+
+            if page_number >= self.max_pages:
+                pagination_complete = False
+                break
+
+            expected_page = page_number + 1
+            click_result = self._click_pagination_next(
+                page,
+                expected_page=expected_page,
+            )
+            if not click_result.get("clicked"):
+                pagination_complete = False
+                page_meta.append(
+                    {
+                        "page_number": expected_page,
+                        "click_result": click_result,
+                        "rows": 0,
+                        "stabilized": False,
+                    }
+                )
+                break
+
+            page.wait_for_timeout(self.wait_ms)
+            try:
+                page.wait_for_selector(
+                    'a[href*="/ip/"]',
+                    timeout=20_000,
+                )
+            except PlaywrightTimeoutError:
+                pagination_complete = False
+                page_meta.append(
+                    {
+                        "page_number": expected_page,
+                        "click_result": click_result,
+                        "rows": 0,
+                        "stabilized": False,
+                        "no_product_links": True,
+                    }
+                )
+                break
+
             # Keep the low-resource/high-latency execution deliberately slow.
             page.wait_for_timeout(self.wait_ms)
+            page_number = expected_page
 
         new_rows = [
             row
@@ -1238,8 +1330,8 @@ class BodegaAurreraScraper:
         )
 
         if (
-            pager.get("max_page") not in (None, 0)
-            and int(pager.get("max_page")) > self.max_pages
+            observed_last_page is not None
+            and observed_last_page > self.max_pages
         ):
             pagination_complete = False
 
@@ -1269,11 +1361,28 @@ class BodegaAurreraScraper:
             "pages_visited": len(page_meta),
             "queued_pages_remaining": 0,
             "pagination_method": "ui_numeric_next",
-            "pager_max_page": pager.get("max_page"),
-            "pager_numbers": pager.get("numbers"),
-            "pager_control_numbers": pager.get("control_numbers"),
-            "pager_text_numbers": pager.get("text_numbers"),
-            "pager_text": pager.get("text"),
+            "pager_max_page": observed_last_page,
+            "last_page_observed": observed_last_page,
+            "pager_numbers": (
+                page_meta[-1].get("pager_numbers")
+                if page_meta
+                else None
+            ),
+            "pager_control_numbers": (
+                page_meta[-1].get("pager_control_numbers")
+                if page_meta
+                else None
+            ),
+            "pager_text_numbers": (
+                page_meta[-1].get("pager_text_numbers")
+                if page_meta
+                else None
+            ),
+            "pager_text": (
+                page_meta[-1].get("pager_text")
+                if page_meta
+                else None
+            ),
             "sponsored_banner_clicks": 0,
             "explicit_page_meta": page_meta,
         }
