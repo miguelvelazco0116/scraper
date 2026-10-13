@@ -126,6 +126,8 @@ El integrador compara la fecha de la fase contra la fecha del master activo y re
 
 ## Consolidación incremental por componentes validados
 
+Los componentes NO constituyen una fase nueva ni cambian la arquitectura oficial. Son únicamente checkpoints internos de **Fase 3** para no repetir una categoría exitosa dentro de la misma corrida diaria. El flujo oficial sigue siendo `Fase 1 -> Fase 2 -> Fase 3 -> master diario`.
+
 Para Fase 3 se evita volver a scrapear categorías que ya pasaron validación.
 
 Flujo:
@@ -134,7 +136,7 @@ Flujo:
 test de categoría
 → revisar resultado live
 → promover categoría aprobada
-→ componente congelado en output\validated_phase3_components
+→ componente interno congelado en output\validated_phase3_components\YYYY-MM-DD
 → repetir sólo categorías pendientes
 → construir concentrado_fase3.xlsx desde 5 componentes
 → integrar -Phase 3 al master fechado
@@ -158,7 +160,7 @@ output\validated_phase3_components\YYYY-MM-DD\
 y cada promoción genera además un checkpoint inmutable en:
 
 ```text
-output\checkpoints_validos\phase3_components\
+output\checkpoints_validos\phase3_components\YYYY-MM-DD\
 ```
 
 Cuando existan los 5 componentes esperados:
