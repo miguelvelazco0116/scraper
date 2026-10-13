@@ -252,6 +252,30 @@ Gate:
 Estado:
 - PENDIENTE DE VALIDACIÓN LIVE
 
+## Bodega Aurrera - corrida 487 filas descartada por paginación incompleta
+
+Resultado observado durante validación live:
+- cuidado-bucal: 235 filas, reportó 3+3 páginas
+- cuidado-de-la-ropa: 252 filas, reportó 5+3 páginas
+- SKU/precio/URL completos y price_validation_errors=0
+- exit_code=0
+
+Motivo de descarte:
+- evidencia visual mostró paginador real con formato `1 2 3 … 23 >`
+- el detector anterior calculaba `max_page` sólo con controles numéricos clicables visibles
+- el último número después de la elipsis podía ser texto/span, por lo que se tomó erróneamente `3` como última página
+- por esta razón `pagination_verified=True` fue un falso positivo
+
+Corrección:
+- combinar números de controles clicables con números del texto corto del contenedor del paginador
+- tratar el último número después de la elipsis como `pager_max_page`
+- para páginas no visibles como botón, avanzar con el control inmediatamente a la derecha de los números
+- exigir avance real del paginador o SKUs nuevos
+
+Estado:
+- NO VALIDADO
+- NO INTEGRAR a Fase 3
+
 ## Fase 3 - Bodega Aurrera + Walmart
 
 Estado: EN VALIDACIÓN LIVE
