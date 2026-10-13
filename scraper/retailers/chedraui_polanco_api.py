@@ -175,11 +175,11 @@ class ChedrauiScraper(PolancoUIScraper):
                 availability_raw = "productSearchV3 AvailableQuantity=None"
             elif available > 0:
                 availability_status = AVAILABLE
-                is_available = True
+                is_available = 1
                 availability_raw = f"productSearchV3 AvailableQuantity={available}"
             else:
                 availability_status = UNAVAILABLE
-                is_available = False
+                is_available = 0
                 availability_raw = f"productSearchV3 AvailableQuantity={available}"
 
             rows.append(
