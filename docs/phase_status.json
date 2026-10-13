@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-12",
+  "updated_at": "2026-10-13",
   "operating_rule": "A validated phase remains validated and must not be reworked unless a new concrete failure proves necessary. A pending phase is added only after a successful live Windows Server run.",
   "phases": {
     "1": {
@@ -120,6 +120,26 @@
         "required_components_per_day": 5,
         "rule": "Never mix components from different capture dates."
       }
+    },
+    "4": {
+      "name": "Fase 4",
+      "status": "VALIDATED_READY_FOR_INTEGRATION",
+      "validated_at": "2026-10-13",
+      "products": 232,
+      "categories": 4,
+      "retailers": [
+        "Farmacias San Pablo"
+      ],
+      "evidence": "docs/validation_results/farmacias_san_pablo_validated_2026-10-13.json",
+      "source_workbook": "output/farmacias_san_pablo_test.xlsx",
+      "integration_command": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 4",
+      "validation_rules": {
+        "all_categories_success": true,
+        "exact_occ_target_match": true,
+        "price_completeness": 1,
+        "occ_transport": "captured_storefront_response"
+      },
+      "note": "Phase 4 is appended only to an active daily master that already contains completed Phases 1, 2 and 3."
     }
   }
 }
