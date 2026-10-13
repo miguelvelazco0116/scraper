@@ -60,7 +60,27 @@
           "evidence": "docs/validation_results/bodega_aurrera_partial_2026-10-12.json"
         },
         "Walmart": {
-          "status": "PENDING_LIVE_VALIDATION"
+          "status": "PENDING_LIVE_VALIDATION",
+          "strategy": "EXISTING_CHROME_DIRECT_BROWSE_DYNAMIC_PAGER",
+          "store": {
+            "name": "SC Toreo",
+            "store_id": "2344",
+            "postal_code": "11220"
+          },
+          "categories": {
+            "cuidado-bucal": {
+              "source_urls": 2,
+              "status": "PENDING_LIVE_VALIDATION"
+            },
+            "cuidado-de-la-ropa": {
+              "source_urls": 2,
+              "status": "PENDING_LIVE_VALIDATION"
+            },
+            "depilacion-y-rasurado": {
+              "source_urls": 1,
+              "status": "PENDING_LIVE_VALIDATION"
+            }
+          }
         }
       }
     }
