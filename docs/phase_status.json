@@ -49,7 +49,20 @@
         "extracted_row_url_completeness": 1,
         "walmart_store_context_completeness": 1
       },
-      "note": "Do not integrate or mark VALIDATED until a complete live Phase 3 run passes."
+      "note": "Do not integrate or mark VALIDATED until a complete live Phase 3 run passes.",
+      "retailer_progress": {
+        "Bodega Aurrera": {
+          "status": "PARTIAL_VALIDATION",
+          "categories": {
+            "cuidado-de-la-ropa": "VALIDATED",
+            "cuidado-bucal": "PENDING_PAGINATION_DIAGNOSIS"
+          },
+          "evidence": "docs/validation_results/bodega_aurrera_partial_2026-10-12.json"
+        },
+        "Walmart": {
+          "status": "PENDING_LIVE_VALIDATION"
+        }
+      }
     }
   }
 }
