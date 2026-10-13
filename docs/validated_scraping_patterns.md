@@ -291,6 +291,42 @@ Regla operativa:
 Estado:
 - PENDIENTE DE VALIDACIÓN LIVE
 
+## Walmart - fuentes /browse directas y paginación dinámica
+
+Configuración candidata 2026-10-12.
+
+Fuentes directas confirmadas por navegación manual:
+- cuidado-de-la-ropa / detergente en polvo:
+  `https://www.walmart.com.mx/browse/cuidado-de-la-ropa/detergente/detergente-en-polvo/3680083_3570057_3570059`
+- cuidado-de-la-ropa / detergente líquido:
+  `https://www.walmart.com.mx/browse/cuidado-de-la-ropa/detergente/detergente-liquido/3680083_3570057_3570058`
+- cuidado-bucal / pasta dental:
+  `https://www.walmart.com.mx/browse/cuidado-personal/cuidado-bucal/pasta-dental/264479_950014_950022`
+- cuidado-bucal / enjuagues bucales:
+  `https://www.walmart.com.mx/browse/cuidado-personal/cuidado-bucal/enjuagues-bucales/264479_950014_950025`
+
+Patrón:
+- reutilizar Chrome abierto manualmente por CDP
+- conservar contexto SC Toreo / store 2344 / CP 11220
+- cuidado-bucal usa 2 `source_urls`
+- cuidado-de-la-ropa usa 2 `source_urls`
+- depilacion-y-rasurado se conserva como tercera categoría con su URL actual hasta contar con fuentes más específicas
+- ignorar banners patrocinados dentro del catálogo
+- hacer scroll hasta el paginador numérico real
+- releer el paginador en cada página
+- avanzar una página a la vez mientras exista control siguiente habilitado
+- `max_pages=100` es sólo tope anti-loop
+- pausa de 2.5 s entre páginas y 4 s entre fuentes/categorías
+
+Gate:
+- target confiable -> coverage >=90%
+- sin target -> pagination_verified=True
+- SKU/precio/URL de filas extraídas =100%
+- store_context_verified/store_context_complete =100%
+
+Estado:
+- PENDIENTE DE VALIDACIÓN LIVE
+
 ## Fase 3 - Bodega Aurrera + Walmart
 
 Estado: EN VALIDACIÓN LIVE

@@ -5,15 +5,21 @@ categories:
     name: Higiene y cuidado personal
     subcategory: Cuidado bucal
     sub_subcategory: null
-    url: https://www.walmart.com.mx/browse/cuidado-personal/cuidado-bucal/264479_950014
+    url: https://www.walmart.com.mx/browse/cuidado-personal/cuidado-bucal/pasta-dental/264479_950014_950022
+    source_urls:
+      - https://www.walmart.com.mx/browse/cuidado-personal/cuidado-bucal/pasta-dental/264479_950014_950022
+      - https://www.walmart.com.mx/browse/cuidado-personal/cuidado-bucal/enjuagues-bucales/264479_950014_950025
     enabled: true
 
   - id: cuidado-de-la-ropa
     department: Limpieza del hogar y cuidado personal
     name: Cuidado de la ropa
-    subcategory: null
+    subcategory: Detergentes
     sub_subcategory: null
-    url: https://www.walmart.com.mx/browse/cuidado-de-la-ropa/3680083
+    url: https://www.walmart.com.mx/browse/cuidado-de-la-ropa/detergente/detergente-en-polvo/3680083_3570057_3570059
+    source_urls:
+      - https://www.walmart.com.mx/browse/cuidado-de-la-ropa/detergente/detergente-en-polvo/3680083_3570057_3570059
+      - https://www.walmart.com.mx/browse/cuidado-de-la-ropa/detergente/detergente-liquido/3680083_3570057_3570058
     enabled: true
 
   - id: depilacion-y-rasurado
