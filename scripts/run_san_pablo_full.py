@@ -76,9 +76,9 @@ def main() -> int:
     parser.add_argument("--location", default="san-pablo-online")
     parser.add_argument("--max-pages", type=int, default=20)
     parser.add_argument(
-        "--headless",
-        action="store_true",
-        help="Ejecuta Chrome sin ventana. Por defecto el test es visible.",
+        "--debugger-address",
+        required=True,
+        help="Chrome existente, por ejemplo 127.0.0.1:9222.",
     )
     args = parser.parse_args()
 
@@ -98,12 +98,26 @@ def main() -> int:
     all_rows: list[dict] = []
     summaries: list[dict] = []
 
+    scraper = FarmaciasSanPabloScraper(
+        headless=False,
+        max_pages=args.max_pages,
+        debugger_address=args.debugger_address,
+    )
+    try:
+        driver = scraper.connect_existing_chrome()
+    except FarmaciasSanPabloNetworkUnavailable as exc:
+        print("ERROR: no fue posible conectarse al Chrome abierto.")
+        print(str(exc))
+        return 10
+
     print("=" * 68)
     print("FARMACIAS SAN PABLO - TEST COMPLETO")
     print("=" * 68)
     print(f"Categorías : {len(categories)}")
     print(f"Salida     : {OUTPUT_PATH}")
     print(f"Consolidado: {CONSOLIDATED_PATH}")
+    print(f"Chrome     : SESION EXISTENTE ({args.debugger_address})")
+    print("El script NO abre ni cierra Chrome.")
     print("")
 
     for index, category in enumerate(categories, start=1):
@@ -112,17 +126,16 @@ def main() -> int:
         print(category.url)
         print("-" * 68)
 
-        scraper = FarmaciasSanPabloScraper(
-            headless=args.headless,
-            max_pages=args.max_pages,
-        )
-
         status = "SUCCESS"
         error = None
         rows: list[dict] = []
 
         try:
-            rows = scraper.scrape_category(category, location)
+            rows = scraper.scrape_category_on_driver(
+                driver,
+                category,
+                location,
+            )
             meta = scraper.last_meta or {}
             status = str(meta.get("status") or ("SUCCESS" if rows else "EMPTY"))
         except FarmaciasSanPabloBlocked as exc:
