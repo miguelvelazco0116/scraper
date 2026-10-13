@@ -1,0 +1,49 @@
+{
+  "retailer": "Farmacias San Pablo",
+  "validation_date": "2026-10-13",
+  "status": "VALIDATED_METHOD",
+  "environment": "Windows Server / user-owned Google Chrome / CDP",
+  "command": "& .\\scripts\\run_san_pablo_full.ps1",
+  "method": {
+    "browser": "existing Chrome session",
+    "transport": "captured_storefront_response",
+    "source": "SAP Commerce OCC search-sponsored",
+    "endpoint": "https://api.farmaciasanpablo.com.mx/rest/v2/fsp/products/search-sponsored",
+    "rule": "Capture the OCC response emitted by the real storefront navigation after requestfinished; do not replay the API with urllib and do not use DOM fallback as the validated primary method."
+  },
+  "categories": {
+    "descongestionantes": {
+      "products": 52,
+      "target": 52,
+      "status": "SUCCESS"
+    },
+    "preservativos": {
+      "products": 49,
+      "target": 49,
+      "status": "SUCCESS"
+    },
+    "enjuagues-bucales": {
+      "products": 46,
+      "target": 46,
+      "status": "SUCCESS"
+    },
+    "pastas-dentales": {
+      "products": 85,
+      "target": 85,
+      "status": "SUCCESS"
+    }
+  },
+  "totals": {
+    "products": 232,
+    "target": 232,
+    "categories": 4
+  },
+  "quality_gates": {
+    "exact_target_match": true,
+    "price_complete_required": true,
+    "all_categories_success": true,
+    "transport_required": "captured_storefront_response"
+  },
+  "code_commit": "36c37c60e5daf0d633912e2ded77c04ffaebfa17",
+  "note": "This validation is independent of Phases 1, 2 and 3 and does not modify their status or composition."
+}
