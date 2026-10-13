@@ -15,6 +15,7 @@ from playwright.sync_api import sync_playwright
 
 from main import COLUMNS, CONSOLIDATED_PATH, update_consolidated_output
 from scraper.config import load_categories, load_locations
+from scraper.parsers import clean_text
 from scraper.retailers.farmacias_san_pablo import (
     FarmaciasSanPabloBlocked,
     FarmaciasSanPabloNetworkUnavailable,
