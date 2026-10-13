@@ -54,6 +54,15 @@ PHASES = {
         "categories": 5,
         "require_fg_names": False,
     },
+    4: {
+        "label": "FASE 4",
+        "source": ROOT / "output" / "farmacias_san_pablo_test.xlsx",
+        "retailers": {
+            "Farmacias San Pablo",
+        },
+        "categories": 4,
+        "require_fg_names": False,
+    },
 } 
 
 PHASE3_RETAILER_SOURCES = {
@@ -287,6 +296,94 @@ def _validate_walmart_retailer(
         ).fillna(-1)
         if not sponsored.eq(0).all():
             notes.append("Walmart sponsored_banner_clicks > 0")
+
+    return notes
+
+
+def _validate_san_pablo_phase(
+    frame: pd.DataFrame,
+    summary: pd.DataFrame,
+) -> list[str]:
+    notes: list[str] = []
+
+    if frame.empty:
+        notes.append("Concentrado San Pablo vacío")
+    if len(summary) != 4:
+        notes.append(f"San Pablo categorías {len(summary)}/4")
+        return notes
+
+    required_summary = {
+        "category_id",
+        "target_products",
+        "products_extracted",
+        "price_complete",
+        "status",
+        "occ_transport",
+    }
+    missing = required_summary.difference(summary.columns)
+    if missing:
+        notes.append(
+            "San Pablo Resumen sin columnas: "
+            + ", ".join(sorted(missing))
+        )
+        return notes
+
+    if not summary["status"].astype(str).str.upper().eq("SUCCESS").all():
+        notes.append("San Pablo tiene categorías no SUCCESS")
+
+    expected_categories = {
+        "descongestionantes",
+        "preservativos",
+        "enjuagues-bucales",
+        "pastas-dentales",
+    }
+    observed_categories = set(
+        summary["category_id"].dropna().astype(str)
+    )
+    if observed_categories != expected_categories:
+        notes.append(
+            "Categorías San Pablo inesperadas: "
+            f"{sorted(observed_categories)}"
+        )
+
+    products = pd.to_numeric(
+        summary["products_extracted"], errors="coerce"
+    ).fillna(-1)
+    targets = pd.to_numeric(
+        summary["target_products"], errors="coerce"
+    ).fillna(-2)
+    prices = pd.to_numeric(
+        summary["price_complete"], errors="coerce"
+    ).fillna(-3)
+
+    if not products.eq(targets).all():
+        notes.append("San Pablo productos != target OCC")
+    if not prices.eq(products).all():
+        notes.append("San Pablo price_complete incompleto")
+    if int(products.sum()) != len(frame):
+        notes.append(
+            f"San Pablo suma products={int(products.sum())} "
+            f"!= filas={len(frame)}"
+        )
+
+    transports = summary["occ_transport"].fillna("").astype(str)
+    if not transports.eq("captured_storefront_response").all():
+        notes.append(
+            "San Pablo no usó captured_storefront_response en todas "
+            "las categorías"
+        )
+
+    retailers = set(frame["retailer"].dropna().astype(str))
+    if retailers != {"Farmacias San Pablo"}:
+        notes.append(
+            f"Retailers San Pablo inesperados: {sorted(retailers)}"
+        )
+
+    frame_prices = pd.to_numeric(
+        frame["price_current"], errors="coerce"
+    ).notna().sum()
+    if int(frame_prices) != len(frame):
+        notes.append("San Pablo price_current incompleto en Concentrado")
 
     return notes
 
@@ -628,7 +725,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Integra una fase productiva validada al concentrado maestro."
     )
-    parser.add_argument("--phase", type=int, choices=[1, 2, 3], required=True)
+    parser.add_argument("--phase", type=int, choices=[1, 2, 3, 4], required=True)
     parser.add_argument(
         "--retailer",
         choices=["Bodega Aurrera", "Walmart"],
@@ -671,6 +768,14 @@ def main() -> int:
             phase_frame,
             phase_summary,
             phase_control,
+        )
+    elif phase == 4:
+        phase_frame, phase_summary, phase_control = (
+            _read_workbook_optional_control(source)
+        )
+        notes = _validate_san_pablo_phase(
+            phase_frame,
+            phase_summary,
         )
     else:
         phase_frame, phase_summary, phase_control = _read_workbook(source)
@@ -905,6 +1010,15 @@ def main() -> int:
                         concentrated.loc[
                             concentrated["retailer"].astype(str).isin(
                                 PHASES[3]["retailers"]
+                            )
+                        ]
+                    )
+                ),
+                "phase4_products": int(
+                    len(
+                        concentrated.loc[
+                            concentrated["retailer"].astype(str).isin(
+                                PHASES[4]["retailers"]
                             )
                         ]
                     )
