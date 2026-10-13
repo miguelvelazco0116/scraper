@@ -21,7 +21,7 @@ No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadi
 | Farmacias del Ahorro | 4 | 288 | 100% | 100% | Validado / Fase 1 |
 | Farmacias San Pablo | 4 | 232 | 100% | 100% en última validación | Activo |
 | Ibarra Mayoreo | 4 | 572 | 100% | SKU informativo; gates unitarios completos | Validado / Fase 1 |
-| Bodega Aurrera | 2 | 555 | 100% | 100% | Activo |
+| Bodega Aurrera | 2 | 1,883 | 100% | 100% | Método validado / muestra diaria válida |
 | Farmacias Similares | 2 | 30 | 100% | 100% | Activo |
 | La Comer | 2 | Pendiente | Pendiente | Pendiente | Implementado, no activo |
 | Walmart | 3 | Pendiente de validación Fase 3 | — | — | En validación / Fase 3 |
