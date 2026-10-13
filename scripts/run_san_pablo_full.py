@@ -10,6 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import pandas as pd
+from playwright.sync_api import sync_playwright
 
 from main import COLUMNS, CONSOLIDATED_PATH, update_consolidated_output
 from scraper.config import load_categories, load_locations
@@ -21,6 +22,93 @@ from scraper.retailers.farmacias_san_pablo import (
 
 
 OUTPUT_PATH = ROOT / "output" / "farmacias_san_pablo_test.xlsx"
+
+
+class _ElementProxy:
+    def __init__(self, locator):
+        self._locator = locator
+
+    @property
+    def text(self) -> str:
+        try:
+            return self._locator.inner_text(timeout=8_000)
+        except Exception:
+            return ""
+
+
+class _SwitchToProxy:
+    def window(self, _handle) -> None:
+        return None
+
+
+class _PlaywrightDriverAdapter:
+    """Small Selenium-compatible facade over one Playwright Page.
+
+    FarmaciasSanPabloScraper keeps its already-worked OCC/DOM extraction
+    methods. Only the browser transport changes to the same CDP connection
+    pattern used by Bodega Aurrera and Walmart.
+    """
+
+    def __init__(self, page):
+        self.page = page
+        self.switch_to = _SwitchToProxy()
+
+    @property
+    def current_url(self) -> str:
+        return self.page.url or ""
+
+    @property
+    def title(self) -> str:
+        try:
+            return self.page.title()
+        except Exception:
+            return ""
+
+    @property
+    def window_handles(self) -> list[str]:
+        return ["current"]
+
+    def get(self, url: str) -> None:
+        self.page.goto(
+            url,
+            wait_until="domcontentloaded",
+            timeout=120_000,
+        )
+
+    def find_element(self, by, value):
+        by_text = str(by or "").casefold()
+        if "tag name" in by_text:
+            locator = self.page.locator(str(value)).first
+        else:
+            locator = self.page.locator(str(value)).first
+        locator.wait_for(state="attached", timeout=30_000)
+        return _ElementProxy(locator)
+
+    def execute_script(self, script: str):
+        wrapped = "() => {\n" + str(script) + "\n}"
+        return self.page.evaluate(wrapped)
+
+    def get_cookies(self) -> list[dict]:
+        try:
+            return self.page.context.cookies()
+        except Exception:
+            return []
+
+    def save_screenshot(self, path: str) -> bool:
+        try:
+            self.page.screenshot(path=path, full_page=True)
+            return True
+        except Exception:
+            return False
+
+
+def _find_san_pablo_page(browser):
+    candidates = []
+    for context in browser.contexts:
+        for page in context.pages:
+            if "farmaciasanpablo.com.mx" in (page.url or "").casefold():
+                candidates.append(page)
+    return candidates[-1] if candidates else None
 
 
 def _write_test_output(
@@ -76,9 +164,9 @@ def main() -> int:
     parser.add_argument("--location", default="san-pablo-online")
     parser.add_argument("--max-pages", type=int, default=20)
     parser.add_argument(
-        "--debugger-address",
+        "--cdp-url",
         required=True,
-        help="Chrome existente, por ejemplo 127.0.0.1:9222.",
+        help="WebSocket CDP del Chrome existente.",
     )
     args = parser.parse_args()
 
@@ -101,14 +189,27 @@ def main() -> int:
     scraper = FarmaciasSanPabloScraper(
         headless=False,
         max_pages=args.max_pages,
-        debugger_address=args.debugger_address,
     )
+
+    playwright = sync_playwright().start()
     try:
-        driver = scraper.connect_existing_chrome()
-    except FarmaciasSanPabloNetworkUnavailable as exc:
-        print("ERROR: no fue posible conectarse al Chrome abierto.")
-        print(str(exc))
+        browser = playwright.chromium.connect_over_cdp(args.cdp_url)
+    except Exception as exc:
+        playwright.stop()
+        print("ERROR: no fue posible conectarse al Chrome abierto por CDP.")
+        print(f"{type(exc).__name__}: {exc}")
         return 10
+
+    page = _find_san_pablo_page(browser)
+    if page is None:
+        playwright.stop()
+        print(
+            "ERROR: abre una pestaña de Farmacias San Pablo "
+            "antes de ejecutar el test."
+        )
+        return 11
+
+    driver = _PlaywrightDriverAdapter(page)
 
     print("=" * 68)
     print("FARMACIAS SAN PABLO - TEST COMPLETO")
@@ -116,7 +217,8 @@ def main() -> int:
     print(f"Categorías : {len(categories)}")
     print(f"Salida     : {OUTPUT_PATH}")
     print(f"Consolidado: {CONSOLIDATED_PATH}")
-    print(f"Chrome     : SESION EXISTENTE ({args.debugger_address})")
+    print("Chrome     : SESION EXISTENTE POR CDP")
+    print(f"CDP        : {args.cdp_url}")
     print("El script NO abre ni cierra Chrome.")
     print("")
 
@@ -254,6 +356,9 @@ def main() -> int:
         and int(item["price_complete"]) == int(item["products_extracted"])
         for item in summaries
     )
+
+    # We only stop the Playwright client. We never close the user-owned Chrome.
+    playwright.stop()
     return 0 if successful else 2
 
 

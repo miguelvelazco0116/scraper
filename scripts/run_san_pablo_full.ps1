@@ -3,7 +3,7 @@ param(
     [string]$PythonExe = "",
     [string]$Category = "all",
     [int]$MaxPages = 20,
-    [string]$DebuggerAddress = ""
+    [string]$CdpUrl = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,7 +28,7 @@ if ([string]::IsNullOrWhiteSpace($PythonExe) -or -not (Test-Path $PythonExe)) {
     throw "No se encontro Python valido."
 }
 
-if ([string]::IsNullOrWhiteSpace($DebuggerAddress)) {
+if ([string]::IsNullOrWhiteSpace($CdpUrl)) {
     $ChromeUserData = Join-Path $env:LOCALAPPDATA "Google\Chrome\User Data"
     $ActivePortFiles = @()
 
@@ -56,8 +56,14 @@ if ([string]::IsNullOrWhiteSpace($DebuggerAddress)) {
         exit 12
     }
 
+    if ($Lines.Count -lt 2) {
+        Write-Host "ERROR: DevToolsActivePort no contiene WebSocket browser path."
+        exit 12
+    }
+
     $Port = $Lines[0].Trim()
-    $DebuggerAddress = "127.0.0.1:$Port"
+    $WebSocketPath = $Lines[1].Trim()
+    $CdpUrl = "ws://127.0.0.1:$Port$WebSocketPath"
 }
 
 Write-Host "============================================================"
@@ -67,10 +73,10 @@ Write-Host "Python   : $PythonExe"
 Write-Host "Category : $Category"
 Write-Host "MaxPages : $MaxPages"
 Write-Host "Chrome   : SESION EXISTENTE"
-Write-Host "Debugger : $DebuggerAddress"
+Write-Host "CDP      : $CdpUrl"
 Write-Host ""
 
-& $PythonExe .\scripts\run_san_pablo_full.py --category $Category --max-pages $MaxPages --debugger-address $DebuggerAddress
+& $PythonExe .\scripts\run_san_pablo_full.py --category $Category --max-pages $MaxPages --cdp-url $CdpUrl
 $code = $LASTEXITCODE
 
 Write-Host ""
