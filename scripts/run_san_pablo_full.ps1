@@ -2,7 +2,8 @@ param(
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = "",
     [string]$Category = "all",
-    [int]$MaxPages = 20
+    [int]$MaxPages = 20,
+    [string]$DebuggerAddress = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,15 +28,49 @@ if ([string]::IsNullOrWhiteSpace($PythonExe) -or -not (Test-Path $PythonExe)) {
     throw "No se encontro Python valido."
 }
 
+if ([string]::IsNullOrWhiteSpace($DebuggerAddress)) {
+    $ChromeUserData = Join-Path $env:LOCALAPPDATA "Google\Chrome\User Data"
+    $ActivePortFiles = @()
+
+    if (Test-Path $ChromeUserData) {
+        $ActivePortFiles = @(Get-ChildItem -Path $ChromeUserData -Filter "DevToolsActivePort" -File -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+    }
+
+    if (-not $ActivePortFiles -or $ActivePortFiles.Count -eq 0) {
+        Write-Host "============================================================"
+        Write-Host "CHROME ABIERTO, PERO REMOTE DEBUGGING NO ESTA HABILITADO"
+        Write-Host "============================================================"
+        Write-Host "En ESA MISMA ventana de Chrome:"
+        Write-Host "  1. Abre https://www.farmaciasanpablo.com.mx/"
+        Write-Host "  2. Abre chrome://inspect/#remote-debugging"
+        Write-Host "  3. Activa Allow remote debugging for this browser instance"
+        Write-Host "  4. Acepta Allow si Chrome lo solicita"
+        Write-Host "  5. Ejecuta nuevamente este comando"
+        exit 11
+    }
+
+    $ActivePortPath = ($ActivePortFiles | Select-Object -First 1).FullName
+    $Lines = @(Get-Content -LiteralPath $ActivePortPath -ErrorAction Stop)
+    if ($Lines.Count -lt 1) {
+        Write-Host "ERROR: DevToolsActivePort invalido: $ActivePortPath"
+        exit 12
+    }
+
+    $Port = $Lines[0].Trim()
+    $DebuggerAddress = "127.0.0.1:$Port"
+}
+
 Write-Host "============================================================"
-Write-Host "Farmacias San Pablo - test completo Chrome"
+Write-Host "Farmacias San Pablo - Chrome existente"
 Write-Host "============================================================"
 Write-Host "Python   : $PythonExe"
 Write-Host "Category : $Category"
 Write-Host "MaxPages : $MaxPages"
+Write-Host "Chrome   : SESION EXISTENTE"
+Write-Host "Debugger : $DebuggerAddress"
 Write-Host ""
 
-& $PythonExe .\scripts\run_san_pablo_full.py --category $Category --max-pages $MaxPages
+& $PythonExe .\scripts\run_san_pablo_full.py --category $Category --max-pages $MaxPages --debugger-address $DebuggerAddress
 $code = $LASTEXITCODE
 
 Write-Host ""
@@ -45,3 +80,5 @@ Write-Host "Consolidado: $ProjectDir\output\concentrado_scraper.xlsx"
 if ($code -ne 0) {
     Write-Warning "El test termino con observaciones (exit_code=$code). Revisa la hoja Resumen; el archivo de salida se conserva."
 }
+
+exit $code
