@@ -620,7 +620,7 @@ class WalmartScraper:
                 re.I,
             )
             before_match = re.search(
-                r"(?:Antes|costaba)\s*\$?\s*([\d,]+(?:\.\d{1,2})?)",
+                r"(?:Antes|costaba)\s*(?:MXN)?\s*\$\s*([\d,]+(?:\.\d{1,2})?)",
                 text,
                 re.I,
             )
@@ -628,17 +628,18 @@ class WalmartScraper:
             regular = parse_money(before_match.group(1)) if before_match else None
 
             if current is None:
+                # Fallback only for the current price. Do not infer a regular
+                # price from a second numeric token because product sizes,
+                # pack counts and financing text (for example "4 pzas" or
+                # "3 meses") are not historical prices.
                 tokens = re.findall(r"\$\s*[\d,]+(?:\.\d{1,2})?", text)
                 values = [parse_money(x) for x in tokens]
                 values = [x for x in values if x is not None]
                 current = values[0] if values else None
-                regular = regular or (values[1] if len(values) > 1 else current)
 
             if current is None:
                 rejected_missing_price += 1
                 continue
-            if regular is None:
-                regular = current
 
             candidates.append(
                 {
@@ -1859,6 +1860,17 @@ class WalmartScraper:
                 page.wait_for_timeout(self.wait_ms)
                 page_number = expected_page
 
+            raw_source_target = source_target
+            target_rejected_reason = None
+            if (
+                source_target not in (None, 0)
+                and int(source_target) < len(source_seen)
+            ):
+                target_rejected_reason = (
+                    "target_below_observed_unique_products"
+                )
+                source_target = None
+
             source_coverage = (
                 len(source_seen) / source_target
                 if source_target not in (None, 0)
@@ -1869,6 +1881,8 @@ class WalmartScraper:
                 "source_url": source_url,
                 "rows": len(source_seen),
                 "target_products": source_target,
+                "target_products_raw": raw_source_target,
+                "target_rejected_reason": target_rejected_reason,
                 "coverage": source_coverage,
                 "coverage_threshold": 0.90,
                 "pages_visited": len(
