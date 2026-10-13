@@ -354,6 +354,38 @@ Estado:
 - cuidado-bucal requiere una corrida aislada final con la regla corregida
 - Bodega completa aún NO se marca VALIDADA hasta esa corrida
 
+## Fase 3 - consolidación sin re-scraping
+
+Regla:
+- una categoría aprobada se congela inmediatamente como componente validado
+- una prueba posterior de otra categoría no puede sustituir ni borrar ese éxito
+- el workbook temporal de test NO es la fuente final de consolidación
+- `concentrado_fase3.xlsx` se construye exclusivamente desde componentes validados
+
+Directorio estable:
+- `output\validated_phase3_components\`
+
+Checkpoints inmutables:
+- `output\checkpoints_validos\phase3_components\`
+
+Comandos:
+- promover: `scripts\promote_phase3_component.ps1`
+- construir Fase 3: `scripts\build_phase3_from_validated_components.ps1`
+- integrar al master: `scripts\integrate_validated_phase.ps1 -Phase 3`
+
+Componentes requeridos:
+- Bodega Aurrera / cuidado-bucal
+- Bodega Aurrera / cuidado-de-la-ropa
+- Walmart / cuidado-bucal
+- Walmart / cuidado-de-la-ropa
+- Walmart / depilacion-y-rasurado
+
+La construcción de Fase 3:
+- no abre Chrome
+- no consulta retailers
+- no modifica Fase 1 o Fase 2
+- falla si falta cualquier componente
+
 ## Fase 3 - Bodega Aurrera + Walmart
 
 Estado: EN VALIDACIÓN LIVE
