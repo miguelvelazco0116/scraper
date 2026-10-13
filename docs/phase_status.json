@@ -58,7 +58,19 @@
             "cuidado-bucal": "VALIDATED_METHOD"
           },
           "evidence": "docs/validation_results/bodega_aurrera_validated_2026-10-12.json",
-          "daily_rule": "Method remains validated; product data must be captured again for each daily run."
+          "daily_rule": "Method remains validated; product data must be captured again for each daily run.",
+          "latest_daily_sample": {
+            "capture_date": "2026-10-12",
+            "status": "VALID_DAILY_SAMPLE",
+            "products": 1883,
+            "categories": 2,
+            "evidence": "docs/validation_results/bodega_aurrera_daily_valid_2026-10-12_1883.json"
+          },
+          "daily_integration": {
+            "mode": "PHASE3_VALIDATED_RETAILER_PARTITION",
+            "rule": "When both Bodega categories pass, replace/add only the Bodega Aurrera partition in the active daily master. Do not mark Phase 3 complete until all Phase 3 retailers are complete.",
+            "command": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 3 -Retailer \"Bodega Aurrera\""
+          }
         },
         "Walmart": {
           "status": "PENDING_LIVE_VALIDATION",
