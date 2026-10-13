@@ -107,3 +107,45 @@ No
     assert result["brand"] == "Colgate"
     assert result["is_available"] == 1
     assert result["availability_status"] == "AVAILABLE"
+
+
+def test_benavides_server_html_product_discovery():
+    html = """
+    <ol class="products list items product-items">
+      <li class="item product product-item">
+        <div class="product-item-info" data-product-sku="1050594">
+          <a class="product photo product-item-photo"
+             href="https://www.benavides.com.mx/producto-uno">
+            <img alt="Producto Uno" src="/uno.jpg">
+          </a>
+          <strong class="product name product-item-name">
+            <a class="product-item-link"
+               href="https://www.benavides.com.mx/producto-uno">
+              Producto Uno
+            </a>
+          </strong>
+        </div>
+      </li>
+      <li class="item product product-item">
+        <div class="product-item-info" data-product-sku="1000755">
+          <a class="product photo product-item-photo"
+             href="/producto-dos">
+            <img alt="Producto Dos" src="/dos.jpg">
+          </a>
+          <a class="product-item-link" href="/producto-dos">
+            Producto Dos
+          </a>
+        </div>
+      </li>
+    </ol>
+    """
+    links = BenavidesScraper._product_links_from_html(
+        html,
+        "https://www.benavides.com.mx/cuidado-personal-higiene-bucal",
+    )
+    assert len(links) == 2
+    assert links[0]["sku_hint"] == "1050594"
+    assert links[0]["title"] == "Producto Uno"
+    assert links[0]["href"].endswith("/producto-uno")
+    assert links[1]["sku_hint"] == "1000755"
+    assert links[1]["href"].endswith("/producto-dos")
