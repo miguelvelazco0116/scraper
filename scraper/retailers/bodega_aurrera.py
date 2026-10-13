@@ -749,8 +749,38 @@ class BodegaAurreraScraper:
                         ))
                       );
                     });
-                    const hasNext = nextControls.length > 0;
-                    const nextEnabled = nextControls.some(
+
+                    const numericControls = controls.filter(
+                      el => Number.isFinite(controlNumber(el))
+                    );
+                    const numericRightEdge = numericControls.length
+                      ? Math.max(
+                          ...numericControls.map(
+                            el => el.getBoundingClientRect().right
+                          )
+                        )
+                      : -Infinity;
+
+                    const geometricNextControls = controls.filter(el => {
+                      if (controlNumber(el) !== null) return false;
+                      const label = normalize(
+                        el.innerText || el.textContent
+                      );
+                      if (/^(\.\.\.|…)$/.test(label)) return false;
+                      return (
+                        el.getBoundingClientRect().left >=
+                        numericRightEdge - 2
+                      );
+                    });
+
+                    const allNextControls = Array.from(
+                      new Set([
+                        ...nextControls,
+                        ...geometricNextControls
+                      ])
+                    );
+                    const hasNext = allNextControls.length > 0;
+                    const nextEnabled = allNextControls.some(
                       el => !disabled(el)
                     );
 
