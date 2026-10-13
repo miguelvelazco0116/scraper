@@ -61,6 +61,10 @@ PHASE3_RETAILER_SOURCES = {
         "source": ROOT / "output" / "bodega_aurrera_test.xlsx",
         "categories": 2,
     },
+    "Walmart": {
+        "source": ROOT / "output" / "walmart_phase3_test.xlsx",
+        "categories": 3,
+    },
 }
 
 
@@ -181,6 +185,108 @@ def _validate_bodega_retailer(
         ).fillna(-1)
         if not errors.eq(0).all():
             notes.append("Bodega price_validation_errors > 0")
+
+    return notes
+
+
+def _validate_walmart_retailer(
+    frame: pd.DataFrame,
+    summary: pd.DataFrame,
+    control: pd.DataFrame,
+) -> list[str]:
+    notes: list[str] = []
+
+    if frame.empty:
+        notes.append("Concentrado Walmart vacío")
+    if len(summary) != 3:
+        notes.append(f"Walmart categorías {len(summary)}/3")
+        return notes
+
+    retailers = set(summary["retailer"].dropna().astype(str))
+    if retailers != {"Walmart"}:
+        notes.append(
+            f"Retailers Walmart inesperados: {sorted(retailers)}"
+        )
+
+    if not summary["status"].astype(str).str.upper().eq("COMPLETE").all():
+        notes.append("Walmart tiene categorías no COMPLETE")
+
+    if control.empty:
+        notes.append("Walmart Control vacío")
+    else:
+        status = str(control.iloc[0].get("status") or "").strip().upper()
+        if status != "PRODUCTIVE":
+            notes.append(f"Walmart Control status={status!r}")
+
+    products = pd.to_numeric(
+        summary["products"], errors="coerce"
+    ).fillna(-1)
+    if int(products.sum()) != len(frame):
+        notes.append(
+            f"Walmart suma products={int(products.sum())} != filas={len(frame)}"
+        )
+
+    for metric in (
+        "sku_complete",
+        "price_complete",
+        "url_complete",
+        "store_context_complete",
+    ):
+        if metric not in summary.columns:
+            notes.append(f"Walmart sin {metric}")
+            continue
+        values = pd.to_numeric(
+            summary[metric], errors="coerce"
+        ).fillna(-2)
+        if not values.eq(products).all():
+            notes.append(f"Walmart {metric} incompleto")
+
+    if "store_context_verified" not in summary.columns:
+        notes.append("Walmart sin store_context_verified")
+    elif not summary["store_context_verified"].map(bool).all():
+        notes.append("Walmart store_context_verified=False")
+
+    if "sources_discovered" not in summary.columns or "sources_visited" not in summary.columns:
+        notes.append("Walmart sin métricas de fuentes")
+    else:
+        discovered = pd.to_numeric(
+            summary["sources_discovered"], errors="coerce"
+        ).fillna(-1)
+        visited = pd.to_numeric(
+            summary["sources_visited"], errors="coerce"
+        ).fillna(-2)
+        if not discovered.eq(visited).all():
+            notes.append("Walmart fuentes descubiertas != visitadas")
+
+    if "catalogue_gate_ok" not in summary.columns:
+        notes.append("Walmart sin catalogue_gate_ok")
+    elif not summary["catalogue_gate_ok"].map(bool).all():
+        notes.append("Walmart coverage/pagination gate incompleto")
+
+    if "price_order_errors" not in summary.columns:
+        notes.append("Walmart sin price_order_errors")
+    else:
+        errors = pd.to_numeric(
+            summary["price_order_errors"], errors="coerce"
+        ).fillna(-1)
+        if not errors.eq(0).all():
+            notes.append("Walmart price_order_errors > 0")
+
+    if "duplicates_sku_url" not in summary.columns:
+        notes.append("Walmart sin duplicates_sku_url")
+    else:
+        duplicates = pd.to_numeric(
+            summary["duplicates_sku_url"], errors="coerce"
+        ).fillna(-1)
+        if not duplicates.eq(0).all():
+            notes.append("Walmart duplicates_sku_url > 0")
+
+    if "sponsored_banner_clicks" in summary.columns:
+        sponsored = pd.to_numeric(
+            summary["sponsored_banner_clicks"], errors="coerce"
+        ).fillna(-1)
+        if not sponsored.eq(0).all():
+            notes.append("Walmart sponsored_banner_clicks > 0")
 
     return notes
 
@@ -525,7 +631,7 @@ def main() -> int:
     parser.add_argument("--phase", type=int, choices=[1, 2, 3], required=True)
     parser.add_argument(
         "--retailer",
-        choices=["Bodega Aurrera"],
+        choices=["Bodega Aurrera", "Walmart"],
         help=(
             "Integra un retailer completo ya validado dentro de Fase 3 "
             "sin marcar toda Fase 3 como completada."
@@ -558,6 +664,13 @@ def main() -> int:
         notes = _validate_bodega_retailer(
             phase_frame,
             phase_summary,
+        )
+    elif retailer_mode == "Walmart":
+        phase_frame, phase_summary, phase_control = _read_workbook(source)
+        notes = _validate_walmart_retailer(
+            phase_frame,
+            phase_summary,
+            phase_control,
         )
     else:
         phase_frame, phase_summary, phase_control = _read_workbook(source)
@@ -728,6 +841,25 @@ def main() -> int:
         )
     )
 
+    phase3_summary = (
+        summary.loc[
+            summary["source_phase"].astype(str).eq("FASE 3")
+        ].copy()
+        if "source_phase" in summary.columns
+        else pd.DataFrame()
+    )
+    phase3_complete = bool(
+        set(phase3_validated_retailers) == PHASES[3]["retailers"]
+        and len(phase3_summary) == PHASES[3]["categories"]
+        and phase3_summary["status"]
+        .astype(str)
+        .str.upper()
+        .eq("COMPLETE")
+        .all()
+    )
+    if phase3_complete:
+        completed = sorted(set(completed + [3]))
+
     control = pd.DataFrame(
         [
             {
@@ -792,8 +924,8 @@ def main() -> int:
 
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
     checkpoint_suffix = (
-        "_bodega_aurrera"
-        if retailer_mode == "Bodega Aurrera"
+        "_" + retailer_mode.casefold().replace(" ", "_")
+        if retailer_mode
         else ""
     )
     checkpoint = (
