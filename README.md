@@ -779,6 +779,78 @@ docs\validation_results\farmacias_san_pablo_validated_2026-10-13.json
 
 Patrón estable: `36c37c60e5daf0d633912e2ded77c04ffaebfa17`. No sustituir el método OCC capturado mientras continúe funcionando; cualquier alternativa debe probarse de forma aislada antes de reemplazarlo.
 
+## Farmacias Benavides
+
+Estado: **IMPLEMENTADO / PENDIENTE DE VALIDACIÓN LIVE**
+
+Categorías candidatas:
+
+```text
+medicamentos-respiratorios
+bienestar-sexual
+higiene-bucal
+```
+
+URLs:
+
+```text
+https://www.benavides.com.mx/medicamentos-respiratorios
+https://www.benavides.com.mx/bienestar-sexual
+https://www.benavides.com.mx/cuidado-personal-higiene-bucal
+```
+
+El storefront es server-rendered y publica:
+- total de artículos por categoría;
+- paginación mediante `?p=N`;
+- nombre, marca, precio actual, precio regular y promociones en el catálogo;
+- SKU explícito en la ficha de producto;
+- estado de disponibilidad en la ficha.
+
+Observación web del 13 de octubre de 2026, sólo como referencia y **no como gate fijo**:
+- Respiratorios: alrededor de 456 artículos;
+- Bienestar sexual: 170 artículos;
+- Higiene bucal: alrededor de 175 artículos.
+
+Patrón candidato:
+- descubrir catálogo y target desde la categoría;
+- recorrer todas las páginas hasta igualar el target;
+- visitar cada ficha usando el contexto HTTP de la misma sesión Playwright;
+- si la lectura HTTP de ficha falla, usar navegación normal de Chrome como fallback;
+- obtener SKU, precio, marca, URL y disponibilidad;
+- registrar `is_available=1` cuando el producto está disponible y `0` cuando el sitio lo marca agotado/no disponible;
+- conservar `availability_raw` para auditoría.
+
+Gate candidato:
+- target publicado == links descubiertos == productos extraídos;
+- SKU 100%;
+- precio actual 100%;
+- URL 100%;
+- disponibilidad binaria 100%;
+- cero errores de detalle;
+- cero casos `price_current > price_regular`.
+
+Test de una categoría:
+
+```powershell
+& .\scripts\test_benavides.ps1 -Category higiene-bucal
+```
+
+Test completo:
+
+```powershell
+& .\scripts\test_benavides.ps1
+```
+
+Salida:
+
+```text
+output\benavides_test.xlsx
+```
+
+Regla:
+- no integrar al master ni asignar una fase productiva hasta observar una corrida live completa exitosa;
+- los conteos publicados pueden cambiar día a día y no deben fijarse como constantes.
+
 ## Ibarra Mayoreo
 
 Contexto:
