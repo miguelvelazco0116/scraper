@@ -1,7 +1,8 @@
 param(
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = "",
-    [string]$CdpUrl = ""
+    [string]$CdpUrl = "",
+    [string]$Category = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -51,6 +52,10 @@ Write-Host "CDP   : $CdpUrl"
 Write-Host ""
 
 $ArgsList = @(".\scripts\test_walmart_phase3.py", "--cdp-url", $CdpUrl)
+if (-not [string]::IsNullOrWhiteSpace($Category)) {
+    $ArgsList += @("--category", $Category)
+    Write-Host "Category: $Category"
+}
 & $PythonExe @ArgsList
 $code = $LASTEXITCODE
 
