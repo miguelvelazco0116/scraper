@@ -49,22 +49,76 @@ class FarmaciasSanPabloScraper:
         "Sterimar", "Trojan", "Vantal", "Xerolacer",
     ]
 
-    def __init__(self, headless: bool = True, max_pages: int = 100) -> None:
+    def __init__(
+        self,
+        headless: bool = True,
+        max_pages: int = 100,
+        debugger_address: str | None = None,
+    ) -> None:
         self.headless = headless
         self.max_pages = max_pages
+        self.debugger_address = debugger_address
         self.last_meta: dict = {}
 
     @staticmethod
-    def _build_driver(headless: bool):
+    def _build_driver(
+        headless: bool,
+        debugger_address: str | None = None,
+    ):
         options = webdriver.ChromeOptions()
         options.add_argument("--lang=es-MX")
         options.add_argument("--window-size=1440,1000")
-        if headless:
+
+        if debugger_address:
+            options.add_experimental_option(
+                "debuggerAddress",
+                debugger_address,
+            )
+        elif headless:
             options.add_argument("--headless=new")
 
         driver = webdriver.Chrome(options=options)
         driver.set_page_load_timeout(60)
         return driver
+
+    @staticmethod
+    def _select_san_pablo_tab(driver) -> None:
+        """Select the already-open Farmacias San Pablo tab."""
+        for handle in list(driver.window_handles):
+            try:
+                driver.switch_to.window(handle)
+                if "farmaciasanpablo.com.mx" in (
+                    driver.current_url or ""
+                ).casefold():
+                    return
+            except Exception:
+                continue
+
+        raise FarmaciasSanPabloNetworkUnavailable(
+            "No se encontro una pestana abierta de Farmacias San Pablo "
+            "en el Chrome conectado."
+        )
+
+    def connect_existing_chrome(self):
+        if not self.debugger_address:
+            raise FarmaciasSanPabloNetworkUnavailable(
+                "Falta debugger_address para conectar al Chrome existente."
+            )
+
+        try:
+            driver = self._build_driver(
+                headless=False,
+                debugger_address=self.debugger_address,
+            )
+            self._select_san_pablo_tab(driver)
+            return driver
+        except FarmaciasSanPabloNetworkUnavailable:
+            raise
+        except Exception as exc:
+            raise FarmaciasSanPabloNetworkUnavailable(
+                "No fue posible conectar Selenium al Chrome existente. "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
 
     @staticmethod
     def _page_url(url: str, page_index: int) -> str:
@@ -1112,133 +1166,43 @@ class FarmaciasSanPabloScraper:
         except Exception:
             pass
 
-    def scrape_category(
+    def scrape_category_on_driver(
         self,
+        driver,
         category: Category,
         location: Location,
     ) -> list[dict]:
+        """Scrape one category using a caller-owned existing Chrome session."""
         DIAGNOSTICS.mkdir(parents=True, exist_ok=True)
         now = datetime.now().astimezone().isoformat(timespec="seconds")
-        driver = self._build_driver(self.headless)
+        self._select_san_pablo_tab(driver)
 
-        try:
-            occ = self._discover_occ_products(
-                driver,
-                category,
-                max_pages=self.max_pages,
-            )
-            if occ is not None:
-                products, meta = occ
-                rows = [
-                    row
-                    for product in products
-                    if (
-                        row := self._row_from_occ_product(
-                            product,
-                            category,
-                            location,
-                            now,
-                        )
-                    ) is not None
-                ]
-
-                unique: dict[str, dict] = {}
-                for row in rows:
-                    key = (
-                        clean_text(row.get("sku"))
-                        or clean_text(row.get("url"))
-                        or clean_text(row.get("product"))
+        occ = self._discover_occ_products(
+            driver,
+            category,
+            max_pages=self.max_pages,
+        )
+        if occ is not None:
+            products, meta = occ
+            rows = [
+                row
+                for product in products
+                if (
+                    row := self._row_from_occ_product(
+                        product,
+                        category,
+                        location,
+                        now,
                     )
-                    if key:
-                        unique[key] = row
-                rows = list(unique.values())
+                ) is not None
+            ]
 
-                meta.update(
-                    {
-                        "rows": len(rows),
-                        "unique_skus": len(
-                            {str(row["sku"]) for row in rows if row.get("sku")}
-                        ),
-                        "unique_urls": len(
-                            {str(row["url"]) for row in rows if row.get("url")}
-                        ),
-                        "price_complete": sum(
-                            row.get("price_current") is not None for row in rows
-                        ),
-                        "browser": "Google Chrome",
-                        "engine": "Selenium + OCC",
-                        "status": "SUCCESS" if rows else "EMPTY",
-                    }
-                )
-
-                target = meta.get("target_products")
-                if target is not None and len(rows) < int(target):
-                    meta["status"] = "PARTIAL"
-
-                self.last_meta = meta
-                self._write_diagnostics(driver, category, meta)
-                return rows
-
-            cards, meta = self._discover_cards(driver, category)
-            rows: list[dict] = []
-
-            for card in cards:
-                text = clean_text(card.get("text"))
-                product = clean_text(card.get("title"))
-                if not text or not product:
-                    continue
-
-                current, regular, promotion = self._prices_from_text(text)
-
-                # Keep the product even when the card has no visible price.
-                # Catalog completeness and price completeness are measured
-                # separately in the output summary.
-                sku = self._code_from_card(card)
-                href = clean_text(card.get("href"))
-                url = urljoin(BASE_URL, href) if href else None
-
-                rows.append(
-                    {
-                        "scrape_timestamp": now,
-                        "retailer": "Farmacias San Pablo",
-                        "city": location.city,
-                        "state": location.state,
-                        "postal_code": location.postal_code,
-                        "store": location.store,
-                        "store_id": location.store_id,
-                        "department": category.department,
-                        "category": category.name,
-                        "subcategory": category.subcategory,
-                        "sub_subcategory": category.sub_subcategory,
-                        "category_id": category.id,
-                        "sku": sku,
-                        "brand": self._infer_brand(product, text),
-                        "product": product,
-                        "price_current": current,
-                        "price_regular": regular,
-                        "promotion": promotion,
-                        "pickup_available": None,
-                        "store_context_verified": False,
-                        "store_context_method": "selenium_chrome_category_card",
-                        "url": url,
-                        "price_raw": text,
-                    }
-                )
-
-            # Deduplicate without inventing identifiers. Prefer SKU, then URL,
-            # then a stable content key for rows where the site exposes neither.
             unique: dict[str, dict] = {}
             for row in rows:
                 key = (
                     clean_text(row.get("sku"))
                     or clean_text(row.get("url"))
-                    or "|".join(
-                        [
-                            clean_text(row.get("product")) or "",
-                            str(row.get("price_current") or ""),
-                            clean_text(row.get("price_raw")) or "",
-                        ]
-                    )
+                    or clean_text(row.get("product"))
                 )
                 if key:
                     unique[key] = row
@@ -1257,20 +1221,131 @@ class FarmaciasSanPabloScraper:
                         row.get("price_current") is not None for row in rows
                     ),
                     "browser": "Google Chrome",
-                    "engine": "Selenium WebDriver",
+                    "engine": "Selenium + OCC",
                     "status": "SUCCESS" if rows else "EMPTY",
                 }
             )
 
             target = meta.get("target_products")
-            if target and len(rows) < int(target):
+            if target is not None and len(rows) < int(target):
                 meta["status"] = "PARTIAL"
 
             self.last_meta = meta
             self._write_diagnostics(driver, category, meta)
             return rows
+
+        cards, meta = self._discover_cards(driver, category)
+        rows: list[dict] = []
+
+        for card in cards:
+            text = clean_text(card.get("text"))
+            product = clean_text(card.get("title"))
+            if not text or not product:
+                continue
+
+            current, regular, promotion = self._prices_from_text(text)
+
+            # Keep the product even when the card has no visible price.
+            # Catalog completeness and price completeness are measured
+            # separately in the output summary.
+            sku = self._code_from_card(card)
+            href = clean_text(card.get("href"))
+            url = urljoin(BASE_URL, href) if href else None
+
+            rows.append(
+                {
+                    "scrape_timestamp": now,
+                    "retailer": "Farmacias San Pablo",
+                    "city": location.city,
+                    "state": location.state,
+                    "postal_code": location.postal_code,
+                    "store": location.store,
+                    "store_id": location.store_id,
+                    "department": category.department,
+                    "category": category.name,
+                    "subcategory": category.subcategory,
+                    "sub_subcategory": category.sub_subcategory,
+                    "category_id": category.id,
+                    "sku": sku,
+                    "brand": self._infer_brand(product, text),
+                    "product": product,
+                    "price_current": current,
+                    "price_regular": regular,
+                    "promotion": promotion,
+                    "pickup_available": None,
+                    "store_context_verified": False,
+                    "store_context_method": "selenium_chrome_category_card",
+                    "url": url,
+                    "price_raw": text,
+                }
+            )
+
+        # Deduplicate without inventing identifiers. Prefer SKU, then URL,
+        # then a stable content key for rows where the site exposes neither.
+        unique: dict[str, dict] = {}
+        for row in rows:
+            key = (
+                clean_text(row.get("sku"))
+                or clean_text(row.get("url"))
+                or "|".join(
+                    [
+                        clean_text(row.get("product")) or "",
+                        str(row.get("price_current") or ""),
+                        clean_text(row.get("price_raw")) or "",
+                    ]
+                )
+            )
+            if key:
+                unique[key] = row
+        rows = list(unique.values())
+
+        meta.update(
+            {
+                "rows": len(rows),
+                "unique_skus": len(
+                    {str(row["sku"]) for row in rows if row.get("sku")}
+                ),
+                "unique_urls": len(
+                    {str(row["url"]) for row in rows if row.get("url")}
+                ),
+                "price_complete": sum(
+                    row.get("price_current") is not None for row in rows
+                ),
+                "browser": "Google Chrome",
+                "engine": "Selenium WebDriver",
+                "status": "SUCCESS" if rows else "EMPTY",
+            }
+        )
+
+        target = meta.get("target_products")
+        if target and len(rows) < int(target):
+            meta["status"] = "PARTIAL"
+
+        self.last_meta = meta
+        self._write_diagnostics(driver, category, meta)
+        return rows
+
+    def scrape_category(
+        self,
+        category: Category,
+        location: Location,
+    ) -> list[dict]:
+        """Legacy standalone mode; Phase 4 uses scrape_category_on_driver."""
+        driver = self._build_driver(
+            self.headless,
+            debugger_address=self.debugger_address,
+        )
+        try:
+            if self.debugger_address:
+                self._select_san_pablo_tab(driver)
+            return self.scrape_category_on_driver(
+                driver,
+                category,
+                location,
+            )
         finally:
-            driver.quit()
+            if not self.debugger_address:
+                driver.quit()
 
 
 __all__ = [
