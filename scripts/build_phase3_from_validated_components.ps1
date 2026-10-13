@@ -1,4 +1,5 @@
 param(
+    [string]$CaptureDate = "",
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = ""
 )
@@ -22,5 +23,10 @@ if ([string]::IsNullOrWhiteSpace($PythonExe) -or -not (Test-Path $PythonExe)) {
     throw "No se encontro Python valido."
 }
 
-& $PythonExe ".\scripts\build_phase3_from_validated_components.py"
+$ArgsList = @(".\scripts\build_phase3_from_validated_components.py")
+if (-not [string]::IsNullOrWhiteSpace($CaptureDate)) {
+    $ArgsList += @("--capture-date", $CaptureDate)
+}
+
+& $PythonExe @ArgsList
 exit $LASTEXITCODE
