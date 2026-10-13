@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import shutil
@@ -18,11 +19,14 @@ import pandas as pd
 from main import COLUMNS
 from scraper.io_utils import atomic_output_path
 
-COMPONENT_DIR = ROOT / "output" / "validated_phase3_components"
-OUTPUT_PATH = ROOT / "output" / "concentrado_fase3.xlsx"
+COMPONENT_ROOT = ROOT / "output" / "validated_phase3_components"
+WORKING_OUTPUT_PATH = ROOT / "output" / "concentrado_fase3.xlsx"
 BASELINE_PATH = ROOT / "output" / "fase3_muestra_inicial_valida.xlsx"
 BASELINE_META = ROOT / "output" / "fase3_muestra_inicial_valida.json"
 DIAG_PATH = ROOT / "diagnostics" / "phase3_components" / "last_build.json"
+CURRENT_MASTER_POINTER = (
+    ROOT / "output" / "checkpoints_validos" / "current_master.json"
+)
 
 EXPECTED = [
     ("Bodega Aurrera", "cuidado-bucal"),
@@ -47,8 +51,49 @@ def _slug(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", text).strip("_")
 
 
-def _component_path(retailer: str, category_id: str) -> Path:
-    return COMPONENT_DIR / f"{_slug(retailer)}__{category_id}.xlsx"
+def _resolve_capture_date(explicit: str | None) -> str:
+    if explicit:
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", explicit):
+            raise ValueError(
+                "--capture-date debe usar formato YYYY-MM-DD"
+            )
+        return explicit
+
+    if not CURRENT_MASTER_POINTER.exists():
+        raise ValueError(
+            "No existe una corrida diaria activa. "
+            "Integra primero una Fase 1 válida o usa --capture-date."
+        )
+
+    payload = json.loads(
+        CURRENT_MASTER_POINTER.read_text(encoding="utf-8")
+    )
+    capture_date = str(payload.get("capture_date") or "").strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", capture_date):
+        raise ValueError(
+            "current_master.json no contiene capture_date válido."
+        )
+    return capture_date
+
+
+def _component_path(
+    retailer: str,
+    category_id: str,
+    capture_date: str,
+) -> Path:
+    return (
+        COMPONENT_ROOT
+        / capture_date
+        / f"{_slug(retailer)}__{category_id}.xlsx"
+    )
+
+
+def _dated_output_path(capture_date: str) -> Path:
+    return (
+        ROOT
+        / "output"
+        / f"concentrado_fase3_{capture_date}.xlsx"
+    )
 
 
 def _canonical(frame: pd.DataFrame) -> pd.DataFrame:
@@ -131,13 +176,41 @@ def _write_diag(payload: dict[str, Any]) -> None:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Construye Fase 3 diaria desde componentes validados "
+            "sin volver a scrapear."
+        )
+    )
+    parser.add_argument(
+        "--capture-date",
+        help=(
+            "Fecha YYYY-MM-DD. Si se omite usa la fecha del "
+            "concentrado diario activo."
+        ),
+    )
+    args = parser.parse_args()
+
+    try:
+        capture_date = _resolve_capture_date(args.capture_date)
+    except (ValueError, json.JSONDecodeError) as exc:
+        print(f"ERROR: {exc}")
+        return 2
+
+    component_dir = COMPONENT_ROOT / capture_date
+    output_path = _dated_output_path(capture_date)
+
     missing: list[str] = []
     frames: list[pd.DataFrame] = []
     summaries: list[pd.DataFrame] = []
     component_rows: list[dict[str, Any]] = []
 
     for retailer, category_id in EXPECTED:
-        path = _component_path(retailer, category_id)
+        path = _component_path(
+            retailer,
+            category_id,
+            capture_date,
+        )
         if not path.exists():
             missing.append(f"{retailer} / {category_id}")
             continue
@@ -167,6 +240,16 @@ def main() -> int:
             )
             continue
 
+        component_date = str(
+            control.iloc[0].get("capture_date") or ""
+        ).strip()
+        if component_date != capture_date:
+            missing.append(
+                f"{retailer} / {category_id} "
+                f"(fecha={component_date!r}, esperada={capture_date})"
+            )
+            continue
+
         frame = _canonical(frame)
         summary = summary.copy()
         summary["source_status"] = summary["status"].astype(str)
@@ -183,6 +266,7 @@ def main() -> int:
                 "retailer": retailer,
                 "category_id": category_id,
                 "products": len(frame),
+                "capture_date": capture_date,
                 "component": str(path),
             }
         )
@@ -191,7 +275,8 @@ def main() -> int:
         payload = {
             "status": "NOT_BUILT",
             "missing_components": missing,
-            "component_dir": str(COMPONENT_DIR),
+            "capture_date": capture_date,
+            "component_dir": str(component_dir),
         }
         _write_diag(payload)
         print("FASE 3 NO CONSTRUIDA. Faltan componentes validados:")
@@ -234,19 +319,20 @@ def main() -> int:
             {
                 "status": "PRODUCTIVE",
                 "built_at": built_at,
+                "capture_date": capture_date,
                 "products": len(concentrated),
                 "categories": len(summary),
                 "retailers": 2,
                 "all_categories_complete": True,
                 "assembly_method": "validated_components_no_rescrape",
-                "output": str(OUTPUT_PATH),
+                "output": str(output_path),
             }
         ]
     )
     retailers = _retailer_summary(concentrated)
 
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with atomic_output_path(OUTPUT_PATH) as temporary:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with atomic_output_path(output_path) as temporary:
         with pd.ExcelWriter(temporary, engine="openpyxl") as writer:
             concentrated.to_excel(
                 writer,
@@ -277,7 +363,7 @@ def main() -> int:
 
     baseline_created = False
     if not BASELINE_PATH.exists():
-        shutil.copy2(OUTPUT_PATH, BASELINE_PATH)
+        shutil.copy2(output_path, BASELINE_PATH)
         BASELINE_META.write_text(
             json.dumps(
                 {
@@ -287,7 +373,8 @@ def main() -> int:
                     "categories": len(summary),
                     "retailers": 2,
                     "assembly_method": "validated_components_no_rescrape",
-                    "source": str(OUTPUT_PATH),
+                    "capture_date": capture_date,
+                    "source": str(output_path),
                     "baseline": str(BASELINE_PATH),
                     "components": component_rows,
                 },
@@ -301,15 +388,21 @@ def main() -> int:
     payload = {
         "status": "PRODUCTIVE",
         "built_at": built_at,
+        "capture_date": capture_date,
         "products": len(concentrated),
         "categories": len(summary),
         "retailers": 2,
         "assembly_method": "validated_components_no_rescrape",
-        "output": str(OUTPUT_PATH),
+        "output": str(output_path),
+        "working_output": str(WORKING_OUTPUT_PATH),
         "baseline": str(BASELINE_PATH),
         "baseline_created": baseline_created,
         "components": component_rows,
     }
+    # Current-day working alias used by the incremental integrator.
+    # Historical truth remains in the dated workbook above.
+    shutil.copy2(output_path, WORKING_OUTPUT_PATH)
+
     _write_diag(payload)
 
     print("=" * 80)
@@ -318,7 +411,9 @@ def main() -> int:
     print(f"Filas       : {len(concentrated)}")
     print(f"Categorías  : {len(summary)}")
     print("Retailers   : 2")
-    print(f"Archivo     : {OUTPUT_PATH}")
+    print(f"Fecha       : {capture_date}")
+    print(f"Archivo     : {output_path}")
+    print(f"Alias actual: {WORKING_OUTPUT_PATH}")
     print(f"Baseline    : {BASELINE_PATH}")
     print("Re-scraping : NO")
     return 0

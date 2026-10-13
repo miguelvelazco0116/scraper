@@ -498,6 +498,7 @@ def _write_productive(
                 "phase": PHASE,
                 "status": "PRODUCTIVE",
                 "generated_at": generated_at,
+                "capture_date": generated_at[:10],
                 "retailers": " | ".join(RETAILERS),
                 "categories": len(summary),
                 "products": len(concentrated),

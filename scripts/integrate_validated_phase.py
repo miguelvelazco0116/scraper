@@ -80,6 +80,35 @@ def _read_workbook(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame
     return _canonical(concentrated), summary, control
 
 
+def _control_capture_date(control: pd.DataFrame) -> str | None:
+    if control.empty:
+        return None
+
+    row = control.iloc[0]
+    explicit = str(row.get("capture_date") or "").strip()
+    if explicit:
+        return explicit
+
+    for field in ("generated_at", "built_at", "updated_at"):
+        raw = str(row.get(field) or "").strip()
+        if len(raw) >= 10:
+            return raw[:10]
+
+    return None
+
+
+def _frame_capture_dates(frame: pd.DataFrame) -> set[str]:
+    if frame.empty or "scrape_timestamp" not in frame.columns:
+        return set()
+
+    return set(
+        frame["scrape_timestamp"]
+        .dropna()
+        .astype(str)
+        .str.slice(0, 10)
+    )
+
+
 def _validate_phase(
     phase: int,
     frame: pd.DataFrame,
@@ -424,8 +453,28 @@ def main() -> int:
     run_id = now.strftime("%Y%m%d_%H%M%S")
     generated_at = now.isoformat(timespec="seconds")
 
+    source_capture_date = _control_capture_date(phase_control)
+    row_capture_dates = _frame_capture_dates(phase_frame)
+
+    if source_capture_date is None and len(row_capture_dates) == 1:
+        source_capture_date = next(iter(row_capture_dates))
+
+    if source_capture_date is None:
+        print(
+            f"ERROR: {cfg['label']} no tiene una fecha de captura "
+            "determinable."
+        )
+        return 2
+
+    if row_capture_dates and row_capture_dates != {source_capture_date}:
+        print(
+            f"ERROR: {cfg['label']} mezcla fechas de captura: "
+            f"{sorted(row_capture_dates)}; control={source_capture_date}."
+        )
+        return 2
+
     if phase == 1:
-        capture_date = now.strftime("%Y-%m-%d")
+        capture_date = source_capture_date
         master_path = _master_path_for_date(capture_date)
         existing_frame = pd.DataFrame(columns=COLUMNS)
         existing_summary = pd.DataFrame()
@@ -439,6 +488,15 @@ def main() -> int:
             )
             return 2
         capture_date = master_path.stem.rsplit("_", 1)[-1]
+
+        if source_capture_date != capture_date:
+            print(
+                f"ERROR: {cfg['label']} pertenece a "
+                f"{source_capture_date}, pero el master activo es "
+                f"{capture_date}."
+            )
+            return 2
+
         existing_frame, existing_summary, existing_control = (
             _read_existing_master(master_path)
         )
