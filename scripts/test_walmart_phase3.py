@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -175,6 +176,10 @@ def run_category(
         notes.append(f"price_order_errors={price_order_errors}")
     if duplicate_rows:
         notes.append(f"duplicados={duplicate_rows}")
+    if sponsored_banner_clicks:
+        notes.append(
+            f"sponsored_banner_clicks={sponsored_banner_clicks}"
+        )
     if pages_visited <= 0:
         notes.append("sin páginas visitadas")
     if sources_discovered <= 0 or sources_visited != sources_discovered:
@@ -265,6 +270,117 @@ def run_category(
     return frame, summary, meta
 
 
+def _summary_is_acceptable(summary: dict) -> bool:
+    return bool(
+        summary["status"] == "COMPLETE"
+        and summary["source_status"] == "SUCCESS"
+        and summary["products"] > 0
+        and summary["sku_complete"] == summary["products"]
+        and summary["price_complete"] == summary["products"]
+        and summary["url_complete"] == summary["products"]
+        and summary["store_context_complete"] == summary["products"]
+        and bool(summary["store_context_verified"])
+        and summary["sources_discovered"] == summary["sources_visited"]
+        and summary["catalogue_gate_ok"]
+        and summary["price_order_errors"] == 0
+        and summary["duplicates_sku_url"] == 0
+        and summary["sponsored_banner_clicks"] == 0
+    )
+
+
+def _write_results(
+    results: dict[str, tuple],
+    category_order: list[str],
+    location,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    ordered = [
+        results[category_id]
+        for category_id in category_order
+        if category_id in results
+    ]
+
+    frames = [item[0] for item in ordered if not item[0].empty]
+    summaries = [item[1] for item in ordered]
+    metas = [
+        {
+            "category_id": category_id,
+            "meta_json": json.dumps(
+                results[category_id][2],
+                ensure_ascii=False,
+                default=str,
+            ),
+        }
+        for category_id in category_order
+        if category_id in results
+    ]
+
+    concentrated = (
+        pd.concat(frames, ignore_index=True)
+        if frames
+        else pd.DataFrame(columns=COLUMNS)
+    )
+    summary_df = pd.DataFrame(summaries)
+
+    all_complete = bool(
+        summaries
+        and all(_summary_is_acceptable(item) for item in summaries)
+    )
+
+    capture_dates = set()
+    if not concentrated.empty and "scrape_timestamp" in concentrated.columns:
+        capture_dates = set(
+            concentrated["scrape_timestamp"]
+            .dropna()
+            .astype(str)
+            .str.slice(0, 10)
+        )
+    capture_date = (
+        next(iter(capture_dates))
+        if len(capture_dates) == 1
+        else datetime.now().astimezone().date().isoformat()
+    )
+
+    control = pd.DataFrame(
+        [
+            {
+                "status": "PRODUCTIVE" if all_complete else "PARTIAL",
+                "capture_date": capture_date,
+                "products": len(concentrated),
+                "categories": len(summary_df),
+                "store": location.store,
+                "store_id": location.store_id,
+                "postal_code": location.postal_code,
+                "all_categories_complete": all_complete,
+            }
+        ]
+    )
+
+    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(OUTPUT_PATH, engine="openpyxl") as writer:
+        concentrated.to_excel(
+            writer,
+            index=False,
+            sheet_name="Concentrado",
+        )
+        summary_df.to_excel(
+            writer,
+            index=False,
+            sheet_name="Resumen",
+        )
+        control.to_excel(
+            writer,
+            index=False,
+            sheet_name="Control",
+        )
+        pd.DataFrame(metas).to_excel(
+            writer,
+            index=False,
+            sheet_name="Meta",
+        )
+
+    return concentrated, summary_df
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -277,7 +393,20 @@ def main() -> int:
         "--category",
         help="Ejecuta solo un category_id de Walmart.",
     )
+    parser.add_argument(
+        "--retry-failed-at-end",
+        type=int,
+        default=1,
+        help=(
+            "Reintentos al final exclusivamente para categorías fallidas. "
+            "Las categorías COMPLETE no se vuelven a descargar."
+        ),
+    )
     args = parser.parse_args()
+
+    if args.retry_failed_at_end < 0:
+        print("ERROR: --retry-failed-at-end debe ser >= 0")
+        return 12
 
     categories = list(
         load_categories(ROOT / "config" / "walmart" / "categories.yaml")
@@ -311,9 +440,8 @@ def main() -> int:
     print("El script NO abrirá ni cerrará Chrome.")
     print("")
 
-    frames = []
-    summaries = []
-    metas = []
+    category_order = [category.id for category in categories]
+    results: dict[str, tuple] = {}
 
     with sync_playwright() as playwright:
         try:
@@ -335,83 +463,82 @@ def main() -> int:
 
         print(f"Pestaña Walmart detectada: {page.url}")
         print("")
+        print("PRIMERA PASADA:")
+        print("- Cada categoría se descarga una sola vez.")
+        print("- Las categorías COMPLETE quedan preservadas.")
+        print("- Los reintentos se hacen sólo al final y sólo sobre fallas.")
+        print("")
+
+        failed_ids: list[str] = []
+        category_by_id = {item.id: item for item in categories}
 
         for category in categories:
-            frame, summary, meta = run_category(
+            result = run_category(
                 category,
                 location,
                 page=page,
                 max_pages=args.max_pages,
             )
-            frames.append(frame)
-            summaries.append(summary)
-            metas.append(
-                {
-                    "category_id": category.id,
-                    "meta_json": json.dumps(
-                        meta,
-                        ensure_ascii=False,
-                        default=str,
-                    ),
-                }
-            )
+            results[category.id] = result
+            _write_results(results, category_order, location)
+
+            if not _summary_is_acceptable(result[1]):
+                failed_ids.append(category.id)
 
             print(
-                "Pausa Walmart entre categorías: 4 segundos.",
+                "Checkpoint Walmart actualizado. "
+                "Pausa entre categorías: 4 segundos.",
                 flush=True,
             )
             page.wait_for_timeout(4_000)
 
+        for retry_round in range(1, args.retry_failed_at_end + 1):
+            if not failed_ids:
+                break
+
+            pending_ids = list(failed_ids)
+            failed_ids = []
+
+            print("")
+            print("=" * 78)
+            print(
+                f"REINTENTO FINAL WALMART {retry_round}/"
+                f"{args.retry_failed_at_end}"
+            )
+            print("=" * 78)
+            print(
+                "Sólo se reintentan: "
+                + ", ".join(pending_ids)
+            )
+
+            for category_id in pending_ids:
+                category = category_by_id[category_id]
+                result = run_category(
+                    category,
+                    location,
+                    page=page,
+                    max_pages=args.max_pages,
+                )
+                results[category_id] = result
+                _write_results(results, category_order, location)
+
+                if not _summary_is_acceptable(result[1]):
+                    failed_ids.append(category_id)
+
+                print(
+                    "Checkpoint Walmart actualizado. "
+                    "Pausa entre reintentos: 4 segundos.",
+                    flush=True,
+                )
+                page.wait_for_timeout(4_000)
+
         # No browser.close(): la sesión pertenece al usuario.
 
-    concentrated = (
-        pd.concat(frames, ignore_index=True)
-        if frames
-        else pd.DataFrame(columns=COLUMNS)
+    concentrated, summary_df = _write_results(
+        results,
+        category_order,
+        location,
     )
-    summary_df = pd.DataFrame(summaries)
-
-    all_complete = bool(
-        len(summary_df) == len(categories)
-        and not summary_df.empty
-        and summary_df["status"].eq("COMPLETE").all()
-    )
-    control = pd.DataFrame(
-        [
-            {
-                "status": "PRODUCTIVE" if all_complete else "PARTIAL",
-                "products": len(concentrated),
-                "categories": len(summary_df),
-                "store": location.store,
-                "store_id": location.store_id,
-                "postal_code": location.postal_code,
-                "all_categories_complete": all_complete,
-            }
-        ]
-    )
-
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with pd.ExcelWriter(OUTPUT_PATH, engine="openpyxl") as writer:
-        concentrated.to_excel(
-            writer,
-            index=False,
-            sheet_name="Concentrado",
-        )
-        summary_df.to_excel(
-            writer,
-            index=False,
-            sheet_name="Resumen",
-        )
-        control.to_excel(
-            writer,
-            index=False,
-            sheet_name="Control",
-        )
-        pd.DataFrame(metas).to_excel(
-            writer,
-            index=False,
-            sheet_name="Meta",
-        )
 
     print("")
     print("=" * 78)
@@ -446,6 +573,30 @@ def main() -> int:
     print("")
     print(f"Total filas: {len(concentrated)}")
     print(f"Archivo: {OUTPUT_PATH}")
+
+    all_complete = bool(
+        len(summary_df) == len(categories)
+        and not summary_df.empty
+        and all(
+            _summary_is_acceptable(results[item.id][1])
+            for item in categories
+        )
+    )
+
+    if all_complete:
+        print("Resultado Walmart: TODAS LAS CATEGORÍAS VÁLIDAS.")
+    else:
+        failed = [
+            item.id
+            for item in categories
+            if item.id not in results
+            or not _summary_is_acceptable(results[item.id][1])
+        ]
+        print(
+            "Resultado Walmart: quedan categorías pendientes: "
+            + ", ".join(failed)
+        )
+
     return 0 if all_complete else 2
 
 
