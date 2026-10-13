@@ -127,6 +127,20 @@ def run_category(
 
     meta = scraper.run_meta or {}
     pages_visited = len(meta.get("pages") or [])
+    sources = meta.get("sources") or []
+    sources_discovered = int(meta.get("sources_discovered") or 0)
+    sources_visited = len(sources)
+    pagination_methods = " | ".join(
+        dict.fromkeys(
+            str(item.get("pagination_method") or "")
+            for item in sources
+            if item.get("pagination_method")
+        )
+    )
+    sponsored_banner_clicks = sum(
+        int(item.get("sponsored_banner_clicks") or 0)
+        for item in sources
+    )
     store_context_meta = bool(meta.get("store_context_verified"))
     target_products = meta.get("target_products")
     coverage = meta.get("coverage")
@@ -163,6 +177,10 @@ def run_category(
         notes.append(f"duplicados={duplicate_rows}")
     if pages_visited <= 0:
         notes.append("sin páginas visitadas")
+    if sources_discovered <= 0 or sources_visited != sources_discovered:
+        notes.append(
+            f"fuentes {sources_visited}/{sources_discovered}"
+        )
     if not catalogue_gate_ok:
         if target_products not in (None, 0):
             notes.append(
@@ -193,7 +211,11 @@ def run_category(
         "store_context_complete": store_context_complete,
         "store_context_verified": store_context_meta,
         "store_context_method": meta.get("store_context_method"),
+        "sources_discovered": sources_discovered,
+        "sources_visited": sources_visited,
         "pages_visited": pages_visited,
+        "pagination_methods": pagination_methods,
+        "sponsored_banner_clicks": sponsored_banner_clicks,
         "pagination_verified": pagination_verified,
         "pagination_stop_reason": meta.get("pagination_stop_reason"),
         "total_pages_hint": meta.get("total_pages_hint"),
@@ -226,7 +248,11 @@ def run_category(
         "store_context_complete",
         "store_context_verified",
         "store_context_method",
+        "sources_discovered",
+        "sources_visited",
         "pages_visited",
+        "pagination_methods",
+        "sponsored_banner_clicks",
         "pagination_verified",
         "pagination_stop_reason",
         "price_order_errors",
@@ -389,7 +415,12 @@ def main() -> int:
                 "url_complete",
                 "store_context_complete",
                 "store_context_verified",
+                "sources_discovered",
+                "sources_visited",
                 "pages_visited",
+                "pagination_methods",
+                "sponsored_banner_clicks",
+                "pagination_verified",
                 "price_order_errors",
                 "duplicates_sku_url",
                 "quality_notes",
