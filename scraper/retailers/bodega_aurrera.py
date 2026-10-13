@@ -1189,10 +1189,22 @@ class BodegaAurreraScraper:
                 pager_current is not None
                 and int(pager_current) == page_number
             )
+            next_enabled = bool(
+                pager_snapshot.get("next_enabled")
+            )
+            has_next = bool(
+                pager_snapshot.get("has_next")
+            )
+            terminal_page_proven = bool(
+                observed_last_page is not None
+                and page_number >= observed_last_page
+                and not next_enabled
+            )
             page_valid = bool(
                 page_number == 1
                 or new_on_page > 0
                 or pager_proves_advance
+                or terminal_page_proven
             )
             if not page_valid:
                 pagination_complete = False
@@ -1207,6 +1219,7 @@ class BodegaAurreraScraper:
                     "product_links": self._product_link_count(page),
                     "pager_current": pager_current,
                     "pager_proves_advance": pager_proves_advance,
+                    "terminal_page_proven": terminal_page_proven,
                     "pager_max_page": snapshot_last,
                     "observed_last_page": observed_last_page,
                     "pager_numbers": pager_snapshot.get("numbers"),
@@ -1248,13 +1261,6 @@ class BodegaAurreraScraper:
 
             if not page_valid:
                 break
-
-            next_enabled = bool(
-                pager_snapshot.get("next_enabled")
-            )
-            has_next = bool(
-                pager_snapshot.get("has_next")
-            )
 
             # The real stopping condition is dynamic: the current paginator
             # no longer exposes an enabled next control. The last-page number
