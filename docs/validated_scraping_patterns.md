@@ -2,6 +2,8 @@
 
 ## Regla global: método validado, datos diarios
 
+La arquitectura oficial NO cambia: `Fase 1 -> Fase 2 -> Fase 3 -> master diario`. Los componentes por categoría son checkpoints internos de Fase 3, no fases adicionales ni salidas maestras alternativas.
+
 - `VALIDATED_METHOD` significa que la estrategia técnica ya pasó una prueba live y no debe rediseñarse sin una falla nueva concreta.
 - La validación del método NO autoriza reutilizar precios o productos de días anteriores.
 - Cada corrida diaria vuelve a extraer los datos y genera una captura asociada a `YYYY-MM-DD`.
