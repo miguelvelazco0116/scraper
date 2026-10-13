@@ -1107,19 +1107,35 @@ class BodegaAurreraScraper:
                 location,
             )
 
+            unique_before = len(unique_source)
             for row in rows:
                 sku = clean_text(str(row.get("sku") or ""))
                 if sku:
                     unique_source[sku] = row
+            new_on_page = len(unique_source) - unique_before
+
+            pager_current = pager_snapshot.get("current")
+            pager_proves_advance = bool(
+                pager_current is not None
+                and int(pager_current) == page_number
+            )
+            if (
+                page_number > 1
+                and new_on_page <= 0
+                and not pager_proves_advance
+            ):
+                pagination_complete = False
 
             page_meta.append(
                 {
                     "page_number": page_number,
                     "actual_url": page.url,
                     "rows": len(rows),
+                    "new_unique_rows": new_on_page,
                     "unique_source": len(unique_source),
                     "product_links": self._product_link_count(page),
-                    "pager_current": pager_snapshot.get("current"),
+                    "pager_current": pager_current,
+                    "pager_proves_advance": pager_proves_advance,
                     "pager_max_page": pager_snapshot.get("max_page"),
                     "pager_numbers": pager_snapshot.get("numbers"),
                     "pager_text": pager_snapshot.get("text"),
@@ -1135,6 +1151,7 @@ class BodegaAurreraScraper:
                 "Bodega Aurrera UI page "
                 f"{page_number}/{max_page}: "
                 f"rows={len(rows)}, "
+                f"new={new_on_page}, "
                 f"unique_source={len(unique_source)}",
                 flush=True,
             )
