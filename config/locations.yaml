@@ -88,3 +88,12 @@ locations:
     store: Farmacias Similares online
     store_id: null
     enabled: true
+
+  - id: benavides-online
+    city: Catálogo online
+    state: Nacional
+    country: México
+    postal_code: null
+    store: Farmacias Benavides online
+    store_id: null
+    enabled: true
