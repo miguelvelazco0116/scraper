@@ -54,6 +54,13 @@ PHASES = {
         "categories": 5,
         "require_fg_names": False,
     },
+} 
+
+PHASE3_RETAILER_SOURCES = {
+    "Bodega Aurrera": {
+        "source": ROOT / "output" / "bodega_aurrera_test.xlsx",
+        "categories": 2,
+    },
 }
 
 
@@ -78,6 +85,104 @@ def _read_workbook(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame
     )
     control = pd.read_excel(path, sheet_name="Control")
     return _canonical(concentrated), summary, control
+
+
+def _read_workbook_optional_control(
+    path: Path,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    concentrated = pd.read_excel(
+        path,
+        sheet_name="Concentrado",
+        dtype={"sku": str, "store_id": str},
+    )
+    summary = pd.read_excel(
+        path,
+        sheet_name="Resumen",
+        dtype={"category_id": str},
+    )
+    try:
+        control = pd.read_excel(path, sheet_name="Control")
+    except ValueError:
+        control = pd.DataFrame()
+    return _canonical(concentrated), summary, control
+
+
+def _validate_bodega_retailer(
+    frame: pd.DataFrame,
+    summary: pd.DataFrame,
+) -> list[str]:
+    notes: list[str] = []
+
+    if frame.empty:
+        notes.append("Concentrado Bodega vacío")
+    if len(summary) != 2:
+        notes.append(f"Bodega categorías {len(summary)}/2")
+        return notes
+
+    retailers = set(summary["retailer"].dropna().astype(str))
+    if retailers != {"Bodega Aurrera"}:
+        notes.append(
+            f"Retailers Bodega inesperados: {sorted(retailers)}"
+        )
+
+    if not summary["status"].astype(str).str.upper().eq("SUCCESS").all():
+        notes.append("Bodega tiene categorías no SUCCESS")
+
+    products = pd.to_numeric(
+        summary["products"], errors="coerce"
+    ).fillna(-1)
+    if int(products.sum()) != len(frame):
+        notes.append(
+            f"Bodega suma products={int(products.sum())} != filas={len(frame)}"
+        )
+
+    for metric in ("sku_complete", "price_complete", "url_complete"):
+        if metric not in summary.columns:
+            notes.append(f"Bodega sin {metric}")
+            continue
+        values = pd.to_numeric(
+            summary[metric], errors="coerce"
+        ).fillna(-2)
+        if not values.eq(products).all():
+            notes.append(f"Bodega {metric} incompleto")
+
+    if "sources_discovered" not in summary.columns or "sources_visited" not in summary.columns:
+        notes.append("Bodega sin métricas de fuentes")
+    else:
+        discovered = pd.to_numeric(
+            summary["sources_discovered"], errors="coerce"
+        ).fillna(-1)
+        visited = pd.to_numeric(
+            summary["sources_visited"], errors="coerce"
+        ).fillna(-2)
+        if not discovered.eq(visited).all():
+            notes.append("Bodega fuentes descubiertas != visitadas")
+
+    if "catalogue_gate_ok" not in summary.columns:
+        notes.append("Bodega sin catalogue_gate_ok")
+    elif not summary["catalogue_gate_ok"].map(bool).all():
+        notes.append("Bodega coverage/pagination gate incompleto")
+
+    if "pagination_verified" in summary.columns:
+        target = pd.to_numeric(
+            summary.get("target_products"),
+            errors="coerce",
+        )
+        no_target = target.isna() | target.eq(0)
+        pagination_ok = summary["pagination_verified"].map(bool)
+        if not pagination_ok.loc[no_target].all():
+            notes.append("Bodega paginación no verificada sin target")
+
+    if "price_validation_errors" not in summary.columns:
+        notes.append("Bodega sin price_validation_errors")
+    else:
+        errors = pd.to_numeric(
+            summary["price_validation_errors"], errors="coerce"
+        ).fillna(-1)
+        if not errors.eq(0).all():
+            notes.append("Bodega price_validation_errors > 0")
+
+    return notes
 
 
 def _control_capture_date(control: pd.DataFrame) -> str | None:
@@ -418,23 +523,50 @@ def main() -> int:
         description="Integra una fase productiva validada al concentrado maestro."
     )
     parser.add_argument("--phase", type=int, choices=[1, 2, 3], required=True)
+    parser.add_argument(
+        "--retailer",
+        choices=["Bodega Aurrera"],
+        help=(
+            "Integra un retailer completo ya validado dentro de Fase 3 "
+            "sin marcar toda Fase 3 como completada."
+        ),
+    )
     args = parser.parse_args()
 
     phase = args.phase
+    retailer_mode = args.retailer
+
+    if retailer_mode and phase != 3:
+        print("ERROR: --retailer sólo aplica a Fase 3.")
+        return 2
+
     cfg = PHASES[phase]
-    source = cfg["source"]
+    source = (
+        PHASE3_RETAILER_SOURCES[retailer_mode]["source"]
+        if retailer_mode
+        else cfg["source"]
+    )
 
     if not source.exists():
         print(f"ERROR: no existe la salida productiva de {cfg['label']}: {source}")
         return 2
 
-    phase_frame, phase_summary, phase_control = _read_workbook(source)
-    notes = _validate_phase(
-        phase,
-        phase_frame,
-        phase_summary,
-        phase_control,
-    )
+    if retailer_mode == "Bodega Aurrera":
+        phase_frame, phase_summary, phase_control = (
+            _read_workbook_optional_control(source)
+        )
+        notes = _validate_bodega_retailer(
+            phase_frame,
+            phase_summary,
+        )
+    else:
+        phase_frame, phase_summary, phase_control = _read_workbook(source)
+        notes = _validate_phase(
+            phase,
+            phase_frame,
+            phase_summary,
+            phase_control,
+        )
     if notes:
         _write_diagnostic(
             {
@@ -444,7 +576,12 @@ def main() -> int:
                 "notes": notes,
             }
         )
-        print(f"{cfg['label']} NO integrada:")
+        label = (
+            f"{cfg['label']} / {retailer_mode}"
+            if retailer_mode
+            else cfg["label"]
+        )
+        print(f"{label} NO integrada:")
         for note in notes:
             print(f"- {note}")
         return 2
@@ -527,16 +664,34 @@ def main() -> int:
             )
             return 2
 
-        phase_retailers = cfg["retailers"]
+        phase_retailers = (
+            {retailer_mode}
+            if retailer_mode
+            else cfg["retailers"]
+        )
         existing_frame = existing_frame.loc[
             ~existing_frame["retailer"].astype(str).isin(phase_retailers)
         ].copy()
-        if not existing_summary.empty and "source_phase" in existing_summary.columns:
-            existing_summary = existing_summary.loc[
-                existing_summary["source_phase"].astype(str).ne(cfg["label"])
-            ].copy()
+
+        if not existing_summary.empty:
+            if retailer_mode and "retailer" in existing_summary.columns:
+                existing_summary = existing_summary.loc[
+                    existing_summary["retailer"]
+                    .astype(str)
+                    .ne(retailer_mode)
+                ].copy()
+            elif "source_phase" in existing_summary.columns:
+                existing_summary = existing_summary.loc[
+                    existing_summary["source_phase"]
+                    .astype(str)
+                    .ne(cfg["label"])
+                ].copy()
 
     phase_summary = phase_summary.copy()
+    if retailer_mode == "Bodega Aurrera":
+        phase_summary["source_status"] = phase_summary["status"].astype(str)
+        phase_summary["status"] = "COMPLETE"
+
     if "source_phase" in phase_summary.columns:
         phase_summary["source_phase"] = cfg["label"]
     else:
@@ -554,7 +709,25 @@ def main() -> int:
         sort=False,
     )
 
-    completed = sorted(set(completed + [phase]))
+    if retailer_mode:
+        completed = sorted(set(completed))
+    else:
+        completed = sorted(set(completed + [phase]))
+
+    phase3_validated_retailers = sorted(
+        set(
+            concentrated.loc[
+                concentrated["retailer"]
+                .astype(str)
+                .isin(PHASES[3]["retailers"]),
+                "retailer",
+            ]
+            .dropna()
+            .astype(str)
+            .tolist()
+        )
+    )
+
     control = pd.DataFrame(
         [
             {
@@ -562,6 +735,18 @@ def main() -> int:
                 "updated_at": generated_at,
                 "last_phase_added": phase,
                 "completed_phases": "|".join(str(x) for x in completed),
+                "phase3_status": (
+                    "COMPLETE"
+                    if 3 in completed
+                    else (
+                        "PARTIAL_VALIDATED"
+                        if phase3_validated_retailers
+                        else "PENDING"
+                    )
+                ),
+                "phase3_validated_retailers": " | ".join(
+                    phase3_validated_retailers
+                ),
                 "products": len(concentrated),
                 "categories": len(summary),
                 "retailers": int(concentrated["retailer"].nunique()),
@@ -606,16 +791,24 @@ def main() -> int:
     )
 
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+    checkpoint_suffix = (
+        "_bodega_aurrera"
+        if retailer_mode == "Bodega Aurrera"
+        else ""
+    )
     checkpoint = (
         CHECKPOINT_DIR
-        / f"checkpoint_fase{phase}_{run_id}.xlsx"
+        / f"checkpoint_fase{phase}{checkpoint_suffix}_{run_id}.xlsx"
     )
     shutil.copy2(master_path, checkpoint)
 
     metadata = {
         "status": "CHECKPOINT_VALIDATED",
         "phase_added": phase,
+        "retailer_added": retailer_mode,
         "completed_phases": completed,
+        "phase3_status": control.iloc[0]["phase3_status"],
+        "phase3_validated_retailers": phase3_validated_retailers,
         "generated_at": generated_at,
         "source": str(source),
         "capture_date": capture_date,
@@ -634,9 +827,20 @@ def main() -> int:
     _write_diagnostic(metadata)
 
     print("=" * 80)
-    print(f"{cfg['label']} INTEGRADA AL CONCENTRADO")
+    display_label = (
+        f"{cfg['label']} / {retailer_mode}"
+        if retailer_mode
+        else cfg["label"]
+    )
+    print(f"{display_label} INTEGRADA AL CONCENTRADO")
     print("=" * 80)
     print(f"Fases completadas : {control.iloc[0]['completed_phases']}")
+    print(f"Estado Fase 3     : {control.iloc[0]['phase3_status']}")
+    if retailer_mode:
+        print(
+            "Retailers Fase 3  : "
+            f"{control.iloc[0]['phase3_validated_retailers']}"
+        )
     print(f"Filas acumuladas  : {len(concentrated)}")
     print(f"Categorías        : {len(summary)}")
     print(f"Retailers         : {control.iloc[0]['retailers']}")
