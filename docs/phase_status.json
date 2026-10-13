@@ -82,6 +82,13 @@
             }
           }
         }
+      },
+      "consolidation": {
+        "method": "VALIDATED_COMPONENTS_NO_RESCRAPE",
+        "component_dir": "output/validated_phase3_components",
+        "build_command": "& .\\scripts\\build_phase3_from_validated_components.ps1",
+        "integrate_command": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 3",
+        "required_components": 5
       }
     }
   }
