@@ -1,0 +1,50 @@
+{
+  "retailer": "Bodega Aurrera",
+  "validation_date": "2026-10-12",
+  "status": "VALIDATED_METHOD",
+  "browser_strategy": "existing_chrome_cdp",
+  "pagination_strategy": "dynamic_ui_numeric_next",
+  "coverage_rule": "If reliable target exists require >=90%; otherwise require pagination_verified=True.",
+  "categories": {
+    "cuidado-bucal": {
+      "status": "SUCCESS",
+      "products": 998,
+      "target_products": null,
+      "sources_discovered": 2,
+      "sources_visited": 2,
+      "pages_visited": 33,
+      "pagination_method": "ui_numeric_next",
+      "sponsored_banner_clicks": 0,
+      "explicit_pages": 31,
+      "pagination_verified": true,
+      "sku_complete": 998,
+      "price_complete": 998,
+      "url_complete": 998,
+      "price_validation_errors": 0,
+      "blocked_detected": false
+    },
+    "cuidado-de-la-ropa": {
+      "status": "SUCCESS",
+      "products": 908,
+      "target_products": null,
+      "sources_discovered": 2,
+      "sources_visited": 2,
+      "pages_visited": 28,
+      "pagination_method": "ui_numeric_next",
+      "sponsored_banner_clicks": 0,
+      "explicit_pages": 26,
+      "pagination_verified": true,
+      "sku_complete": 908,
+      "price_complete": 908,
+      "url_complete": 908,
+      "price_validation_errors": 0,
+      "blocked_detected": false
+    }
+  },
+  "interpretation": {
+    "method_validated": true,
+    "counts_are_daily_snapshot": true,
+    "counts_are_not_future_hard_gates": true,
+    "daily_data_must_be_recaptured": true
+  }
+}
