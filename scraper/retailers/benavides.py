@@ -76,6 +76,11 @@ class _VisibleTextParser(HTMLParser):
 class _CategoryProductParser(HTMLParser):
     """Extract Magento product links from server-rendered category HTML."""
 
+    VOID_TAGS = {
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr",
+    }
+
     def __init__(self, base_url: str) -> None:
         super().__init__(convert_charrefs=True)
         self.base_url = base_url
@@ -124,7 +129,8 @@ class _CategoryProductParser(HTMLParser):
             return
 
         if self._product_depth:
-            self._product_depth += 1
+            if tag not in self.VOID_TAGS:
+                self._product_depth += 1
 
             for key in (
                 "data-product-sku",
@@ -169,7 +175,7 @@ class _CategoryProductParser(HTMLParser):
             self._capture_title = False
             self._title_parts = []
 
-        if not self._product_depth:
+        if not self._product_depth or tag.casefold() in self.VOID_TAGS:
             return
 
         self._product_depth -= 1
