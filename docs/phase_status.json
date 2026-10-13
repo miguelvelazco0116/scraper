@@ -52,12 +52,13 @@
       "note": "Do not integrate or mark VALIDATED until a complete live Phase 3 run passes.",
       "retailer_progress": {
         "Bodega Aurrera": {
-          "status": "PARTIAL_VALIDATION",
+          "status": "VALIDATED_METHOD",
           "categories": {
-            "cuidado-de-la-ropa": "VALIDATED",
-            "cuidado-bucal": "PENDING_PAGINATION_DIAGNOSIS"
+            "cuidado-de-la-ropa": "VALIDATED_METHOD",
+            "cuidado-bucal": "VALIDATED_METHOD"
           },
-          "evidence": "docs/validation_results/bodega_aurrera_partial_2026-10-12.json"
+          "evidence": "docs/validation_results/bodega_aurrera_validated_2026-10-12.json",
+          "daily_rule": "Method remains validated; product data must be captured again for each daily run."
         },
         "Walmart": {
           "status": "PENDING_LIVE_VALIDATION",
@@ -84,11 +85,12 @@
         }
       },
       "consolidation": {
-        "method": "VALIDATED_COMPONENTS_NO_RESCRAPE",
-        "component_dir": "output/validated_phase3_components",
+        "method": "DAILY_VALIDATED_COMPONENTS_NO_RESCRAPE",
+        "component_root": "output/validated_phase3_components/YYYY-MM-DD",
         "build_command": "& .\\scripts\\build_phase3_from_validated_components.ps1",
         "integrate_command": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 3",
-        "required_components": 5
+        "required_components_per_day": 5,
+        "rule": "Never mix components from different capture dates."
       }
     }
   }
