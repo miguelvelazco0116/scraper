@@ -327,6 +327,33 @@ Gate:
 Estado:
 - PENDIENTE DE VALIDACIÓN LIVE
 
+## Bodega Aurrera - prueba terminal de página corregida
+
+Diagnóstico live:
+- Pasta Dental: 23/23 páginas, `pagination_complete=True`
+- Enjuagues Bucales: 10/10 páginas alcanzadas
+- última página Enjuagues:
+  - `last_page_number=10`
+  - `last_page_observed=10`
+  - `last_has_next=False`
+  - `last_next_enabled=False`
+  - `last_new_unique_rows=0`
+  - `last_click_method=next`
+- el resultado anterior marcó `pagination_complete=False` únicamente porque la última página no añadió SKUs nuevos y `pager_current` llegó vacío
+
+Corrección:
+- una página terminal se considera probada cuando:
+  - `page_number >= observed_last_page`
+  - y `next_enabled=False`
+- esa prueba terminal puede validar la última página aunque `new_unique_rows=0`
+- no se relajan SKU/precio/URL ni los demás gates
+- el test de Bodega ahora acepta `-Category cuidado-bucal` para no repetir categorías ya validadas
+
+Estado:
+- cuidado-de-la-ropa permanece VALIDADO
+- cuidado-bucal requiere una corrida aislada final con la regla corregida
+- Bodega completa aún NO se marca VALIDADA hasta esa corrida
+
 ## Fase 3 - Bodega Aurrera + Walmart
 
 Estado: EN VALIDACIÓN LIVE
