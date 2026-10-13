@@ -17,9 +17,12 @@ import pandas as pd
 from main import COLUMNS
 from scraper.io_utils import atomic_output_path
 
-COMPONENT_DIR = ROOT / "output" / "validated_phase3_components"
-CHECKPOINT_DIR = (
+COMPONENT_ROOT = ROOT / "output" / "validated_phase3_components"
+CHECKPOINT_ROOT = (
     ROOT / "output" / "checkpoints_validos" / "phase3_components"
+)
+CURRENT_MASTER_POINTER = (
+    ROOT / "output" / "checkpoints_validos" / "current_master.json"
 )
 
 
@@ -37,8 +40,41 @@ def _slug(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", text).strip("_")
 
 
-def component_path(retailer: str, category_id: str) -> Path:
-    return COMPONENT_DIR / f"{_slug(retailer)}__{category_id}.xlsx"
+def _resolve_capture_date(explicit: str | None) -> str:
+    if explicit:
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", explicit):
+            raise ValueError(
+                "--capture-date debe usar formato YYYY-MM-DD"
+            )
+        return explicit
+
+    if not CURRENT_MASTER_POINTER.exists():
+        raise ValueError(
+            "No existe una corrida diaria activa. "
+            "Integra primero una Fase 1 válida."
+        )
+
+    payload = json.loads(
+        CURRENT_MASTER_POINTER.read_text(encoding="utf-8")
+    )
+    capture_date = str(payload.get("capture_date") or "").strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", capture_date):
+        raise ValueError(
+            "current_master.json no contiene capture_date válido."
+        )
+    return capture_date
+
+
+def component_path(
+    retailer: str,
+    category_id: str,
+    capture_date: str,
+) -> Path:
+    return (
+        COMPONENT_ROOT
+        / capture_date
+        / f"{_slug(retailer)}__{category_id}.xlsx"
+    )
 
 
 def _canonical(frame: pd.DataFrame) -> pd.DataFrame:
@@ -60,6 +96,7 @@ def _bool_value(value) -> bool:
 def _validate(
     retailer: str,
     category_id: str,
+    capture_date: str,
     frame: pd.DataFrame,
     summary: pd.DataFrame,
 ) -> list[str]:
@@ -148,6 +185,21 @@ def _validate(
             f"{sorted(frame_categories)}; esperado={category_id}"
         )
 
+    if "scrape_timestamp" not in frame.columns:
+        notes.append("Concentrado sin scrape_timestamp")
+    else:
+        row_dates = set(
+            frame["scrape_timestamp"]
+            .dropna()
+            .astype(str)
+            .str.slice(0, 10)
+        )
+        if row_dates != {capture_date}:
+            notes.append(
+                f"Fechas de captura {sorted(row_dates)} "
+                f"!= corrida activa {capture_date}"
+            )
+
     return notes
 
 
@@ -160,7 +212,20 @@ def main() -> int:
     parser.add_argument("--source", required=True)
     parser.add_argument("--retailer", required=True)
     parser.add_argument("--category-id", required=True)
+    parser.add_argument(
+        "--capture-date",
+        help=(
+            "Fecha YYYY-MM-DD. Si se omite usa la fecha del "
+            "concentrado diario activo."
+        ),
+    )
     args = parser.parse_args()
+
+    try:
+        capture_date = _resolve_capture_date(args.capture_date)
+    except (ValueError, json.JSONDecodeError) as exc:
+        print(f"ERROR: {exc}")
+        return 2
 
     source = Path(args.source)
     if not source.is_absolute():
@@ -194,6 +259,7 @@ def main() -> int:
     notes = _validate(
         args.retailer,
         args.category_id,
+        capture_date,
         frame,
         summary,
     )
@@ -207,12 +273,18 @@ def main() -> int:
     stamp = now.strftime("%Y%m%d_%H%M%S")
     promoted_at = now.isoformat(timespec="seconds")
 
-    COMPONENT_DIR.mkdir(parents=True, exist_ok=True)
-    CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+    component_dir = COMPONENT_ROOT / capture_date
+    checkpoint_dir = CHECKPOINT_ROOT / capture_date
+    component_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-    destination = component_path(args.retailer, args.category_id)
+    destination = component_path(
+        args.retailer,
+        args.category_id,
+        capture_date,
+    )
     checkpoint = (
-        CHECKPOINT_DIR
+        checkpoint_dir
         / f"{destination.stem}__{stamp}.xlsx"
     )
 
@@ -223,6 +295,7 @@ def main() -> int:
                 "retailer": args.retailer,
                 "category_id": args.category_id,
                 "products": len(frame),
+                "capture_date": capture_date,
                 "promoted_at": promoted_at,
                 "source": str(source),
                 "component": str(destination),
@@ -256,6 +329,7 @@ def main() -> int:
                 "retailer": args.retailer,
                 "category_id": args.category_id,
                 "products": len(frame),
+                "capture_date": capture_date,
                 "promoted_at": promoted_at,
                 "source": str(source),
                 "component": str(destination),
@@ -273,6 +347,7 @@ def main() -> int:
     print(f"Retailer   : {args.retailer}")
     print(f"Categoría  : {args.category_id}")
     print(f"Filas      : {len(frame)}")
+    print(f"Fecha      : {capture_date}")
     print(f"Componente : {destination}")
     print(f"Checkpoint : {checkpoint}")
     return 0
