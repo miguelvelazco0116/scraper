@@ -673,7 +673,7 @@ class BodegaAurreraScraper:
                       )
                     ).filter(visible);
 
-                    const numbers = Array.from(
+                    const controlNumbers = Array.from(
                       new Set(
                         controls
                           .map(controlNumber)
@@ -681,11 +681,44 @@ class BodegaAurreraScraper:
                       )
                     ).sort((a, b) => a - b);
 
-                    if (numbers.length < 2) continue;
+                    if (controlNumbers.length < 2) continue;
 
                     const text = normalize(
                       container.innerText || container.textContent
                     );
+
+                    // Bodega renders the final page after the ellipsis as
+                    // plain text/span in some catalogue layouts, e.g.
+                    // "1 2 3 … 23 >". Read those short pager-only numeric
+                    // tokens as well; do not inspect large catalogue text.
+                    const textNumbers = (
+                      text.length <= 220 &&
+                      (
+                        text.includes('…') ||
+                        text.includes('...') ||
+                        /[>›»→]/.test(text)
+                      )
+                    )
+                      ? Array.from(
+                          new Set(
+                            (text.match(/\b\d{1,4}\b/g) || [])
+                              .map(value => Number(value))
+                              .filter(value =>
+                                Number.isFinite(value) &&
+                                value >= 1 &&
+                                value <= 9999
+                              )
+                          )
+                        ).sort((a, b) => a - b)
+                      : [];
+
+                    const numbers = Array.from(
+                      new Set([
+                        ...controlNumbers,
+                        ...textNumbers
+                      ])
+                    ).sort((a, b) => a - b);
+
                     const currentControl = controls.find(el =>
                       String(el.getAttribute('aria-current') || '')
                         .toLowerCase() === 'page'
@@ -714,8 +747,9 @@ class BodegaAurreraScraper:
                     });
 
                     const score =
-                      numbers.length * 20 +
-                      (text.includes('…') || text.includes('...') ? 10 : 0) +
+                      controlNumbers.length * 20 +
+                      (text.includes('…') || text.includes('...') ? 25 : 0) +
+                      (textNumbers.length > controlNumbers.length ? 20 : 0) +
                       (hasNext ? 10 : 0) +
                       (current !== null ? 5 : 0);
 
@@ -723,6 +757,8 @@ class BodegaAurreraScraper:
                       best = {
                         score,
                         numbers,
+                        control_numbers: controlNumbers,
+                        text_numbers: textNumbers,
                         current,
                         max_page: Math.max(...numbers),
                         has_next: hasNext,
@@ -952,16 +988,38 @@ class BodegaAurreraScraper:
                   }
 
                   if (!target) {
-                    const nonNumeric = pager.controls.filter(
-                      el =>
-                        !disabled(el) &&
-                        controlNumber(el) === null &&
-                        !/^(\.\.\.|…)$/.test(
-                          normalize(el.innerText || el.textContent)
-                        )
+                    const numericControls = pager.controls.filter(
+                      el => Number.isFinite(controlNumber(el))
                     );
-                    target = nonNumeric[nonNumeric.length - 1] || null;
-                    method = 'last_non_numeric';
+                    const rightEdge = numericControls.length
+                      ? Math.max(
+                          ...numericControls.map(
+                            el => el.getBoundingClientRect().right
+                          )
+                        )
+                      : -Infinity;
+
+                    const rightSideControls = pager.controls
+                      .filter(el => {
+                        if (disabled(el)) return false;
+                        if (controlNumber(el) !== null) return false;
+
+                        const label = normalize(
+                          el.innerText || el.textContent
+                        );
+                        if (/^(\.\.\.|…)$/.test(label)) return false;
+
+                        const rect = el.getBoundingClientRect();
+                        return rect.left >= rightEdge - 2;
+                      })
+                      .sort(
+                        (a, b) =>
+                          a.getBoundingClientRect().left -
+                          b.getBoundingClientRect().left
+                      );
+
+                    target = rightSideControls[0] || null;
+                    method = 'right_of_numeric_controls';
                   }
 
                   if (!target) {
@@ -1138,6 +1196,12 @@ class BodegaAurreraScraper:
                     "pager_proves_advance": pager_proves_advance,
                     "pager_max_page": pager_snapshot.get("max_page"),
                     "pager_numbers": pager_snapshot.get("numbers"),
+                    "pager_control_numbers": pager_snapshot.get(
+                        "control_numbers"
+                    ),
+                    "pager_text_numbers": pager_snapshot.get(
+                        "text_numbers"
+                    ),
                     "pager_text": pager_snapshot.get("text"),
                     "pager_scroll_rounds": pager_snapshot.get(
                         "scroll_rounds"
@@ -1206,6 +1270,10 @@ class BodegaAurreraScraper:
             "queued_pages_remaining": 0,
             "pagination_method": "ui_numeric_next",
             "pager_max_page": pager.get("max_page"),
+            "pager_numbers": pager.get("numbers"),
+            "pager_control_numbers": pager.get("control_numbers"),
+            "pager_text_numbers": pager.get("text_numbers"),
+            "pager_text": pager.get("text"),
             "sponsored_banner_clicks": 0,
             "explicit_page_meta": page_meta,
         }
