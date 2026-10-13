@@ -367,6 +367,29 @@ Estado:
 - cuidado-bucal requiere una corrida aislada final con la regla corregida
 - Bodega completa aún NO se marca VALIDADA hasta esa corrida
 
+## Bodega Aurrera - corrida diaria válida 2026-10-12
+
+Estado: VALID_DAILY_SAMPLE
+
+Resultado:
+- cuidado-bucal: 977 productos, 33 páginas, 2/2 fuentes, SKU/precio/URL 977/977, pagination_verified=True, price_validation_errors=0
+- cuidado-de-la-ropa: 906 productos, 28 páginas, 2/2 fuentes, SKU/precio/URL 906/906, pagination_verified=True, price_validation_errors=0
+- total Bodega: 1,883 filas
+- ambos status: SUCCESS
+
+Regla operativa añadida:
+- primera pasada: ejecutar cada categoría una sola vez
+- escribir checkpoint del workbook después de cada categoría
+- conservar categorías SUCCESS
+- reintentar sólo categorías fallidas y únicamente al final
+- no volver a descargar una categoría exitosa en esa corrida
+- cuando las 2 categorías Bodega son válidas, integrar sólo la partición Bodega al master diario
+- esta integración NO marca Fase 3 como completa
+- cuando Fase 3 completa se integre posteriormente, reemplaza la partición parcial de Fase 3 sin duplicar filas
+
+Evidencia:
+- `docs/validation_results/bodega_aurrera_daily_valid_2026-10-12_1883.json`
+
 ## Fase 3 - consolidación sin re-scraping
 
 Regla:
