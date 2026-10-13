@@ -90,13 +90,39 @@ class _PlaywrightDriverAdapter:
 
     def get(self, url: str) -> None:
         self._occ_responses = []
-        self.page.goto(
-            url,
-            wait_until="domcontentloaded",
-            timeout=120_000,
+        print(f"  NAVIGATE: {url}", flush=True)
+        try:
+            # "commit" is intentional. San Pablo can keep DOMContentLoaded
+            # pending for a long time even though the catalog/OCC request has
+            # already started. We only need the real storefront navigation.
+            self.page.goto(
+                url,
+                wait_until="commit",
+                timeout=45_000,
+            )
+        except Exception as exc:
+            # If Chrome actually reached the requested page, keep going and
+            # let the body/OCC checks decide whether the navigation is usable.
+            current = str(self.page.url or "")
+            if not current or current == "about:blank":
+                raise
+            print(
+                f"  NAVIGATION_WARNING: {type(exc).__name__}: {exc}",
+                flush=True,
+            )
+
+        # Wait a bounded amount of time for the storefront to emit OCC.
+        # This avoids the previous silent 120-second DOMContentLoaded wait.
+        for _ in range(24):
+            if self._occ_responses:
+                break
+            self.page.wait_for_timeout(500)
+
+        print(
+            f"  NAVIGATION_READY: url={self.page.url} "
+            f"occ_responses={len(self._occ_responses)}",
+            flush=True,
         )
-        # OCC is loaded asynchronously after the storefront DOM.
-        self.page.wait_for_timeout(1_500)
 
     def find_element(self, by, value):
         by_text = str(by or "").casefold()
@@ -104,7 +130,7 @@ class _PlaywrightDriverAdapter:
             locator = self.page.locator(str(value)).first
         else:
             locator = self.page.locator(str(value)).first
-        locator.wait_for(state="attached", timeout=30_000)
+        locator.wait_for(state="attached", timeout=10_000)
         return _ElementProxy(locator)
 
     def execute_script(self, script: str):
@@ -201,7 +227,16 @@ class _BrowserOccSanPabloScraper(FarmaciasSanPabloScraper):
 
         for page_index in range(max_pages):
             storefront_url = cls._page_url(active_storefront_url, page_index)
+            print(
+                f"San Pablo [{category.id}] loading storefront page "
+                f"{page_index + 1}",
+                flush=True,
+            )
             cls._goto(driver, storefront_url)
+            print(
+                f"San Pablo [{category.id}] reading captured OCC response",
+                flush=True,
+            )
             captured = driver.read_occ_payload()
 
             if captured is None and page_index == 0:
