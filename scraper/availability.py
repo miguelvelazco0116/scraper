@@ -35,7 +35,7 @@ def _clean(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
 
 
-def availability_from_text(text: Any) -> tuple[str, bool | None, str | None]:
+def availability_from_text(text: Any) -> tuple[str, int | None, str | None]:
     """Normaliza señales textuales de disponibilidad.
 
     Los marcadores negativos se evalúan antes que los positivos para evitar
@@ -49,12 +49,12 @@ def availability_from_text(text: Any) -> tuple[str, bool | None, str | None]:
     for pattern in _NEGATIVE_PATTERNS:
         match = re.search(pattern, folded, flags=re.IGNORECASE)
         if match:
-            return UNAVAILABLE, False, raw
+            return UNAVAILABLE, 0, raw
 
     for pattern in _POSITIVE_PATTERNS:
         match = re.search(pattern, folded, flags=re.IGNORECASE)
         if match:
-            return AVAILABLE, True, raw
+            return AVAILABLE, 1, raw
 
     return UNKNOWN, None, raw
 
@@ -74,7 +74,7 @@ def _iter_mapping_values(value: Any, prefix: str = ""):
                 yield from _iter_mapping_values(child, path)
 
 
-def availability_from_mapping(payload: Any) -> tuple[str, bool | None, str | None]:
+def availability_from_mapping(payload: Any) -> tuple[str, int | None, str | None]:
     """Busca señales comunes de stock/disponibilidad en respuestas JSON."""
 
     if not isinstance(payload, (dict, list, tuple)):
@@ -110,18 +110,18 @@ def availability_from_mapping(payload: Any) -> tuple[str, bool | None, str | Non
         if key in bool_keys:
             if isinstance(value, bool):
                 raw = f"{path}={value}"
-                return (AVAILABLE, True, raw) if value else (UNAVAILABLE, False, raw)
+                return (AVAILABLE, 1, raw) if value else (UNAVAILABLE, 0, raw)
             if isinstance(value, (int, float)) and value in (0, 1):
                 raw = f"{path}={value}"
-                return (AVAILABLE, True, raw) if value == 1 else (UNAVAILABLE, False, raw)
+                return (AVAILABLE, 1, raw) if value == 1 else (UNAVAILABLE, 0, raw)
             observations.append((path, value))
         elif key in status_keys:
             observations.append((path, value))
         elif key in numeric_keys and isinstance(value, (int, float)):
             raw = f"{path}={value}"
             if value <= 0:
-                return UNAVAILABLE, False, raw
-            return AVAILABLE, True, raw
+                return UNAVAILABLE, 0, raw
+            return AVAILABLE, 1, raw
 
     for path, value in observations:
         status, available, raw_text = availability_from_text(value)
@@ -130,9 +130,9 @@ def availability_from_mapping(payload: Any) -> tuple[str, bool | None, str | Non
 
         normalized = _clean(value).casefold()
         if normalized in {"instock", "in_stock", "available", "lowstock", "low_stock"}:
-            return AVAILABLE, True, f"{path}={value}"
+            return AVAILABLE, 1, f"{path}={value}"
         if normalized in {"outofstock", "out_of_stock", "unavailable", "notavailable"}:
-            return UNAVAILABLE, False, f"{path}={value}"
+            return UNAVAILABLE, 0, f"{path}={value}"
 
     try:
         raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
