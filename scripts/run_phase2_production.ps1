@@ -105,6 +105,21 @@ if ($code -eq 0) {
     Write-Host "Archivo : $ProjectDir\output\concentrado_fase2.xlsx"
     Write-Host "Baseline: $ProjectDir\output\fase2_muestra_inicial_valida.xlsx"
     Write-Host "Log     : $LogPath"
+    Write-Host ""
+    Write-Host "Fase 2 valida. Integrando automaticamente al concentrado diario..."
+
+    & ".\scripts\integrate_validated_phase.ps1" `
+        -Phase 2 `
+        -ProjectDir $ProjectDir `
+        -PythonExe $PythonExe
+
+    $integrationCode = $LASTEXITCODE
+    if ($integrationCode -ne 0) {
+        Write-Warning "Fase 2 fue publicada, pero NO pudo integrarse al concentrado diario."
+        $code = $integrationCode
+    } else {
+        Write-Host "FASE 2 VALIDADA E INTEGRADA AL CONCENTRADO."
+    }
 } else {
     Write-Warning "La Fase 2 NO fue publicada. El master productivo anterior se conserva."
     Write-Host "Diagnostico: $ProjectDir\diagnostics\phase2_production\last_run.json"

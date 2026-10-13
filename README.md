@@ -21,7 +21,7 @@ No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadi
 | Farmacias del Ahorro | 4 | 288 | 100% | 100% | Validado / Fase 1 |
 | Farmacias San Pablo | 4 | 232 | 100% | 100% en última validación | Activo |
 | Ibarra Mayoreo | 4 | 572 | 100% | SKU informativo; gates unitarios completos | Validado / Fase 1 |
-| Bodega Aurrera | 2 | 555 | 100% | 100% | Activo |
+| Bodega Aurrera | 2 | 1,883 | 100% | 100% | Método validado / muestra diaria válida |
 | Farmacias Similares | 2 | 30 | 100% | 100% | Activo |
 | La Comer | 2 | Pendiente | Pendiente | Pendiente | Implementado, no activo |
 | Walmart | 3 | Pendiente de validación Fase 3 | — | — | En validación / Fase 3 |
@@ -59,7 +59,14 @@ Fase 2 -> validar -> integrar al master -> liberar recursos
 Fase 3 -> Bodega Aurrera + Walmart (implementada, pendiente de validación live)
 ```
 
-Comandos de integración:
+Integración automática:
+
+- `run_phase1_production.ps1`: si Fase 1 pasa todos sus gates, se integra automáticamente al master diario.
+- `run_phase2_production.ps1`: si Fase 2 pasa todos sus gates, se integra automáticamente al mismo master diario.
+- Si una fase queda `PARTIAL` o falla, el master no se modifica.
+- El integrador vuelve a validar el workbook antes de escribir el master, por lo que la integración mantiene una segunda capa de control.
+
+Los comandos manuales se conservan para recuperación o auditoría:
 
 ```powershell
 & .\scripts\integrate_validated_phase.ps1 -Phase 1
@@ -218,6 +225,26 @@ Bodega Aurrera se conecta por CDP
 → termina child process, Chrome permanece abierto
 → validar 5 categorías
 → publicar output\concentrado_fase3.xlsx
+```
+
+### Bodega Aurrera — conservación de éxitos y consolidación
+
+En la corrida completa de Bodega:
+
+1. cada categoría se ejecuta una sola vez en la primera pasada;
+2. cada resultado se guarda inmediatamente en `output\bodega_aurrera_test.xlsx`;
+3. las categorías `SUCCESS` se conservan y no vuelven a descargarse;
+4. las categorías fallidas se acumulan y se reintentan únicamente al final;
+5. por defecto se hace 1 reintento final, configurable con `-RetryFailedAtEnd`;
+6. si las 2 categorías terminan válidas, el wrapper agrega automáticamente la partición de Bodega al master diario mediante el mismo integrador de fases;
+7. esa integración parcial no marca Fase 3 como completa: `completed_phases` permanece en `1|2` hasta que toda Fase 3 quede cerrada.
+
+Integración manual de una muestra Bodega ya validada, sin volver a scrapear:
+
+```powershell
+& .\scripts\integrate_validated_phase.ps1 `
+    -Phase 3 `
+    -Retailer "Bodega Aurrera"
 ```
 
 Bodega Aurrera y Walmart reutilizan el mismo Chrome abierto manualmente mediante remote debugging. Deben quedar abiertas una pestaña de Bodega Aurrera y otra de Walmart. En Walmart debe estar seleccionado SC Toreo, tienda 2344, CP 11220. El runner no abre ni cierra Chrome y no resuelve verificaciones de identidad.

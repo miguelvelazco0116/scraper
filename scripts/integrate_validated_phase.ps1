@@ -2,6 +2,8 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidateSet(1, 2, 3)]
     [int]$Phase,
+    [ValidateSet("", "Bodega Aurrera")]
+    [string]$Retailer = "",
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = ""
 )
@@ -32,8 +34,16 @@ Write-Host "====================================================================
 Write-Host "INTEGRAR FASE VALIDADA AL CONCENTRADO"
 Write-Host "========================================================================"
 Write-Host "Fase   : $Phase"
+if (-not [string]::IsNullOrWhiteSpace($Retailer)) {
+    Write-Host "Retailer: $Retailer"
+}
 Write-Host "Python : $PythonExe"
 Write-Host ""
 
-& $PythonExe ".\scripts\integrate_validated_phase.py" "--phase" "$Phase"
+$ArgsList = @(".\scripts\integrate_validated_phase.py", "--phase", "$Phase")
+if (-not [string]::IsNullOrWhiteSpace($Retailer)) {
+    $ArgsList += @("--retailer", $Retailer)
+}
+
+& $PythonExe @ArgsList
 exit $LASTEXITCODE
