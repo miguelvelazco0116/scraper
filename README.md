@@ -10,7 +10,7 @@ No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadi
 
 ## Estado actual
 
-Última actualización: **12 de octubre de 2026**.
+Última actualización: **13 de octubre de 2026**.
 
 Última muestra completa validada localmente:
 
@@ -19,7 +19,7 @@ No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadi
 | Soriana | 6 | 2,148 | 100% | 100% | Validado / Fase 2 |
 | Chedraui | 2 | 667 | 100% | 100% | Validado / Fase 1 |
 | Farmacias del Ahorro | 4 | 288 | 100% | 100% | Validado / Fase 1 |
-| Farmacias San Pablo | 4 | 232 | 100% | 100% en última validación | Activo |
+| Farmacias San Pablo | 4 | 232 | 100% | Informativo; 100% en validación previa | Validado / OCC capturado |
 | Ibarra Mayoreo | 4 | 572 | 100% | SKU informativo; gates unitarios completos | Validado / Fase 1 |
 | Bodega Aurrera | 2 | 1,883 | 100% | 100% | Método validado / muestra diaria válida |
 | Farmacias Similares | 2 | 30 | 100% | 100% | Activo |
@@ -670,7 +670,7 @@ enjuagues-bucales
 pastas-dentales
 ```
 
-La implementación actual usa **Chrome/Selenium para abrir el storefront y descubrir la llamada OCC** que utiliza Farmacias San Pablo. Después consulta desde Python el endpoint público de búsqueda de SAP Commerce para evitar restricciones CORS del navegador.
+La implementación validada usa **Chrome ya abierto por el usuario + CDP**. El scraper navega el storefront real y captura la respuesta OCC `search-sponsored` que esa navegación genera, una vez que Chrome marca la solicitud como terminada. No vuelve a ejecutar el endpoint desde un cliente HTTP separado, evitando el 403 de Akamai observado al usar `urllib`.
 
 Fuente detectada:
 
@@ -691,15 +691,17 @@ gtmProperties
 pagination
 ```
 
-Última validación local:
+Última validación live en Windows Server — **13 de octubre de 2026**:
 
 ```text
-descongestionantes   52 / 52
-preservativos        49 / 49
-enjuagues-bucales    46 / 46
-pastas-dentales      85 / 85
+descongestionantes   52 / 52   SUCCESS
+preservativos        49 / 49   SUCCESS
+enjuagues-bucales    46 / 46   SUCCESS
+pastas-dentales      85 / 85   SUCCESS
 Total               232 / 232
 ```
+
+Las cuatro categorías usaron `transport=captured_storefront_response`. El gate exige coincidencia exacta contra `target_products` cuando OCC lo publica y precio completo en todas las filas extraídas.
 
 Cobertura en la última validación:
 
@@ -727,6 +729,14 @@ Output dedicado:
 ```text
 output\farmacias_san_pablo_test.xlsx
 ```
+
+Evidencia de validación:
+
+```text
+docs\validation_results\farmacias_san_pablo_validated_2026-10-13.json
+```
+
+Patrón estable: `36c37c60e5daf0d633912e2ded77c04ffaebfa17`. No sustituir el método OCC capturado mientras continúe funcionando; cualquier alternativa debe probarse de forma aislada antes de reemplazarlo.
 
 ## Ibarra Mayoreo
 
