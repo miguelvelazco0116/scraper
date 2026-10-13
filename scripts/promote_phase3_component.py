@@ -76,7 +76,11 @@ def _validate(
         return notes
 
     row = summary.iloc[0]
-    products = int(pd.to_numeric(row.get("products"), errors="coerce") or 0)
+    products_raw = pd.to_numeric(
+        row.get("products"),
+        errors="coerce",
+    )
+    products = 0 if pd.isna(products_raw) else int(products_raw)
     if products <= 0:
         notes.append("products <= 0")
     if products != len(frame):
