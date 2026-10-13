@@ -8,6 +8,8 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$CategoryId,
 
+    [string]$CaptureDate = "",
+
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = ""
 )
@@ -37,6 +39,9 @@ $ArgsList = @(
     "--retailer", $Retailer,
     "--category-id", $CategoryId
 )
+if (-not [string]::IsNullOrWhiteSpace($CaptureDate)) {
+    $ArgsList += @("--capture-date", $CaptureDate)
+}
 
 & $PythonExe @ArgsList
 exit $LASTEXITCODE
