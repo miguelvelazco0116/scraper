@@ -1,5 +1,16 @@
 # Patrones de scraping validados
 
+## Regla global: método validado, datos diarios
+
+- `VALIDATED_METHOD` significa que la estrategia técnica ya pasó una prueba live y no debe rediseñarse sin una falla nueva concreta.
+- La validación del método NO autoriza reutilizar precios o productos de días anteriores.
+- Cada corrida diaria vuelve a extraer los datos y genera una captura asociada a `YYYY-MM-DD`.
+- Fase 1 abre la fecha diaria.
+- Fase 2 y Fase 3 deben coincidir con esa misma fecha.
+- Los componentes de Fase 3 se guardan en `output\validated_phase3_components\YYYY-MM-DD\`.
+- El integrador rechaza cruces de fecha.
+- Los conteos observados son snapshots diarios, nunca gates estáticos.
+
 Registro autoritativo de estado por fase: `docs/phase_status.json`.
 
 Este archivo registra los enfoques que ya fueron probados con éxito en el entorno productivo del proyecto. Antes de modificar un retailer, revisar primero este registro y reutilizar el último patrón validado. Un método sólo pasa a VALIDADO después de una prueba real reportada como exitosa.
