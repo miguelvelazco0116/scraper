@@ -83,7 +83,23 @@
           "categories": {
             "cuidado-bucal": {
               "source_urls": 2,
-              "status": "PENDING_LIVE_VALIDATION"
+              "status": "VALIDATED_DAILY_SAMPLE",
+              "latest_sample": {
+                "capture_date": "2026-10-13",
+                "products": 1034,
+                "sku_complete": 1034,
+                "price_complete": 1034,
+                "url_complete": 1034,
+                "store_context_complete": 1034,
+                "store_context_verified": true,
+                "sources_discovered": 2,
+                "sources_visited": 2,
+                "pages_visited": 32,
+                "pagination_verified": true,
+                "sponsored_banner_clicks": 0,
+                "price_order_errors": 0,
+                "duplicates_sku_url": 0
+              }
             },
             "cuidado-de-la-ropa": {
               "source_urls": 2,
