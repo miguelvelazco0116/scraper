@@ -2,8 +2,8 @@ retailer: benavides
 categories:
   - id: medicamentos-respiratorios
     department: Medicamentos
-    name: Medicamentos
-    subcategory: Respiratorios
+    name: Respiratorios
+    subcategory: null
     sub_subcategory: null
     url: https://www.benavides.com.mx/medicamentos-respiratorios
     enabled: true
@@ -11,15 +11,15 @@ categories:
   - id: bienestar-sexual
     department: Bienestar sexual
     name: Bienestar sexual
-    subcategory: Bienestar sexual
+    subcategory: null
     sub_subcategory: null
     url: https://www.benavides.com.mx/bienestar-sexual
     enabled: true
 
   - id: higiene-bucal
     department: Cuidado personal
-    name: Cuidado personal
-    subcategory: Higiene bucal
+    name: Higiene bucal
+    subcategory: null
     sub_subcategory: null
     url: https://www.benavides.com.mx/cuidado-personal-higiene-bucal
     enabled: true
