@@ -89,6 +89,41 @@ output\checkpoints_validos\
 
 La Fase 1 inicia una nueva construcción del master. La Fase 2 sólo se incorpora cuando el master ya contiene Fase 1 válida. La Fase 3 sólo se incorpora cuando Fase 1 y Fase 2 ya están validadas en ese master. Una fase reejecutada reemplaza su propia partición y no duplica filas.
 
+## Corridas diarias
+
+El scraping es reiterativo y cada día genera una captura independiente.
+
+Regla:
+- el método validado de cada retailer se conserva
+- los datos de productos/precios se vuelven a capturar cada día
+- nunca se reutilizan datos de una fecha anterior como si fueran de la fecha actual
+- nunca se mezclan fases o componentes de fechas distintas
+
+Cada Fase 1 válida abre una fecha de captura. El master diario usa:
+
+```text
+output\concentrado_productivo_total_YYYY-MM-DD.xlsx
+```
+
+Los componentes de Fase 3 se guardan por fecha:
+
+```text
+output\validated_phase3_components\YYYY-MM-DD\
+```
+
+Ejemplo:
+
+```text
+output\validated_phase3_components\2026-10-12\
+  bodega_aurrera__cuidado-bucal.xlsx
+  bodega_aurrera__cuidado-de-la-ropa.xlsx
+  walmart__cuidado-bucal.xlsx
+  walmart__cuidado-de-la-ropa.xlsx
+  walmart__depilacion-y-rasurado.xlsx
+```
+
+El integrador compara la fecha de la fase contra la fecha del master activo y rechaza cualquier mezcla entre días.
+
 ## Consolidación incremental por componentes validados
 
 Para Fase 3 se evita volver a scrapear categorías que ya pasaron validación.
@@ -114,10 +149,10 @@ Promover una categoría ya aprobada:
     -CategoryId "cuidado-de-la-ropa"
 ```
 
-Los componentes estables quedan en:
+Los componentes estables quedan en una carpeta diaria:
 
 ```text
-output\validated_phase3_components\
+output\validated_phase3_components\YYYY-MM-DD\
 ```
 
 y cada promoción genera además un checkpoint inmutable en:
