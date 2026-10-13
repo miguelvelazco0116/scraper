@@ -910,6 +910,15 @@ def main() -> int:
         phase_summary["source_status"] = phase_summary["status"].astype(str)
         phase_summary["status"] = "COMPLETE"
 
+    if phase == 4:
+        phase_summary["source_status"] = phase_summary["status"].astype(str)
+        phase_summary["status"] = "COMPLETE"
+        phase_summary["retailer"] = "Farmacias San Pablo"
+        phase_summary["products"] = pd.to_numeric(
+            phase_summary["products_extracted"],
+            errors="coerce",
+        )
+
     if "source_phase" in phase_summary.columns:
         phase_summary["source_phase"] = cfg["label"]
     else:
