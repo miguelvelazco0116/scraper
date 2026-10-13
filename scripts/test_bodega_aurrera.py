@@ -270,6 +270,21 @@ def run_category(category, location, page):
         ) if not df.empty else 0,
         "sources_discovered": int(meta.get("sources_discovered") or 0),
         "sources_visited": len(meta.get("sources") or []),
+        "pages_visited": sum(
+            int(item.get("pages_visited") or 0)
+            for item in (meta.get("sources") or [])
+        ),
+        "pagination_methods": " | ".join(
+            dict.fromkeys(
+                str(item.get("pagination_method") or "")
+                for item in (meta.get("sources") or [])
+                if item.get("pagination_method")
+            )
+        ),
+        "sponsored_banner_clicks": sum(
+            int(item.get("sponsored_banner_clicks") or 0)
+            for item in (meta.get("sources") or [])
+        ),
         "pagination_verified": pagination_verified,
         "catalogue_gate_ok": catalogue_gate_ok,
         "explicit_pages": sum(
@@ -305,6 +320,9 @@ def run_category(category, location, page):
         "url_complete",
         "sources_discovered",
         "sources_visited",
+        "pages_visited",
+        "pagination_methods",
+        "sponsored_banner_clicks",
         "explicit_pages",
         "pagination_verified",
         "explicit_current_rows",
@@ -458,6 +476,9 @@ def main() -> int:
                 "url_complete",
                 "sources_discovered",
                 "sources_visited",
+                "pages_visited",
+                "pagination_methods",
+                "sponsored_banner_clicks",
                 "explicit_pages",
                 "pagination_verified",
                 "price_validation_errors",
