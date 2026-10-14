@@ -307,6 +307,65 @@ def main() -> int:
     no_price_rows: list[dict] = []
     availability_errors: list[dict] = []
 
+    # For an isolated category rerun, preserve the other successful categories
+    # already present in today's workbook and replace only the requested one.
+    if args.category != "all" and OUTPUT_PATH.exists():
+        try:
+            existing_concentrated = pd.read_excel(
+                OUTPUT_PATH,
+                sheet_name="Concentrado",
+                dtype={"sku": str, "store_id": str},
+            )
+            existing_summary = pd.read_excel(
+                OUTPUT_PATH,
+                sheet_name="Resumen",
+                dtype={"category_id": str},
+            )
+
+            keep = existing_concentrated[
+                existing_concentrated["category_id"]
+                .astype(str)
+                .ne(args.category)
+            ].copy()
+            if not keep.empty:
+                frames.append(keep)
+
+            keep_summary = existing_summary[
+                existing_summary["category_id"]
+                .astype(str)
+                .ne(args.category)
+            ].copy()
+            if not keep_summary.empty:
+                summaries.extend(keep_summary.to_dict("records"))
+
+            for sheet_name, target in (
+                ("Paginas", pages),
+                ("Errores", detail_errors),
+                ("SinPrecio", no_price_rows),
+                ("SinDisponibilidad", availability_errors),
+            ):
+                try:
+                    existing_sheet = pd.read_excel(
+                        OUTPUT_PATH,
+                        sheet_name=sheet_name,
+                        dtype={"category_id": str},
+                    )
+                except Exception:
+                    continue
+                existing_sheet = existing_sheet[
+                    existing_sheet["category_id"]
+                    .astype(str)
+                    .ne(args.category)
+                ].copy()
+                if not existing_sheet.empty:
+                    target.extend(existing_sheet.to_dict("records"))
+        except Exception as exc:
+            print(
+                "ADVERTENCIA: no fue posible preservar el workbook previo; "
+                f"se continuará sólo con la categoría actual: {exc}",
+                flush=True,
+            )
+
     for category in categories:
         (
             df,
