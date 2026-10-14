@@ -10,6 +10,7 @@ def test_farmacias_del_ahorro_categories():
         "enjuagues-bucales",
         "cremas-dentales",
         "anti-acne",
+        "desodorantes",
     }
 
     congestion = categories["congestion-nasal"]
@@ -40,6 +41,13 @@ def test_farmacias_del_ahorro_categories():
     assert anti_acne.subcategory == "Cuidado Facial"
     assert anti_acne.sub_subcategory == "Anti-Acné"
     assert anti_acne.url.endswith("/derma/cuidado-facial/anti-acne.html")
+
+    desodorantes = categories["desodorantes"]
+    assert desodorantes.department == "Higiene y Cuidado Personal"
+    assert desodorantes.name == "Desodorantes"
+    assert desodorantes.subcategory is None
+    assert desodorantes.sub_subcategory is None
+    assert desodorantes.url.endswith("/cuidado-personal/desodorantes.html")
 
 
 def test_farmacias_del_ahorro_online_context():
