@@ -140,6 +140,28 @@
         "occ_transport": "captured_storefront_response"
       },
       "note": "Phase 4 is appended only to an active daily master that already contains completed Phases 1, 2 and 3."
+    },
+    "5": {
+      "name": "Fase 5",
+      "status": "VALIDATED_READY_FOR_INTEGRATION",
+      "validated_at": "2026-10-13",
+      "products": 800,
+      "categories": 3,
+      "retailers": [
+        "Farmacias Benavides"
+      ],
+      "evidence": "docs/validation_results/benavides_validated_2026-10-13_800.json",
+      "source_workbook": "output/benavides_test.xlsx",
+      "integration_command": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 5",
+      "validation_rules": {
+        "minimum_catalog_coverage": 0.9,
+        "minimum_sku_completeness": 0.9,
+        "minimum_price_completeness": 0.9,
+        "minimum_url_completeness": 0.9,
+        "minimum_availability_completeness": 0.9,
+        "price_order_errors": 0
+      },
+      "note": "Phase 5 appends only Farmacias Benavides to an active daily master that already contains completed Phases 1-4."
     }
   }
 }
