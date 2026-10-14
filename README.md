@@ -727,6 +727,39 @@ Prueba completa aislada:
 
 Sin `-Category`, el runner ejecuta ambas categorías. Para una sola categoría puede usarse `-Category higiene-bucal` o `-Category lavanderia`.
 
+### Nuevas tiendas candidatas Chedraui
+
+Estado: **CONFIGURADAS / PENDIENTES DE VALIDACIÓN LIVE**
+
+La tienda productiva validada sigue siendo Polanco (232). Se agregaron tres ubicaciones para pruebas aisladas:
+
+```text
+chedraui-tepeyac
+store_id: 173
+CP: 07820
+Ciudad: Gustavo A. Madero, CDMX
+
+chedraui-cancun-kabah
+store_id: 255
+CP: 77507
+Ciudad: Cancún, Quintana Roo
+
+chedraui-puebla-centro-sur
+store_id: 76
+CP: 72490
+Ciudad: Puebla, Puebla
+```
+
+El scraper de contexto de tienda fue generalizado para verificar nombre, store_id y código postal. El flujo Polanco validado conserva su ruta específica; las tiendas nuevas usan el selector genérico.
+
+Prueba aislada de una tienda/categoría:
+
+```powershell
+& .\scripts\test_chedraui.ps1 -Store chedraui-tepeyac -Category higiene-bucal -Headed
+```
+
+Las tiendas candidatas no forman parte todavía de la corrida productiva de Fase 1. Se promoverán sólo después de validación live.
+
 ## Farmacias del Ahorro
 
 Contexto:
