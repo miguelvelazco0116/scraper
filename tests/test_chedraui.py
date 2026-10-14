@@ -18,6 +18,36 @@ POLANCO = Location(
     store_id="232",
 )
 
+TEPEYAC = Location(
+    id="chedraui-tepeyac",
+    city="Gustavo A. Madero",
+    state="CDMX",
+    country="México",
+    postal_code="07820",
+    store="Chedraui México Tepeyac",
+    store_id="173",
+)
+
+CANCUN_KABAH = Location(
+    id="chedraui-cancun-kabah",
+    city="Cancún",
+    state="Quintana Roo",
+    country="México",
+    postal_code="77507",
+    store="Chedraui Cancún Kabah",
+    store_id="255",
+)
+
+PUEBLA_CENTRO_SUR = Location(
+    id="chedraui-puebla-centro-sur",
+    city="Puebla",
+    state="Puebla",
+    country="México",
+    postal_code="72490",
+    store="Chedraui Puebla Centro Sur",
+    store_id="76",
+)
+
 LAUNDRY = Category(
     id="lavanderia",
     department="Supermercado",
@@ -47,6 +77,55 @@ def test_chedraui_store_context_from_browser_state():
 def test_chedraui_rejects_unrelated_store():
     text = "Recoger en Chedraui Selecto México Santa Fe 01219"
     assert not ChedrauiScraper._store_context_in_text(text, POLANCO)
+
+def test_chedraui_generic_store_contexts():
+    cases = [
+        (
+            TEPEYAC,
+            "Recoger en Chedraui México Tepeyac 07820",
+            '{"storeName":"Chedraui Mexico Tepeyac","storeId":"173"}',
+        ),
+        (
+            CANCUN_KABAH,
+            "Recoger en Chedraui Selecto Cancún Kabah 77507",
+            '{"storeName":"Selecto Cancun Kabah","storeId":"255"}',
+        ),
+        (
+            PUEBLA_CENTRO_SUR,
+            "Recoger en Chedraui Puebla Centro Sur 72490",
+            '{"storeName":"Puebla Centro Sur","storeId":"76"}',
+        ),
+    ]
+    for location, text, state_blob in cases:
+        assert ChedrauiScraper._store_context_in_text(text, location)
+        assert ChedrauiScraper._store_context_in_state_blob(
+            state_blob,
+            location,
+        )
+
+
+def test_chedraui_generic_pickup_points_match_location():
+    cases = [
+        (TEPEYAC, "CHEDRAUI MEXICO TEPEYAC", "07820"),
+        (CANCUN_KABAH, "CHEDRAUI SELECTO CANCUN KABAH", "77507"),
+        (PUEBLA_CENTRO_SUR, "CHEDRAUI PUEBLA CENTRO SUR", "72490"),
+    ]
+    for location, friendly_name, postal_code in cases:
+        item = {
+            "pickupPoint": {
+                "friendlyName": friendly_name,
+                "address": {"postalCode": postal_code},
+            }
+        }
+        assert ChedrauiScraper._pickup_matches_location(item, location)
+
+
+def test_chedraui_generic_orderform_store_ids():
+    for location in (TEPEYAC, CANCUN_KABAH, PUEBLA_CENTRO_SUR):
+        assert ChedrauiScraper._orderform_matches_location(
+            {"storeId": location.store_id},
+            location,
+        )
 
 
 def test_chedraui_brand_inference_uses_word_boundaries():
