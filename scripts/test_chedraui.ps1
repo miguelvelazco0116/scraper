@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("higiene-bucal", "lavanderia", "all")]
+    [ValidateSet("higiene-bucal", "lavanderia", "desodorantes-y-antitranspirantes", "depilacion", "respiratorios", "candidates", "all")]
     [string]$Category = "all",
     [ValidateSet("chedraui-polanco", "chedraui-tepeyac", "chedraui-cancun-kabah", "chedraui-puebla-centro-sur")]
     [string]$Store = "chedraui-polanco",
