@@ -300,6 +300,54 @@ El integrador exige:
 
 En futuras corridas completas, `run_san_pablo_full.ps1` ejecuta automáticamente la integración de Fase 4 después de una validación exitosa. Las corridas de una sola categoría no se integran.
 
+## Fase 5 — Farmacias Benavides
+
+Estado del método: **VALIDADO**
+
+La Fase 5 agrega únicamente Farmacias Benavides al master diario que ya contiene Fases 1–4. No vuelve a ejecutar ni reemplaza las fases anteriores.
+
+Fuente validada:
+
+```text
+output\benavides_test.xlsx
+```
+
+Validación live del 13 de octubre de 2026:
+
+```text
+medicamentos-respiratorios   456 / 456
+bienestar-sexual             170 / 170
+higiene-bucal                174 / 174
+Total                        800 / 800
+```
+
+Completitud observada:
+- SKU: 800/800
+- precio actual: 800/800
+- URL: 800/800
+- disponibilidad binaria: 799/800
+- cobertura de catálogo: 100%
+
+Respiratorios fue etiquetado `PARTIAL` por una versión anterior del runner que exigía 100% de disponibilidad. Bajo la regla vigente del proyecto, una muestra es válida con cobertura/completitud >=90%, por lo que 455/456 (99.78%) en disponibilidad es aceptable.
+
+Integrar una corrida ya validada sin volver a scrapear:
+
+```powershell
+& .\scripts\integrate_validated_phase.ps1 -Phase 5
+```
+
+El integrador exige:
+- que el master activo ya contenga Fases 1, 2, 3 y 4;
+- que la fecha de captura de Benavides coincida con la fecha del master;
+- cobertura de catálogo >=90% por categoría;
+- SKU, precio, URL y disponibilidad >=90%;
+- cero `price_order_errors`.
+
+En futuras corridas completas, `test_benavides.ps1` integra automáticamente la Fase 5 después de una validación exitosa. Las corridas aisladas de una sola categoría no se integran.
+
+Evidencia:
+- `docs/validation_results/benavides_validated_2026-10-13_800.json`
+
 ## Producción integral validada
 
 El flujo final del proyecto une Fase 1 + Fase 2 en una sola corrida fresca. Ejecuta primero Fase 1 y, sólo si pasa, ejecuta Fase 2. El master general se publica únicamente cuando ambas fases terminan correctamente y vuelven a pasar sus gates.
