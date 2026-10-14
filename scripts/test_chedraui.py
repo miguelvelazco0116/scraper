@@ -161,7 +161,15 @@ def main() -> int:
     )
     parser.add_argument(
         "--category",
-        choices=["higiene-bucal", "lavanderia", "all"],
+        choices=[
+            "higiene-bucal",
+            "lavanderia",
+            "desodorantes-y-antitranspirantes",
+            "depilacion",
+            "respiratorios",
+            "candidates",
+            "all",
+        ],
         default="all",
     )
     parser.add_argument(
@@ -190,12 +198,28 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    categories = load_categories(
+    active_categories = load_categories(
         ROOT / "config" / "chedraui" / "categories.yaml"
     )
-    if args.category != "all":
+    candidate_categories = load_categories(
+        ROOT / "config" / "chedraui" / "candidate_categories.yaml"
+    )
+    candidate_ids = {item.id for item in candidate_categories}
+
+    if args.category == "all":
+        # Preserve the historical full test: only productive/validated
+        # categories are included unless candidates are explicitly requested.
+        categories = active_categories
+    elif args.category == "candidates":
+        categories = candidate_categories
+    elif args.category in candidate_ids:
         categories = [
-            item for item in categories
+            item for item in candidate_categories
+            if item.id == args.category
+        ]
+    else:
+        categories = [
+            item for item in active_categories
             if item.id == args.category
         ]
 
