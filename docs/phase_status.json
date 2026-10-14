@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-13",
+  "updated_at": "2026-10-14",
   "operating_rule": "A validated phase remains validated and must not be reworked unless a new concrete failure proves necessary. A pending phase is added only after a successful live Windows Server run.",
   "phases": {
     "1": {
@@ -8,7 +8,7 @@
       "status": "VALIDATED",
       "validated_at": "2026-10-12T14:48:58",
       "products": 1498,
-      "categories": 10,
+      "categories": 12,
       "retailers": [
         "Farmacias del Ahorro",
         "Ibarra Mayoreo",
@@ -16,7 +16,16 @@
       ],
       "evidence": "docs/validation_results/phase1_productive_valid_2026-10-12_144858.json",
       "source_workbook": "output/concentrado_productivo.xlsx",
-      "integration_command": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 1"
+      "integration_command": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 1",
+      "validated_additions": {
+        "validated_at": "2026-10-14",
+        "categories": [
+          "anti-acne",
+          "desodorantes"
+        ],
+        "evidence": "docs/validation_results/farmacias_del_ahorro_additions_validated_2026-10-14.json",
+        "note": "Validated for the next fresh Phase 1 production run; not backfilled into the 2026-10-13 master."
+      }
     },
     "2": {
       "name": "Fase 2",
