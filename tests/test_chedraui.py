@@ -231,7 +231,14 @@ def test_chedraui_product_search_is_authoritative_for_prices(monkeypatch):
     def fake_html(self, page, category, location, page_number, target_rows):
         return category.url, html_rows, [{"mode": "html", "rows": 1}]
 
-    def fake_api(self, page, category, location, page_number):
+    def fake_api(
+        self,
+        page,
+        category,
+        location,
+        page_number,
+        target_rows=None,
+    ):
         return api_rows, {"mode": "productSearchV3", "rows": 1}
 
     monkeypatch.setattr(ChedrauiPolancoScraper, "_load_page_rows", fake_html)
@@ -270,7 +277,14 @@ def test_chedraui_rejects_html_prices_when_structured_request_exists(monkeypatch
     def fake_html(self, page, category, location, page_number, target_rows):
         return category.url, html_rows, [{"mode": "html", "rows": 1}]
 
-    def fake_api(self, page, category, location, page_number):
+    def fake_api(
+        self,
+        page,
+        category,
+        location,
+        page_number,
+        target_rows=None,
+    ):
         return [], {
             "mode": "productSearchV3",
             "rows": 0,
@@ -318,8 +332,19 @@ def test_chedraui_filters_category_facet_from_legacy_html_fallback(monkeypatch):
     def fake_html(self, page, category, location, page_number, target_rows):
         return category.url, html_rows, [{"mode": "html", "rows": 2}]
 
-    def fake_api(self, page, category, location, page_number):
-        return [], {"mode": "productSearchV3", "rows": 0, "reason": "template_not_captured"}
+    def fake_api(
+        self,
+        page,
+        category,
+        location,
+        page_number,
+        target_rows=None,
+    ):
+        return [], {
+            "mode": "productSearchV3",
+            "rows": 0,
+            "reason": "template_not_captured",
+        }
 
     monkeypatch.setattr(ChedrauiPolancoScraper, "_load_page_rows", fake_html)
     monkeypatch.setattr(
