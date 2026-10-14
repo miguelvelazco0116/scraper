@@ -39,20 +39,20 @@ for ($i = 0; $i -lt $stores.Count; $i++) {
     Write-Host "TIENDA $($i + 1)/$($stores.Count): $store"
     Write-Host "========================================================================"
 
-    $args = @(
-        "-Store", $store,
-        "-Category", $Category
-    )
+    $invokeParams = @{
+        Store = $store
+        Category = $Category
+    }
 
     if ($Headed) {
-        $args += "-Headed"
+        $invokeParams["Headed"] = $true
     }
 
     if (-not [string]::IsNullOrWhiteSpace($PythonExe)) {
-        $args += @("-PythonExe", $PythonExe)
+        $invokeParams["PythonExe"] = $PythonExe
     }
 
-    & ".\scripts\test_chedraui.ps1" @args
+    & ".\scripts\test_chedraui.ps1" @invokeParams
     $code = $LASTEXITCODE
 
     $results += [PSCustomObject]@{
