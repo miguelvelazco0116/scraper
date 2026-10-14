@@ -31,3 +31,11 @@ categories:
     sub_subcategory: null
     url: https://www.fahorro.com/cuidado-personal/higiene-bucal/cremas-dentales.html
     enabled: true
+
+  - id: anti-acne
+    department: Cuidado de la Piel
+    name: DERMA
+    subcategory: Cuidado Facial
+    sub_subcategory: Anti-Acné
+    url: https://www.fahorro.com/derma/cuidado-facial/anti-acne.html
+    enabled: true
