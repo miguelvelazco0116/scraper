@@ -68,9 +68,10 @@ if ($code -ne 0) {
 
 if ($Category -eq "all") {
     Write-Host ""
-    Write-Host "Fase 5 Benavides validada. Integrando al concentrado diario..."
+    Write-Host "Fase 4 / Benavides validada. Integrando al concentrado diario..."
     & ".\scripts\integrate_validated_phase.ps1" `
-        -Phase 5 `
+        -Phase 4 `
+        -Retailer "Farmacias Benavides" `
         -ProjectDir $ProjectDir `
         -PythonExe $PythonExe
 
@@ -80,7 +81,7 @@ if ($Category -eq "all") {
         exit $integrationCode
     }
 
-    Write-Host "FASE 5 BENAVIDES VALIDADA E INTEGRADA AL CONCENTRADO."
+    Write-Host "FASE 4 / BENAVIDES VALIDADA E INTEGRADA AL CONCENTRADO."
 }
 
 exit 0
