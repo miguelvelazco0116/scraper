@@ -142,6 +142,45 @@ class ChedrauiScraper(BaseChedrauiScraper):
         except Exception:
             return False, options, preferred
 
+    def _select_directory_option_with_retry(
+        self,
+        page,
+        select_index: int,
+        preferred_tokens: tuple[str, ...],
+        *,
+        attempts: int = 8,
+        wait_ms: int = 750,
+    ) -> tuple[bool, list[str], str | None]:
+        last_options: list[str] = []
+        last_selected: str | None = None
+
+        for _ in range(attempts):
+            try:
+                selects = page.locator(
+                    "select.chedrauimx-locator-2-x-selectOption"
+                )
+                if selects.count() <= select_index:
+                    page.wait_for_timeout(wait_ms)
+                    continue
+
+                ok, options, selected = self._select_directory_option(
+                    selects.nth(select_index),
+                    preferred_tokens,
+                )
+                last_options = options
+                last_selected = selected
+                if ok:
+                    return True, options, selected
+            except Exception:
+                pass
+
+            try:
+                page.wait_for_timeout(wait_ms)
+            except Exception:
+                break
+
+        return False, last_options, last_selected
+
     def _click_configured_store(
         self,
         page,
@@ -237,35 +276,36 @@ class ChedrauiScraper(BaseChedrauiScraper):
         city_label = None
 
         try:
-            selects = page.locator(
-                "select.chedrauimx-locator-2-x-selectOption"
+            state_selected, state_options, state_label = (
+                self._select_directory_option_with_retry(
+                    page,
+                    0,
+                    (
+                        location.state,
+                        *pickup_states,
+                    ),
+                    attempts=4,
+                    wait_ms=500,
+                )
             )
-            if selects.count() >= 1:
-                state_selected, state_options, state_label = (
-                    self._select_directory_option(
-                        selects.nth(0),
-                        (
-                            location.state,
-                            *pickup_states,
-                        ),
-                    )
-                )
-                if state_selected:
-                    page.wait_for_timeout(1_200)
+            if state_selected:
+                page.wait_for_timeout(1_000)
 
-            if selects.count() >= 2:
-                city_selected, city_options, city_label = (
-                    self._select_directory_option(
-                        selects.nth(1),
-                        (
-                            *pickup_cities,
-                            location.city,
-                            *self._location_store_tokens(location),
-                        ),
-                    )
+            city_selected, city_options, city_label = (
+                self._select_directory_option_with_retry(
+                    page,
+                    1,
+                    (
+                        *pickup_cities,
+                        location.city,
+                        *self._location_store_tokens(location),
+                    ),
+                    attempts=10,
+                    wait_ms=800,
                 )
-                if city_selected:
-                    page.wait_for_timeout(1_400)
+            )
+            if city_selected:
+                page.wait_for_timeout(1_400)
         except Exception as exc:
             self.run_meta["directory_select_error"] = str(exc)
 
