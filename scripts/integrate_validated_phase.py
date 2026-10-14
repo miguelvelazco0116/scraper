@@ -63,6 +63,15 @@ PHASES = {
         "categories": 4,
         "require_fg_names": False,
     },
+    5: {
+        "label": "FASE 5",
+        "source": ROOT / "output" / "benavides_test.xlsx",
+        "retailers": {
+            "Farmacias Benavides",
+        },
+        "categories": 3,
+        "require_fg_names": False,
+    },
 } 
 
 PHASE3_RETAILER_SOURCES = {
@@ -384,6 +393,126 @@ def _validate_san_pablo_phase(
     ).notna().sum()
     if int(frame_prices) != len(frame):
         notes.append("San Pablo price_current incompleto en Concentrado")
+
+    return notes
+
+
+def _validate_benavides_phase(
+    frame: pd.DataFrame,
+    summary: pd.DataFrame,
+) -> list[str]:
+    notes: list[str] = []
+
+    if frame.empty:
+        notes.append("Concentrado Benavides vacío")
+    if len(summary) != 3:
+        notes.append(f"Benavides categorías {len(summary)}/3")
+        return notes
+
+    required = {
+        "category_id",
+        "target_products",
+        "products",
+        "sku_complete",
+        "price_complete",
+        "url_complete",
+        "availability_complete",
+        "price_order_errors",
+    }
+    missing = required.difference(summary.columns)
+    if missing:
+        notes.append(
+            "Benavides Resumen sin columnas: "
+            + ", ".join(sorted(missing))
+        )
+        return notes
+
+    expected_categories = {
+        "medicamentos-respiratorios",
+        "bienestar-sexual",
+        "higiene-bucal",
+    }
+    observed_categories = set(
+        summary["category_id"].dropna().astype(str)
+    )
+    if observed_categories != expected_categories:
+        notes.append(
+            "Categorías Benavides inesperadas: "
+            f"{sorted(observed_categories)}"
+        )
+
+    products = pd.to_numeric(
+        summary["products"], errors="coerce"
+    ).fillna(0)
+    targets = pd.to_numeric(
+        summary["target_products"], errors="coerce"
+    ).fillna(0)
+
+    if int(products.sum()) != len(frame):
+        notes.append(
+            f"Benavides suma products={int(products.sum())} "
+            f"!= filas={len(frame)}"
+        )
+
+    for index in summary.index:
+        product_count = float(products.loc[index])
+        target_count = float(targets.loc[index])
+        category_id = str(summary.loc[index, "category_id"])
+
+        if target_count <= 0:
+            notes.append(
+                f"Benavides {category_id} sin target válido"
+            )
+            continue
+
+        coverage = product_count / target_count
+        if coverage < 0.90:
+            notes.append(
+                f"Benavides {category_id} coverage={coverage:.4f} < 0.90"
+            )
+
+        if product_count <= 0:
+            notes.append(
+                f"Benavides {category_id} sin productos"
+            )
+            continue
+
+        for metric in (
+            "sku_complete",
+            "price_complete",
+            "url_complete",
+            "availability_complete",
+        ):
+            complete = float(
+                pd.to_numeric(
+                    pd.Series([summary.loc[index, metric]]),
+                    errors="coerce",
+                ).fillna(0).iloc[0]
+            )
+            rate = complete / product_count
+            if rate < 0.90:
+                notes.append(
+                    f"Benavides {category_id} {metric}="
+                    f"{rate:.4f} < 0.90"
+                )
+
+        price_errors = float(
+            pd.to_numeric(
+                pd.Series([summary.loc[index, "price_order_errors"]]),
+                errors="coerce",
+            ).fillna(-1).iloc[0]
+        )
+        if price_errors != 0:
+            notes.append(
+                f"Benavides {category_id} price_order_errors="
+                f"{int(price_errors)}"
+            )
+
+    retailers = set(frame["retailer"].dropna().astype(str))
+    if retailers != {"Farmacias Benavides"}:
+        notes.append(
+            f"Retailers Benavides inesperados: {sorted(retailers)}"
+        )
 
     return notes
 
@@ -725,7 +854,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Integra una fase productiva validada al concentrado maestro."
     )
-    parser.add_argument("--phase", type=int, choices=[1, 2, 3, 4], required=True)
+    parser.add_argument("--phase", type=int, choices=[1, 2, 3, 4, 5], required=True)
     parser.add_argument(
         "--retailer",
         choices=["Bodega Aurrera", "Walmart"],
@@ -774,6 +903,14 @@ def main() -> int:
             _read_workbook_optional_control(source)
         )
         notes = _validate_san_pablo_phase(
+            phase_frame,
+            phase_summary,
+        )
+    elif phase == 5:
+        phase_frame, phase_summary, phase_control = (
+            _read_workbook_optional_control(source)
+        )
+        notes = _validate_benavides_phase(
             phase_frame,
             phase_summary,
         )
@@ -919,6 +1056,23 @@ def main() -> int:
             errors="coerce",
         )
 
+    if phase == 5:
+        if "status" in phase_summary.columns:
+            phase_summary["source_status"] = (
+                phase_summary["status"].astype(str)
+            )
+        phase_summary["status"] = "COMPLETE"
+        phase_summary["retailer"] = "Farmacias Benavides"
+        products_numeric = pd.to_numeric(
+            phase_summary["products"], errors="coerce"
+        )
+        targets_numeric = pd.to_numeric(
+            phase_summary["target_products"], errors="coerce"
+        )
+        phase_summary["coverage"] = (
+            products_numeric / targets_numeric
+        )
+
     if "source_phase" in phase_summary.columns:
         phase_summary["source_phase"] = cfg["label"]
     else:
@@ -1028,6 +1182,15 @@ def main() -> int:
                         concentrated.loc[
                             concentrated["retailer"].astype(str).isin(
                                 PHASES[4]["retailers"]
+                            )
+                        ]
+                    )
+                ),
+                "phase5_products": int(
+                    len(
+                        concentrated.loc[
+                            concentrated["retailer"].astype(str).isin(
+                                PHASES[5]["retailers"]
                             )
                         ]
                     )
