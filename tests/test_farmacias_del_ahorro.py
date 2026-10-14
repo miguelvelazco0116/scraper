@@ -4,7 +4,13 @@ from scraper.retailers.farmacias_del_ahorro import FarmaciasDelAhorroScraper
 
 def test_farmacias_del_ahorro_categories():
     categories = {x.id: x for x in load_categories("config/farmacias-del-ahorro/categories.yaml")}
-    assert set(categories) == {"congestion-nasal", "preservativos", "enjuagues-bucales", "cremas-dentales"}
+    assert set(categories) == {
+        "congestion-nasal",
+        "preservativos",
+        "enjuagues-bucales",
+        "cremas-dentales",
+        "anti-acne",
+    }
 
     congestion = categories["congestion-nasal"]
     assert congestion.department == "Farmacia"
@@ -27,6 +33,13 @@ def test_farmacias_del_ahorro_categories():
     assert cremas.department == "Cuidado personal"
     assert cremas.name == "Higiene bucal"
     assert cremas.subcategory == "Cremas dentales"
+
+    anti_acne = categories["anti-acne"]
+    assert anti_acne.department == "Cuidado de la Piel"
+    assert anti_acne.name == "DERMA"
+    assert anti_acne.subcategory == "Cuidado Facial"
+    assert anti_acne.sub_subcategory == "Anti-Acné"
+    assert anti_acne.url.endswith("/derma/cuidado-facial/anti-acne.html")
 
 
 def test_farmacias_del_ahorro_online_context():
