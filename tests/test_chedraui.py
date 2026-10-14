@@ -183,12 +183,29 @@ def test_chedraui_pickup_exact_store_id_overrides_postal_mismatch():
 
 
 
+def test_chedraui_polanco_directory_area_config():
+    locations = {
+        item.id: item
+        for item in load_locations("config/locations.yaml")
+    }
+    polanco = locations["chedraui-polanco"]
+    assert polanco.directory_area == "CDMX Noroeste"
+    assert polanco.postal_code == "11500"
+
+
 def test_chedraui_tepeyac_directory_area_config():
     locations = {
         item.id: item
         for item in load_locations("config/locations.yaml")
     }
     assert locations["chedraui-tepeyac"].directory_area == "CDMX Noreste"
+
+
+def test_chedraui_pickup_confirmation_requires_store_click():
+    source = Path(
+        "scraper/retailers/chedraui_polanco.py"
+    ).read_text(encoding="utf-8")
+    assert "if store_clicked\n            else False" in source
 
 
 def test_chedraui_directory_option_matching_ignores_punctuation():
