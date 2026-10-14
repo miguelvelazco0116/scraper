@@ -119,6 +119,26 @@ class ChedrauiScraper:
         ]
 
     @classmethod
+    def _location_store_id_matches_blob(
+        cls,
+        blob: str,
+        location: Location,
+    ) -> bool:
+        if not location.store_id:
+            return False
+        raw = str(location.store_id).strip()
+        if not raw.isdigit():
+            return cls._normalize(raw) in cls._normalize(blob)
+        numeric = str(int(raw))
+        return bool(
+            re.search(
+                rf"(?<!\\d)0*{re.escape(numeric)}(?!\\d)",
+                str(blob),
+                flags=re.IGNORECASE,
+            )
+        )
+
+    @classmethod
     def _location_name_matches(
         cls,
         blob: str,
@@ -418,15 +438,17 @@ class ChedrauiScraper:
             )
         )
 
-        if not cls._location_name_matches(blob, location):
-            return False
-
         expected_postal = cls._normalize(location.postal_code)
         actual_postal = cls._normalize(address.get("postalCode"))
         if expected_postal and actual_postal and actual_postal != expected_postal:
             return False
 
-        return True
+        name_match = cls._location_name_matches(blob, location)
+        store_id_match = cls._location_store_id_matches_blob(
+            blob,
+            location,
+        )
+        return name_match or store_id_match
 
 
     def _list_pickup_points(self, page: Page, location: Location) -> list[dict]:
@@ -451,6 +473,13 @@ class ChedrauiScraper:
                 if isinstance(item, dict) and self._pickup_matches_location(item, location)
             ]
             self.run_meta["pickup_points_total"] = len(items)
+            self.run_meta["pickup_points_preview"] = [
+                {
+                    "distance": item.get("distance"),
+                    "pickupPoint": item.get("pickupPoint"),
+                }
+                for item in items[:20]
+            ]
             self.run_meta["pickup_store_candidates"] = [
                 {
                     "distance": item.get("distance"),
@@ -625,16 +654,32 @@ class ChedrauiScraper:
         store_tokens = self._location_store_tokens(location)
         token_label = " ".join(store_tokens)
         short_label = " ".join(store_tokens[-2:]) if store_tokens else ""
+
+        pickup_candidates = self._list_pickup_points(page, location)
+        pickup_labels: list[str] = []
+        for item in pickup_candidates[:10]:
+            pickup = item.get("pickupPoint") if isinstance(item, dict) else None
+            if not isinstance(pickup, dict):
+                continue
+            for key in ("friendlyName", "name", "description", "id"):
+                value = pickup.get(key)
+                if value:
+                    pickup_labels.append(str(value))
+
         labels = tuple(
-            value
-            for value in (
-                location.store,
-                token_label,
-                short_label,
-                store_tokens[-1] if store_tokens else None,
+            dict.fromkeys(
+                value
+                for value in (
+                    location.store,
+                    *pickup_labels,
+                    token_label,
+                    short_label,
+                    store_tokens[-1] if store_tokens else None,
+                )
+                if value
             )
-            if value
         )
+        self.run_meta["store_selection_labels"] = list(labels)
         store_clicked = self._click_text(page, labels)
         page.wait_for_timeout(700)
         self.run_meta["store_clicked"] = store_clicked
