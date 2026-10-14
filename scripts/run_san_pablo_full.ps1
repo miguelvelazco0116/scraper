@@ -93,6 +93,7 @@ if ($Category -eq "all") {
     Write-Host "Fase 4 San Pablo validada. Integrando al concentrado diario..."
     & ".\scripts\integrate_validated_phase.ps1" `
         -Phase 4 `
+        -Retailer "Farmacias San Pablo" `
         -ProjectDir $ProjectDir `
         -PythonExe $PythonExe
 
