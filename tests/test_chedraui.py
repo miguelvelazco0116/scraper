@@ -2,7 +2,7 @@ import base64
 import json
 from urllib.parse import parse_qs, urlsplit
 
-from scraper.config import Category, Location, load_categories
+from scraper.config import Category, Location, load_categories, load_locations
 from scraper.retailers.chedraui import ChedrauiScraper
 from scraper.retailers.chedraui_polanco import ChedrauiScraper as ChedrauiPolancoScraper
 from scraper.retailers.chedraui_polanco_api import ChedrauiScraper as ChedrauiAPIScraper
