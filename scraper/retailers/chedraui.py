@@ -126,17 +126,23 @@ class ChedrauiScraper:
     ) -> bool:
         if not location.store_id:
             return False
+
         raw = str(location.store_id).strip()
+        text = str(blob)
+
         if not raw.isdigit():
-            return cls._normalize(raw) in cls._normalize(blob)
+            return cls._normalize(raw) in cls._normalize(text)
+
         numeric = str(int(raw))
-        return bool(
-            re.search(
-                rf"(?<!\\d)0*{re.escape(numeric)}(?!\\d)",
-                str(blob),
-                flags=re.IGNORECASE,
-            )
+        padded = rf"0*{re.escape(numeric)}"
+
+        patterns = (
+            rf"(?i)chedrauimx{padded}(?:[_-]?PP{padded})?",
+            rf"(?i)\\bPP{padded}\\b",
+            rf"(?i)(?:storeId|store_id)[^0-9]{{0,12}}[\"']?{padded}[\"']?",
+            rf"(?i)(?:seller|pickup|dock)[^0-9]{{0,12}}[\"']?{padded}[\"']?",
         )
+        return any(re.search(pattern, text) for pattern in patterns)
 
     @classmethod
     def _location_name_matches(
