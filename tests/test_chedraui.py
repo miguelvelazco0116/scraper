@@ -87,7 +87,7 @@ def test_chedraui_generic_store_contexts():
         ),
         (
             CANCUN_KABAH,
-            "Recoger en Chedraui Selecto Cancún Kabah 77507",
+            "Recoger en Chedraui Cancún Kabah 77501",
             '{"storeName":"Selecto Cancun Kabah","storeId":"255"}',
         ),
         (
