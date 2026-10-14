@@ -27,12 +27,13 @@ OUTPUT_PATH = ROOT / "output" / "chedraui_test.xlsx"
 def _write_output(
     rows: list[dict],
     summaries: list[dict],
+    output_path: Path,
 ) -> None:
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     frame = pd.DataFrame(rows, columns=COLUMNS)
     summary = pd.DataFrame(summaries)
 
-    with atomic_output_path(OUTPUT_PATH) as temporary:
+    with atomic_output_path(output_path) as temporary:
         with pd.ExcelWriter(temporary, engine="openpyxl") as writer:
             frame.to_excel(writer, index=False, sheet_name="Concentrado")
             summary.to_excel(writer, index=False, sheet_name="Resumen")
@@ -161,8 +162,18 @@ def main() -> int:
         default="all",
     )
     parser.add_argument(
+        "--store",
+        choices=[
+            "chedraui-polanco",
+            "chedraui-tepeyac",
+            "chedraui-cancun-kabah",
+            "chedraui-puebla-centro-sur",
+        ],
+        default="chedraui-polanco",
+    )
+    parser.add_argument(
         "--profile-dir",
-        default=".chedraui_profile",
+        default=None,
     )
     parser.add_argument(
         "--headed",
@@ -191,18 +202,31 @@ def main() -> int:
             ROOT / "config" / "locations.yaml"
         )
     }
-    location = locations["chedraui-polanco"]
+    location = locations[args.store]
+    profile_dir = (
+        args.profile_dir
+        or (
+            ".chedraui_profile"
+            if args.store == "chedraui-polanco"
+            else f".chedraui_profile_{args.store.removeprefix('chedraui-')}"
+        )
+    )
+    output_path = (
+        ROOT
+        / "output"
+        / f"chedraui_{args.store.removeprefix('chedraui-').replace('-', '_')}_test.xlsx"
+    )
 
     all_rows: list[dict] = []
     summaries: list[dict] = []
 
     print("=" * 72)
-    print("CHEDRAUI POLANCO - PRUEBA AISLADA")
+    print("CHEDRAUI - PRUEBA AISLADA POR TIENDA")
     print("=" * 72)
     print(f"Categorias : {len(categories)}")
     print(f"Tienda     : {location.store} ({location.store_id})")
     print(f"CP         : {location.postal_code}")
-    print(f"Profile    : {args.profile_dir}")
+    print(f"Profile    : {profile_dir}")
     print("Consolidado: sin cambios")
     print("")
 
@@ -215,7 +239,7 @@ def main() -> int:
         scraper = ChedrauiScraper(
             headless=not args.headed,
             browser_channel="chrome",
-            profile_dir=args.profile_dir,
+            profile_dir=profile_dir,
             max_pages=args.max_pages,
         )
 
@@ -307,7 +331,7 @@ def main() -> int:
             "error": error,
         }
         summaries.append(summary)
-        _write_output(all_rows, summaries)
+        _write_output(all_rows, summaries, output_path)
 
         print("RESULTADO")
         for key in (
@@ -327,7 +351,7 @@ def main() -> int:
             "price_order_errors",
         ):
             print(f"{key:32}: {summary.get(key)}")
-        print(f"Output: {OUTPUT_PATH}")
+        print(f"Output: {output_path}")
         print("")
 
     print("=" * 72)
@@ -340,7 +364,7 @@ def main() -> int:
         )
 
     print("")
-    print(f"Archivo: {OUTPUT_PATH}")
+    print(f"Archivo: {output_path}")
     print("Consolidado: sin cambios")
 
     return 0 if all(
