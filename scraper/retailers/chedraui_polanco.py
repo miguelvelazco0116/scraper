@@ -96,12 +96,222 @@ class ChedrauiScraper(BaseChedrauiScraper):
                 continue
         return False
 
+    def _select_directory_option(
+        self,
+        select,
+        preferred_tokens: tuple[str, ...],
+    ) -> tuple[bool, list[str], str | None]:
+        try:
+            options = [
+                value.strip()
+                for value in select.locator("option").all_text_contents()
+                if value.strip()
+            ]
+        except Exception:
+            options = []
+
+        normalized_tokens = [
+            self._normalize(value)
+            for value in preferred_tokens
+            if value
+        ]
+        preferred = next(
+            (
+                value
+                for value in options
+                if any(
+                    token and token in self._normalize(value)
+                    for token in normalized_tokens
+                )
+            ),
+            None,
+        )
+        if not preferred:
+            return False, options, None
+
+        try:
+            select.select_option(label=preferred)
+            return True, options, preferred
+        except Exception:
+            return False, options, preferred
+
+    def _click_configured_store(
+        self,
+        page,
+        location: Location,
+        extra_labels: tuple[str, ...] = (),
+    ) -> bool:
+        labels = tuple(
+            dict.fromkeys(
+                value
+                for value in (
+                    location.store,
+                    *extra_labels,
+                    *self._location_store_tokens(location),
+                )
+                if value
+            )
+        )
+        self.run_meta["directory_store_labels"] = list(labels)
+
+        for label in labels:
+            try:
+                nodes = page.get_by_text(label, exact=False)
+                for i in range(min(nodes.count(), 80)):
+                    node = nodes.nth(i)
+                    if not node.is_visible():
+                        continue
+                    text = self._normalize(node.inner_text(timeout=1_500))
+                    tokens = self._location_store_tokens(location)
+                    if tokens and not all(token in text for token in tokens):
+                        continue
+                    node.click(timeout=5_000)
+                    page.wait_for_timeout(600)
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def _try_select_store_directory_generic(
+        self,
+        page,
+        location: Location,
+    ):
+        self.run_meta["cookie_clicked"] = self._accept_cookies(page)
+
+        opened = self._open_locator(page)
+        self.run_meta["location_button_opened"] = opened
+        if not opened:
+            self._save_diagnostics(page, "store_location_button_not_found")
+            return False, None
+
+        pickup_clicked = self._click_text(
+            page,
+            ("Recoger en una tienda", "Recoger en tienda", "Recoger en"),
+        )
+        self.run_meta["pickup_clicked"] = pickup_clicked
+        page.wait_for_timeout(500)
+
+        directory_clicked = self._click_text(
+            page,
+            ("Directorio de tiendas",),
+        )
+        self.run_meta["directory_clicked"] = directory_clicked
+        if not directory_clicked:
+            self._save_diagnostics(page, "store_directory_not_found")
+            return False, None
+        page.wait_for_timeout(900)
+
+        pickup_candidates = self._list_pickup_points(page, location)
+        pickup_names: list[str] = []
+        pickup_cities: list[str] = []
+        pickup_states: list[str] = []
+        for item in pickup_candidates[:10]:
+            pickup = item.get("pickupPoint") if isinstance(item, dict) else None
+            if not isinstance(pickup, dict):
+                continue
+            name = pickup.get("friendlyName")
+            if name:
+                pickup_names.append(str(name))
+            address = pickup.get("address")
+            if isinstance(address, dict):
+                city = address.get("city")
+                state = address.get("state")
+                if city:
+                    pickup_cities.append(str(city))
+                if state:
+                    pickup_states.append(str(state))
+
+        state_selected = False
+        city_selected = False
+        state_options: list[str] = []
+        city_options: list[str] = []
+        state_label = None
+        city_label = None
+
+        try:
+            selects = page.locator(
+                "select.chedrauimx-locator-2-x-selectOption"
+            )
+            if selects.count() >= 1:
+                state_selected, state_options, state_label = (
+                    self._select_directory_option(
+                        selects.nth(0),
+                        (
+                            location.state,
+                            *pickup_states,
+                        ),
+                    )
+                )
+                if state_selected:
+                    page.wait_for_timeout(1_200)
+
+            if selects.count() >= 2:
+                city_selected, city_options, city_label = (
+                    self._select_directory_option(
+                        selects.nth(1),
+                        (
+                            *pickup_cities,
+                            location.city,
+                            *self._location_store_tokens(location),
+                        ),
+                    )
+                )
+                if city_selected:
+                    page.wait_for_timeout(1_400)
+        except Exception as exc:
+            self.run_meta["directory_select_error"] = str(exc)
+
+        self.run_meta["state_selected"] = state_selected
+        self.run_meta["city_selected"] = city_selected
+        self.run_meta["state_options"] = state_options[:80]
+        self.run_meta["city_options"] = city_options[:80]
+        self.run_meta["selected_state_label"] = state_label
+        self.run_meta["selected_city_label"] = city_label
+        self.run_meta["pickup_candidate_names"] = pickup_names[:10]
+
+        store_clicked = self._click_configured_store(
+            page,
+            location,
+            tuple(pickup_names),
+        )
+        self.run_meta["store_clicked"] = store_clicked
+        page.wait_for_timeout(700)
+
+        confirmed = self._click_enabled_pickup_button(page)
+        if not confirmed and store_clicked:
+            confirmed = self._click_text(
+                page,
+                (
+                    "Seleccionar",
+                    "Elegir",
+                    "Recoger en esta tienda",
+                    "Confirmar",
+                    "Guardar",
+                    "Continuar",
+                ),
+                timeout=4_000,
+            )
+        self.run_meta["pickup_confirmed"] = confirmed
+        page.wait_for_timeout(1_500)
+
+        verified, method = self._verify_store_context(page, location)
+        if verified:
+            return True, f"{method}_after_directory_ui"
+
+        self.run_meta["store_modal_text"] = self._body_text(page)[:14_000]
+        self._save_diagnostics(page, "store_directory_selection_unverified")
+        return False, None
+
     def _try_select_store_ui(self, page, location: Location):
         # Preserve the live-validated Polanco directory flow unchanged.
-        # Other stores use the generalized postal/store-name selector from
-        # the base scraper.
+        # Other stores use the same storefront directory, generalized by
+        # configured state/city/store and VTEX pickup-point metadata.
         if location.id != "chedraui-polanco":
-            return super()._try_select_store_ui(page, location)
+            return self._try_select_store_directory_generic(
+                page,
+                location,
+            )
 
         self.run_meta["cookie_clicked"] = self._accept_cookies(page)
 
