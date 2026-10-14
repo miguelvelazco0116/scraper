@@ -97,6 +97,12 @@ class ChedrauiScraper(BaseChedrauiScraper):
         return False
 
     def _try_select_store_ui(self, page, location: Location):
+        # Preserve the live-validated Polanco directory flow unchanged.
+        # Other stores use the generalized postal/store-name selector from
+        # the base scraper.
+        if location.id != "chedraui-polanco":
+            return super()._try_select_store_ui(page, location)
+
         self.run_meta["cookie_clicked"] = self._accept_cookies(page)
 
         opened = self._open_locator(page)
