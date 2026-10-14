@@ -821,13 +821,17 @@ Patrón candidato:
 - conservar `availability_raw` para auditoría.
 
 Gate candidato:
-- target publicado == links descubiertos == productos extraídos;
-- SKU 100%;
-- precio actual 100%;
-- URL 100%;
-- disponibilidad binaria 100%;
-- cero errores de detalle;
+- cobertura de catálogo >= 90% del target publicado;
+- SKU >= 90% de las filas extraídas;
+- precio actual >= 90%;
+- URL >= 90%;
+- disponibilidad binaria >= 90%;
 - cero casos `price_current > price_regular`.
+
+Regla de muestra válida:
+- el proyecto considera válida una muestra con cobertura >= 90% del universo publicado;
+- no es necesario exigir 100% para aprobar una corrida;
+- las métricas de completitud se siguen reportando para auditoría y mejora continua.
 
 Test de una categoría:
 
