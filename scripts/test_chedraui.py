@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from copy import copy
 from pathlib import Path
 
@@ -169,6 +170,7 @@ def main() -> int:
             "respiratorios",
             "candidates",
             "all",
+            "full",
         ],
         default="all",
     )
@@ -196,6 +198,12 @@ def main() -> int:
         type=int,
         default=100,
     )
+    parser.add_argument(
+        "--category-delay-seconds",
+        type=int,
+        default=0,
+        help="Pausa entre categorías dentro de la misma tienda.",
+    )
     args = parser.parse_args()
 
     active_categories = load_categories(
@@ -207,9 +215,11 @@ def main() -> int:
     candidate_ids = {item.id for item in candidate_categories}
 
     if args.category == "all":
-        # Preserve the historical full test: only productive/validated
-        # categories are included unless candidates are explicitly requested.
+        # Preserve historical semantics: only currently productive categories.
         categories = active_categories
+    elif args.category == "full":
+        # Exhaustive validation mode: productive + candidate categories.
+        categories = active_categories + candidate_categories
     elif args.category == "candidates":
         categories = candidate_categories
     elif args.category in candidate_ids:
@@ -254,6 +264,7 @@ def main() -> int:
     print(f"Tienda     : {location.store} ({location.store_id})")
     print(f"CP         : {location.postal_code}")
     print(f"Profile    : {profile_dir}")
+    print(f"Delay cat. : {args.category_delay_seconds} segundos")
     print("Consolidado: sin cambios")
     print("")
 
@@ -390,6 +401,17 @@ def main() -> int:
                 )
                 print("")
             break
+
+        if (
+            index < len(categories)
+            and args.category_delay_seconds > 0
+        ):
+            print(
+                f"Pausa de {args.category_delay_seconds} segundos "
+                "antes de la siguiente categoría..."
+            )
+            print("")
+            time.sleep(args.category_delay_seconds)
 
     print("=" * 72)
     print("RESUMEN CHEDRAUI")
