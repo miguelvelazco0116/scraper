@@ -833,6 +833,66 @@ def test_chedraui_zero_stock_without_price_is_retained():
     assert row["pickup_available"] is False
 
 
+def test_chedraui_keeps_partial_structured_page_after_retries():
+    scraper = ChedrauiAPIScraper()
+    scraper._product_search_template_url = (
+        "https://example.test/?extensions=eyJ2YXJpYWJsZXMiOiAiZTMwPSJ9"
+    )
+
+    class FakeResponse:
+        status = 200
+
+        def json(self):
+            return {
+                "data": {
+                    "productSearch": {
+                        "products": [{"productId": str(i)} for i in range(19)],
+                        "recordsFiltered": 297,
+                    }
+                }
+            }
+
+    class FakeRequest:
+        def get(self, url, timeout, headers):
+            return FakeResponse()
+
+    class FakeContext:
+        request = FakeRequest()
+
+    class FakePage:
+        context = FakeContext()
+
+        def wait_for_timeout(self, _ms):
+            return None
+
+    rows19 = [{"sku": str(i)} for i in range(19)]
+
+    scraper._rewrite_product_search_range = lambda url, start, end: url
+    scraper._rows_from_product_search_payload = (
+        lambda payload, category, location: (rows19, 297)
+    )
+
+    rows, info = scraper._recover_page_from_product_search(
+        FakePage(),
+        LAUNDRY,
+        POLANCO,
+        page_number=12,
+        target_rows=20,
+    )
+
+    assert len(rows) == 19
+    assert info["accepted_partial"] is True
+    assert info["rows"] == 19
+    assert scraper.run_meta["structured_partial_pages"] == [
+        {
+            "page": 12,
+            "rows": 19,
+            "target_rows": 20,
+            "records_filtered": 297,
+        }
+    ]
+
+
 def test_chedraui_retries_structured_page_until_target_is_complete():
     scraper = ChedrauiAPIScraper()
     scraper._product_search_template_url = "https://example.test/?extensions=eyJ2YXJpYWJsZXMiOiAiZTMwPSJ9"
