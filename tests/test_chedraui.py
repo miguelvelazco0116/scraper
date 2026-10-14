@@ -33,7 +33,7 @@ CANCUN_KABAH = Location(
     city="Cancún",
     state="Quintana Roo",
     country="México",
-    postal_code="77507",
+    postal_code="77501",
     store="Chedraui Cancún Kabah",
     store_id="255",
 )
@@ -107,7 +107,7 @@ def test_chedraui_generic_store_contexts():
 def test_chedraui_generic_pickup_points_match_location():
     cases = [
         (TEPEYAC, "CHEDRAUI MEXICO TEPEYAC", "07820"),
-        (CANCUN_KABAH, "CHEDRAUI SELECTO CANCUN KABAH", "77507"),
+        (CANCUN_KABAH, "CHEDRAUI SELECTO CANCUN KABAH", "77501"),
         (PUEBLA_CENTRO_SUR, "CHEDRAUI PUEBLA CENTRO SUR", "72490"),
     ]
     for location, friendly_name, postal_code in cases:
@@ -147,7 +147,7 @@ def test_chedraui_pickup_matches_by_zero_padded_store_id():
         "pickupPoint": {
             "id": "chedrauimx0255",
             "friendlyName": "Sucursal Kabah",
-            "address": {"postalCode": "77507"},
+            "address": {"postalCode": "77501"},
         }
     }
     assert ChedrauiScraper._pickup_matches_location(
