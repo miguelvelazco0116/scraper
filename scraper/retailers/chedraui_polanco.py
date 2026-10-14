@@ -614,6 +614,12 @@ class ChedrauiScraper(BaseChedrauiScraper):
                 self.run_meta["displayed_expected_pages"] = expected_pages
                 if page_number < expected_pages:
                     target_rows = page_size
+                elif page_number == expected_pages:
+                    target_rows = max(
+                        displayed_total
+                        - (page_size * (expected_pages - 1)),
+                        1,
+                    )
                 else:
                     target_rows = None
             else:
@@ -661,6 +667,16 @@ class ChedrauiScraper(BaseChedrauiScraper):
                     "attempts": attempts,
                 }
             )
+
+            # When the storefront publishes a total, reaching its expected
+            # last page is sufficient. Avoid a synthetic extra page request
+            # that can be misclassified as a missing structured-price page.
+            if (
+                expected_pages is not None
+                and page_number >= expected_pages
+                and page_rows
+            ):
+                break
 
             # A partial last page followed by an empty page proves the listing
             # is exhausted even if the displayed category count includes items
