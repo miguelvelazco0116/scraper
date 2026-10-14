@@ -33,6 +33,7 @@ locations:
     postal_code: "07850"
     store: Chedraui México Tepeyac
     store_id: "173"
+    directory_area: "CDMX Noreste"
     enabled: true
 
   - id: chedraui-cancun-kabah
