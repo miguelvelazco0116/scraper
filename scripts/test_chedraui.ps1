@@ -1,9 +1,11 @@
 param(
-    [ValidateSet("higiene-bucal", "lavanderia", "desodorantes-y-antitranspirantes", "depilacion", "respiratorios", "candidates", "all")]
+    [ValidateSet("higiene-bucal", "lavanderia", "desodorantes-y-antitranspirantes", "depilacion", "respiratorios", "candidates", "all", "full")]
     [string]$Category = "all",
     [ValidateSet("chedraui-polanco", "chedraui-tepeyac", "chedraui-cancun-kabah", "chedraui-puebla-centro-sur")]
     [string]$Store = "chedraui-polanco",
     [string]$ProfileDir = "",
+    [ValidateRange(0, 600)]
+    [int]$CategoryDelaySeconds = 0,
     [switch]$Headed,
     [string]$PythonExe = ""
 )
@@ -33,7 +35,8 @@ if ([string]::IsNullOrWhiteSpace($PythonExe)) {
 $ArgsList = @(
     ".\scripts\test_chedraui.py",
     "--category", $Category,
-    "--store", $Store
+    "--store", $Store,
+    "--category-delay-seconds", $CategoryDelaySeconds
 )
 
 if (-not [string]::IsNullOrWhiteSpace($ProfileDir)) {
