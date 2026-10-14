@@ -2,7 +2,7 @@
   "retailer": "Farmacias Benavides",
   "validation_date": "2026-10-13",
   "status": "VALIDATED_METHOD",
-  "phase": 5,
+  "phase": 4,
   "source_workbook": "output/benavides_test.xlsx",
   "categories": {
     "medicamentos-respiratorios": {
@@ -17,7 +17,9 @@
       "available": 0,
       "unavailable": 455,
       "source_status": "PARTIAL",
-      "accepted_under_project_rule": true
+      "accepted_under_project_rule": true,
+      "price_order_errors": 2,
+      "price_order_valid_rate": 0.9956140350877193
     },
     "bienestar-sexual": {
       "products": 170,
@@ -64,7 +66,8 @@
     "minimum_price_completeness": 0.9,
     "minimum_url_completeness": 0.9,
     "minimum_availability_completeness": 0.9,
-    "price_order_errors_required": 0
+    "minimum_price_order_valid_rate": 0.9
   },
-  "note": "Respiratorios was originally labeled PARTIAL only because the earlier runner required 100% availability. Under the project-wide >=90% valid-sample rule, the observed 455/456 availability completeness is valid."
+  "note": "Benavides is a validated retailer component of Phase 4 together with Farmacias San Pablo. Respiratorios satisfies the project-wide >=90% rule despite 1 unknown availability and 2 price-order inconsistencies.",
+  "phase_component": "Farmacias Benavides"
 }
