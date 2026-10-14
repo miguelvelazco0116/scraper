@@ -741,7 +741,7 @@ Ciudad: Gustavo A. Madero, CDMX
 
 chedraui-cancun-kabah
 store_id: 255
-CP: 77507
+CP: 77501
 Ciudad: Cancún, Quintana Roo
 
 chedraui-puebla-centro-sur
