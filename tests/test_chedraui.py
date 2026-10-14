@@ -205,6 +205,70 @@ def test_chedraui_directory_option_matching_ignores_punctuation():
     assert "GUSTAVO A MADERO" in options
 
 
+def test_chedraui_directory_option_retry_waits_for_city():
+    scraper = ChedrauiPolancoScraper()
+
+    class FakeOptions:
+        def __init__(self, owner):
+            self.owner = owner
+
+        def all_text_contents(self):
+            self.owner.reads += 1
+            if self.owner.reads < 3:
+                return ["Seleccione"]
+            return ["Seleccione", "GUSTAVO A MADERO"]
+
+    class FakeSelect:
+        def __init__(self):
+            self.reads = 0
+            self.selected = None
+
+        def locator(self, selector):
+            assert selector == "option"
+            return FakeOptions(self)
+
+        def select_option(self, label):
+            self.selected = label
+
+    class FakeSelects:
+        def __init__(self, select):
+            self.select = select
+
+        def count(self):
+            return 2
+
+        def nth(self, index):
+            assert index == 1
+            return self.select
+
+    class FakePage:
+        def __init__(self):
+            self.select = FakeSelect()
+            self.waits = 0
+
+        def locator(self, selector):
+            assert selector == "select.chedrauimx-locator-2-x-selectOption"
+            return FakeSelects(self.select)
+
+        def wait_for_timeout(self, ms):
+            self.waits += 1
+
+    page = FakePage()
+    ok, options, selected = scraper._select_directory_option_with_retry(
+        page,
+        1,
+        ("GUSTAVO A. MADERO",),
+        attempts=4,
+        wait_ms=1,
+    )
+
+    assert ok is True
+    assert selected == "GUSTAVO A MADERO"
+    assert page.select.selected == "GUSTAVO A MADERO"
+    assert page.waits == 2
+    assert "GUSTAVO A MADERO" in options
+
+
 def test_chedraui_all_locations_use_same_directory_selector(monkeypatch):
     scraper = ChedrauiPolancoScraper()
     calls = []
