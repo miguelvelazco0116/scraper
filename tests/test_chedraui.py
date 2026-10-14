@@ -171,6 +171,14 @@ def test_chedraui_pickup_exact_store_id_overrides_postal_mismatch():
 
 
 
+def test_chedraui_tepeyac_directory_area_config():
+    locations = {
+        item.id: item
+        for item in load_locations("config/locations.yaml")
+    }
+    assert locations["chedraui-tepeyac"].directory_area == "CDMX Noreste"
+
+
 def test_chedraui_directory_option_matching_ignores_punctuation():
     scraper = ChedrauiPolancoScraper()
 
@@ -203,6 +211,40 @@ def test_chedraui_directory_option_matching_ignores_punctuation():
     assert selected == "GUSTAVO A MADERO"
     assert select.selected == "GUSTAVO A MADERO"
     assert "GUSTAVO A MADERO" in options
+
+
+def test_chedraui_directory_selects_configured_area():
+    scraper = ChedrauiPolancoScraper()
+
+    class FakeOptions:
+        def all_text_contents(self):
+            return [
+                "Todas las ciudades",
+                "CDMX Noreste",
+                "CDMX Noroeste",
+                "CDMX Sureste",
+            ]
+
+    class FakeSelect:
+        def __init__(self):
+            self.selected = None
+
+        def locator(self, selector):
+            assert selector == "option"
+            return FakeOptions()
+
+        def select_option(self, label):
+            self.selected = label
+
+    select = FakeSelect()
+    ok, _, selected = scraper._select_directory_option(
+        select,
+        ("CDMX Noreste", "GUSTAVO A. MADERO"),
+    )
+
+    assert ok is True
+    assert selected == "CDMX Noreste"
+    assert select.selected == "CDMX Noreste"
 
 
 def test_chedraui_directory_option_retry_waits_for_city():
