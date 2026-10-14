@@ -196,8 +196,17 @@ def _run_ahorro(
                 notes.append("sin productos")
             if target is None:
                 notes.append("target no disponible")
-            elif metrics["products"] < int(target):
-                notes.append(f"cobertura {metrics['products']}/{target}")
+            else:
+                coverage = (
+                    metrics["products"] / int(target)
+                    if int(target) > 0
+                    else 0.0
+                )
+                if coverage < 0.90:
+                    notes.append(
+                        f"cobertura {metrics['products']}/{target} "
+                        f"({coverage:.1%}) < 90%"
+                    )
             if metrics["sku_complete"] < metrics["products"]:
                 notes.append(f"sku {metrics['sku_complete']}/{metrics['products']}")
             if metrics["price_complete"] < metrics["products"]:
