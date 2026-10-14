@@ -1,7 +1,9 @@
 param(
     [ValidateSet("higiene-bucal", "lavanderia", "all")]
     [string]$Category = "all",
-    [string]$ProfileDir = ".chedraui_profile",
+    [ValidateSet("chedraui-polanco", "chedraui-tepeyac", "chedraui-cancun-kabah", "chedraui-puebla-centro-sur")]
+    [string]$Store = "chedraui-polanco",
+    [string]$ProfileDir = "",
     [switch]$Headed,
     [string]$PythonExe = ""
 )
@@ -31,8 +33,12 @@ if ([string]::IsNullOrWhiteSpace($PythonExe)) {
 $ArgsList = @(
     ".\scripts\test_chedraui.py",
     "--category", $Category,
-    "--profile-dir", $ProfileDir
+    "--store", $Store
 )
+
+if (-not [string]::IsNullOrWhiteSpace($ProfileDir)) {
+    $ArgsList += @("--profile-dir", $ProfileDir)
+}
 
 if ($Headed) {
     $ArgsList += "--headed"
