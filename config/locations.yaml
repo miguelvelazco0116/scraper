@@ -24,6 +24,7 @@ locations:
     postal_code: "11500"
     store: Chedraui Selecto México Polanco
     store_id: "232"
+    directory_area: "CDMX Noroeste"
     enabled: true
 
   - id: chedraui-tepeyac
