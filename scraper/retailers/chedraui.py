@@ -105,6 +105,39 @@ class ChedrauiScraper:
         )
         return re.sub(r"\s+", " ", value).strip()
 
+    @classmethod
+    def _location_store_tokens(cls, location: Location) -> list[str]:
+        normalized = cls._normalize(location.store)
+        generic = {
+            "chedraui", "selecto", "super", "supermercado",
+            "mexico", "tienda",
+        }
+        return [
+            token
+            for token in re.findall(r"[a-z0-9]+", normalized)
+            if len(token) >= 3 and token not in generic
+        ]
+
+    @classmethod
+    def _location_name_matches(
+        cls,
+        blob: str,
+        location: Location,
+    ) -> bool:
+        normalized = cls._normalize(blob)
+        full_name = cls._normalize(location.store)
+        if full_name and full_name in normalized:
+            return True
+
+        tokens = cls._location_store_tokens(location)
+        if not tokens:
+            return False
+
+        # Store labels can omit format words such as "Selecto" or "México".
+        # Require all meaningful tokens to avoid matching another Chedraui in
+        # the same city/postal area.
+        return all(token in normalized for token in tokens)
+
     @staticmethod
     def _paged_url(url: str, page_number: int) -> str:
         parts = urlsplit(url)
@@ -171,33 +204,45 @@ class ChedrauiScraper:
     @classmethod
     def _store_context_in_text(cls, text: str, location: Location) -> bool:
         normalized = cls._normalize(text)
-        store_id = cls._normalize(location.store_id)
+        if not normalized:
+            return False
+
+        name_match = cls._location_name_matches(normalized, location)
         postal = cls._normalize(location.postal_code)
-        polanco = "polanco" in normalized
-        strong_detail = bool(
-            (store_id and store_id in normalized)
-            or (postal and postal in normalized)
-            or "selecto mexico polanco" in normalized
+        postal_match = bool(postal and postal in normalized)
+        pickup_context = bool(
+            re.search(r"(recoger|pickup|tienda).{0,180}", normalized)
         )
-        pickup_detail = bool(
-            re.search(r"(recoger|pickup|tienda).{0,140}polanco", normalized)
-            or re.search(r"polanco.{0,140}(recoger|pickup|tienda)", normalized)
-        )
-        return polanco and (strong_detail or pickup_detail)
+
+        return name_match and (postal_match or pickup_context)
+
 
     @classmethod
-    def _store_context_in_state_blob(cls, blob: str, location: Location) -> bool:
+    def _store_context_in_state_blob(
+        cls,
+        blob: str,
+        location: Location,
+    ) -> bool:
         normalized = cls._normalize(blob)
-        hits = 0
-        if "polanco" in normalized:
-            hits += 1
-        if location.store_id and cls._normalize(location.store_id) in normalized:
-            hits += 1
-        if location.postal_code and cls._normalize(location.postal_code) in normalized:
-            hits += 1
-        if "selecto" in normalized:
-            hits += 1
-        return hits >= 2 and "polanco" in normalized
+        if not normalized:
+            return False
+
+        name_match = cls._location_name_matches(normalized, location)
+        postal = cls._normalize(location.postal_code)
+        postal_match = bool(postal and postal in normalized)
+
+        store_id_match = False
+        if location.store_id:
+            escaped = re.escape(str(location.store_id))
+            store_id_match = bool(
+                re.search(
+                    rf'(?i)(?:storeid|store_id|seller|pickup)[^0-9]{{0,12}}["\']?{escaped}["\']?',
+                    blob,
+                )
+            )
+
+        return name_match and (store_id_match or postal_match)
+
 
     @classmethod
     def _orderform_matches_location(
@@ -273,17 +318,16 @@ class ChedrauiScraper:
                                     candidates.append(str(value))
 
         normalized = cls._normalize(" ".join(candidates))
-        if "polanco" not in normalized:
-            return False
 
+        if location.store_id:
+            root_store_id = payload.get("storeId")
+            if root_store_id is not None and str(root_store_id) == str(location.store_id):
+                return True
+
+        name_match = cls._location_name_matches(normalized, location)
         postal = cls._normalize(location.postal_code)
-        store_name = cls._normalize(location.store)
-        strong = bool(
-            (postal and postal in normalized)
-            or (store_name and store_name in normalized)
-            or "selecto mexico polanco" in normalized
-        )
-        return strong
+        postal_match = bool(postal and postal in normalized)
+        return name_match and postal_match
 
     def _orderform_snapshot(self, page: Page) -> dict[str, Any] | None:
         try:
@@ -345,11 +389,20 @@ class ChedrauiScraper:
             return None
 
     @classmethod
-    def _pickup_matches_location(cls, item: dict, location: Location) -> bool:
+    def _pickup_matches_location(
+        cls,
+        item: dict,
+        location: Location,
+    ) -> bool:
         pickup = item.get("pickupPoint") if isinstance(item, dict) else None
         if not isinstance(pickup, dict):
             return False
-        address = pickup.get("address") if isinstance(pickup.get("address"), dict) else {}
+
+        address = (
+            pickup.get("address")
+            if isinstance(pickup.get("address"), dict)
+            else {}
+        )
         blob = " ".join(
             str(value or "")
             for value in (
@@ -364,24 +417,17 @@ class ChedrauiScraper:
                 address.get("postalCode"),
             )
         )
-        normalized = cls._normalize(blob)
-        store_name = cls._normalize(location.store)
-        postal = cls._normalize(location.postal_code)
 
-        if "polanco" not in normalized:
+        if not cls._location_name_matches(blob, location):
             return False
-        if postal and postal not in normalized:
-            # Algunos pickup points omiten CP en el nombre pero lo exponen en
-            # address.postalCode. Si existe un CP distinto, no es Polanco.
-            address_postal = cls._normalize(address.get("postalCode"))
-            if address_postal and address_postal != postal:
-                return False
 
-        return bool(
-            (store_name and store_name in normalized)
-            or "selecto mexico polanco" in normalized
-            or "chedraui" in normalized
-        )
+        expected_postal = cls._normalize(location.postal_code)
+        actual_postal = cls._normalize(address.get("postalCode"))
+        if expected_postal and actual_postal and actual_postal != expected_postal:
+            return False
+
+        return True
+
 
     def _list_pickup_points(self, page: Page, location: Location) -> list[dict]:
         postal = location.postal_code
@@ -405,7 +451,7 @@ class ChedrauiScraper:
                 if isinstance(item, dict) and self._pickup_matches_location(item, location)
             ]
             self.run_meta["pickup_points_total"] = len(items)
-            self.run_meta["pickup_polanco_candidates"] = [
+            self.run_meta["pickup_store_candidates"] = [
                 {
                     "distance": item.get("distance"),
                     "pickupPoint": item.get("pickupPoint"),
@@ -422,7 +468,7 @@ class ChedrauiScraper:
         page: Page,
         location: Location,
     ) -> tuple[bool, str | None]:
-        """Regionaliza la sesión VTEX y confirma que Polanco existe como pickup.
+        """Regionaliza la sesión VTEX y confirma que la tienda existe como pickup.
 
         Esto no fuerza un pickupPoint en el carrito. Reduce la dependencia del
         modal visual al preparar postalCode/country y comprobar el directorio
@@ -904,7 +950,8 @@ class ChedrauiScraper:
                     self.run_meta["store_context_verified"] = False
                     self._save_diagnostics(page, "store_context_error")
                     raise ChedrauiStoreContextError(
-                        "No fue posible verificar Chedraui Selecto México Polanco (tienda 232)."
+                        f"No fue posible verificar {location.store} "
+                        f"(tienda {location.store_id})."
                     )
 
                 self._active_store_context_method = (
