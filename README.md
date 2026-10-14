@@ -1313,3 +1313,20 @@ git commit / push
 ```
 
 GitHub no es el entorno de ejecución del scraper; es el repositorio de código y control de versiones.
+
+### Método único de selección de tienda Chedraui
+
+Todas las sucursales Chedraui usan el mismo flujo de storefront VTEX:
+
+```text
+Abrir selector de ubicación
+→ Recoger en tienda
+→ Directorio de tiendas
+→ Seleccionar estado
+→ Seleccionar ciudad/municipio
+→ Seleccionar sucursal exacta
+→ Recoger en esta tienda
+→ Verificar contexto de tienda
+```
+
+No existe una ruta especial por sucursal. Polanco, Tepeyac, Cancún Kabah y Puebla Centro Sur usan la misma función y sólo cambian sus datos de ubicación y el pickup point devuelto por VTEX.
