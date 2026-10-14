@@ -2,7 +2,7 @@ import base64
 import json
 from urllib.parse import parse_qs, urlsplit
 
-from scraper.config import Category, Location
+from scraper.config import Category, Location, load_categories
 from scraper.retailers.chedraui import ChedrauiScraper
 from scraper.retailers.chedraui_polanco import ChedrauiScraper as ChedrauiPolancoScraper
 from scraper.retailers.chedraui_polanco_api import ChedrauiScraper as ChedrauiAPIScraper
@@ -590,3 +590,48 @@ def test_chedraui_retries_structured_page_until_target_is_complete():
     assert info["rows"] == 20
     assert len(info["attempts"]) == 3
     assert info["attempts"][-1]["accepted"] is True
+
+
+def test_chedraui_candidate_categories_are_separate_from_production():
+    active = {
+        item.id
+        for item in load_categories("config/chedraui/categories.yaml")
+    }
+    candidates = {
+        item.id
+        for item in load_categories(
+            "config/chedraui/candidate_categories.yaml"
+        )
+    }
+
+    assert active == {"higiene-bucal", "lavanderia"}
+    assert candidates == {
+        "desodorantes-y-antitranspirantes",
+        "depilacion",
+        "respiratorios",
+    }
+    assert active.isdisjoint(candidates)
+
+
+def test_chedraui_candidate_category_hierarchy():
+    candidates = {
+        item.id: item
+        for item in load_categories(
+            "config/chedraui/candidate_categories.yaml"
+        )
+    }
+
+    deodorants = candidates["desodorantes-y-antitranspirantes"]
+    assert deodorants.department == "Cuidado e higiene personal"
+    assert deodorants.name == "Cuidado corporal"
+    assert deodorants.subcategory == "Desodorantes y antitranspirantes"
+
+    depilation = candidates["depilacion"]
+    assert depilation.department == "Belleza"
+    assert depilation.name == "Afeitado y depilación"
+    assert depilation.subcategory == "Depilación"
+
+    respiratory = candidates["respiratorios"]
+    assert respiratory.department == "Farmacia"
+    assert respiratory.name == "Medicamentos"
+    assert respiratory.subcategory == "Respiratorios"
