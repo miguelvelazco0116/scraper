@@ -403,6 +403,11 @@ Estado actual del runner integral: **PENDIENTE DE PRIMERA VALIDACIÓN LIVE**.
 
 ## Fase 1 productiva
 
+Fase 1 ahora contiene **12 categorías**: 6 de Farmacias del Ahorro, 4 de Ibarra Mayoreo y 2 de Chedraui. Las categorías `anti-acne` y `desodorantes` fueron validadas live el 14 de octubre de 2026.
+
+Importante: el master histórico `concentrado_productivo_total_2026-10-13.xlsx` conserva 32 categorías porque fue generado antes de estas altas. Las dos nuevas categorías entran a partir de la siguiente corrida diaria fresca y no se retroinsertan en una fecha anterior.
+
+
 La primera corrida productiva está limitada a los retailers estables:
 
 - Farmacias del Ahorro: todas las categorías activas.
@@ -745,9 +750,9 @@ Total                 288
 Cobertura completa de SKU, precio actual y URL.
 
 
-### Nueva categoría candidata — Anti-Acné
+### Nueva categoría validada — Anti-Acné
 
-Estado: **AGREGADA / PENDIENTE DE VALIDACIÓN LIVE**
+Estado: **VALIDADA LIVE / ACTIVA PARA LA PRÓXIMA FASE 1**
 
 Jerarquía:
 
@@ -782,13 +787,13 @@ Gate candidato:
 - precio actual >= 90%;
 - URL >= 90%.
 
-La categoría no incrementa todavía el conteo oficial de Fase 1 ni se integra al master hasta observar una corrida live válida.
+Validación live del 14 de octubre de 2026: 119/119 productos, cobertura 100%, SKU/precio/URL 119/119. Esta categoría ya forma parte de la definición de Fase 1 para la siguiente corrida fresca.
 
 
 
-### Nueva categoría candidata — Desodorantes
+### Nueva categoría validada — Desodorantes
 
-Estado: **AGREGADA / PENDIENTE DE VALIDACIÓN LIVE**
+Estado: **VALIDADA LIVE / ACTIVA PARA LA PRÓXIMA FASE 1**
 
 Jerarquía:
 
@@ -826,7 +831,7 @@ Gate candidato:
 - precio actual >= 90%;
 - URL >= 90%.
 
-La categoría no incrementa todavía el conteo oficial de Fase 1 ni se integra al master hasta observar una corrida live válida.
+Validación live del 14 de octubre de 2026: 184/186 productos, cobertura 98.92%, SKU/precio/URL 184/184. Esta categoría ya forma parte de la definición de Fase 1 para la siguiente corrida fresca.
 
 
 ## Farmacias San Pablo
