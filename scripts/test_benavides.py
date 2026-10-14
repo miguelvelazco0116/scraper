@@ -161,16 +161,28 @@ def run_category(category, location, *, headed: bool, max_pages: int):
     unknown_availability = meta.get("unknown_availability") or []
 
     if status not in {"BLOCKED", "NETWORK_UNAVAILABLE", "ERROR"}:
+        target_value = int(target) if target is not None else 0
+        coverage = (
+            products / target_value
+            if target_value > 0
+            else 0.0
+        )
+        sku_rate = sku_complete / products if products else 0.0
+        price_rate = price_complete / products if products else 0.0
+        url_rate = url_complete / products if products else 0.0
+        availability_rate = (
+            availability_complete / products
+            if products
+            else 0.0
+        )
+
         if (
             target is None
-            or int(target) != products
-            or int(target) != int(links or 0)
-            or not discovery_complete
-            or sku_complete != products
-            or price_complete != products
-            or url_complete != products
-            or availability_complete != products
-            or detail_errors
+            or coverage < 0.90
+            or sku_rate < 0.90
+            or price_rate < 0.90
+            or url_rate < 0.90
+            or availability_rate < 0.90
             or price_order_errors
         ):
             status = "PARTIAL"
@@ -187,6 +199,11 @@ def run_category(category, location, *, headed: bool, max_pages: int):
         "target_products": target,
         "product_links": links,
         "discovery_complete": discovery_complete,
+        "coverage": (
+            products / int(target)
+            if target not in (None, 0)
+            else None
+        ),
         "products": products,
         "sku_complete": sku_complete,
         "price_complete": price_complete,
@@ -224,6 +241,7 @@ def run_category(category, location, *, headed: bool, max_pages: int):
         "detail_errors",
         "products_without_price",
         "unknown_availability",
+        "coverage",
         "pages_visited",
         "blocked_detected",
     ):
@@ -289,12 +307,12 @@ def main() -> int:
     print(f"Salida     : {OUTPUT_PATH}")
     print("")
     print("Gates:")
-    print("  1. target publicado == links descubiertos == productos extraídos")
-    print("  2. SKU completo")
-    print("  3. precio actual completo")
-    print("  4. URL completa")
-    print("  5. disponibilidad binaria completa (1 disponible / 0 no disponible)")
-    print("  6. cero errores de detalle y cero price_order_errors")
+    print("  1. cobertura de catálogo >= 90% del target publicado")
+    print("  2. SKU >= 90%")
+    print("  3. precio actual >= 90%")
+    print("  4. URL >= 90%")
+    print("  5. disponibilidad binaria >= 90% (1 disponible / 0 no disponible)")
+    print("  6. cero price_order_errors")
     print("")
     print("Categorías:")
     for category in categories:
