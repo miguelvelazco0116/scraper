@@ -123,45 +123,42 @@
     },
     "4": {
       "name": "Fase 4",
-      "status": "VALIDATED_READY_FOR_INTEGRATION",
+      "status": "VALIDATED_INCREMENTAL",
       "validated_at": "2026-10-13",
-      "products": 232,
-      "categories": 4,
+      "products": 1032,
+      "categories": 7,
       "retailers": [
-        "Farmacias San Pablo"
-      ],
-      "evidence": "docs/validation_results/farmacias_san_pablo_validated_2026-10-13.json",
-      "source_workbook": "output/farmacias_san_pablo_test.xlsx",
-      "integration_command": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 4",
-      "validation_rules": {
-        "all_categories_success": true,
-        "exact_occ_target_match": true,
-        "price_completeness": 1,
-        "occ_transport": "captured_storefront_response"
-      },
-      "note": "Phase 4 is appended only to an active daily master that already contains completed Phases 1, 2 and 3."
-    },
-    "5": {
-      "name": "Fase 5",
-      "status": "VALIDATED_READY_FOR_INTEGRATION",
-      "validated_at": "2026-10-13",
-      "products": 800,
-      "categories": 3,
-      "retailers": [
+        "Farmacias San Pablo",
         "Farmacias Benavides"
       ],
-      "evidence": "docs/validation_results/benavides_validated_2026-10-13_800.json",
-      "source_workbook": "output/benavides_test.xlsx",
-      "integration_command": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 5",
-      "validation_rules": {
-        "minimum_catalog_coverage": 0.9,
-        "minimum_sku_completeness": 0.9,
-        "minimum_price_completeness": 0.9,
-        "minimum_url_completeness": 0.9,
-        "minimum_availability_completeness": 0.9,
-        "price_order_errors": 0
+      "evidence": [
+        "docs/validation_results/farmacias_san_pablo_validated_2026-10-13.json",
+        "docs/validation_results/benavides_validated_2026-10-13_800.json"
+      ],
+      "retailer_sources": {
+        "Farmacias San Pablo": "output/farmacias_san_pablo_test.xlsx",
+        "Farmacias Benavides": "output/benavides_test.xlsx"
       },
-      "note": "Phase 5 appends only Farmacias Benavides to an active daily master that already contains completed Phases 1-4."
+      "integration_commands": {
+        "Farmacias San Pablo": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 4 -Retailer \"Farmacias San Pablo\"",
+        "Farmacias Benavides": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 4 -Retailer \"Farmacias Benavides\""
+      },
+      "validation_rules": {
+        "Farmacias San Pablo": {
+          "exact_occ_target_match": true,
+          "price_completeness": 1,
+          "occ_transport": "captured_storefront_response"
+        },
+        "Farmacias Benavides": {
+          "minimum_catalog_coverage": 0.9,
+          "minimum_sku_completeness": 0.9,
+          "minimum_price_completeness": 0.9,
+          "minimum_url_completeness": 0.9,
+          "minimum_availability_completeness": 0.9,
+          "minimum_price_order_valid_rate": 0.9
+        }
+      },
+      "note": "Phase 4 is complete only when both San Pablo and Benavides partitions are present for the same capture date."
     }
   }
 }
