@@ -1,0 +1,39 @@
+{
+  "retailer": "Farmacias del Ahorro",
+  "validation_date": "2026-10-14",
+  "status": "VALIDATED_ADDITIONS",
+  "phase": 1,
+  "categories": {
+    "anti-acne": {
+      "url": "https://www.fahorro.com/derma/cuidado-facial/anti-acne.html",
+      "target_products": 119,
+      "products": 119,
+      "coverage": 1,
+      "sku_complete": 119,
+      "price_complete": 119,
+      "url_complete": 119,
+      "api_pages": 3,
+      "empathy_category_id": "13968",
+      "status": "SUCCESS"
+    },
+    "desodorantes": {
+      "url": "https://www.fahorro.com/cuidado-personal/desodorantes.html",
+      "target_products": 186,
+      "products": 184,
+      "coverage": 0.989247311827957,
+      "sku_complete": 184,
+      "price_complete": 184,
+      "url_complete": 184,
+      "api_pages": 4,
+      "empathy_category_id": "10308",
+      "status": "SUCCESS"
+    }
+  },
+  "validation_rule": {
+    "minimum_catalog_coverage": 0.9,
+    "minimum_sku_completeness": 0.9,
+    "minimum_price_completeness": 0.9,
+    "minimum_url_completeness": 0.9
+  },
+  "note": "Both new Farmacias del Ahorro categories passed isolated live validation on Windows Server. They are promoted into the Phase 1 configuration for the next fresh production run."
+}
