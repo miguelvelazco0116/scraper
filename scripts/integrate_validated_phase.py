@@ -56,20 +56,12 @@ PHASES = {
     },
     4: {
         "label": "FASE 4",
-        "source": ROOT / "output" / "farmacias_san_pablo_test.xlsx",
+        "source": ROOT / "output" / "concentrado_fase4.xlsx",
         "retailers": {
             "Farmacias San Pablo",
-        },
-        "categories": 4,
-        "require_fg_names": False,
-    },
-    5: {
-        "label": "FASE 5",
-        "source": ROOT / "output" / "benavides_test.xlsx",
-        "retailers": {
             "Farmacias Benavides",
         },
-        "categories": 3,
+        "categories": 7,
         "require_fg_names": False,
     },
 } 
@@ -81,6 +73,17 @@ PHASE3_RETAILER_SOURCES = {
     },
     "Walmart": {
         "source": ROOT / "output" / "walmart_phase3_test.xlsx",
+        "categories": 3,
+    },
+}
+
+PHASE4_RETAILER_SOURCES = {
+    "Farmacias San Pablo": {
+        "source": ROOT / "output" / "farmacias_san_pablo_test.xlsx",
+        "categories": 4,
+    },
+    "Farmacias Benavides": {
+        "source": ROOT / "output" / "benavides_test.xlsx",
         "categories": 3,
     },
 }
@@ -500,12 +503,17 @@ def _validate_benavides_phase(
             pd.to_numeric(
                 pd.Series([summary.loc[index, "price_order_errors"]]),
                 errors="coerce",
-            ).fillna(-1).iloc[0]
+            ).fillna(product_count).iloc[0]
         )
-        if price_errors != 0:
+        price_order_valid_rate = (
+            (product_count - price_errors) / product_count
+            if product_count > 0
+            else 0.0
+        )
+        if price_order_valid_rate < 0.90:
             notes.append(
-                f"Benavides {category_id} price_order_errors="
-                f"{int(price_errors)}"
+                f"Benavides {category_id} price_order_valid_rate="
+                f"{price_order_valid_rate:.4f} < 0.90"
             )
 
     retailers = set(frame["retailer"].dropna().astype(str))
@@ -854,13 +862,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Integra una fase productiva validada al concentrado maestro."
     )
-    parser.add_argument("--phase", type=int, choices=[1, 2, 3, 4, 5], required=True)
+    parser.add_argument("--phase", type=int, choices=[1, 2, 3, 4], required=True)
     parser.add_argument(
         "--retailer",
-        choices=["Bodega Aurrera", "Walmart"],
+        choices=[
+            "Bodega Aurrera",
+            "Walmart",
+            "Farmacias San Pablo",
+            "Farmacias Benavides",
+        ],
         help=(
-            "Integra un retailer completo ya validado dentro de Fase 3 "
-            "sin marcar toda Fase 3 como completada."
+            "Integra un retailer validado dentro de Fase 3 o Fase 4 "
+            "sin reemplazar las otras particiones de la misma fase."
         ),
     )
     args = parser.parse_args()
@@ -868,16 +881,31 @@ def main() -> int:
     phase = args.phase
     retailer_mode = args.retailer
 
-    if retailer_mode and phase != 3:
-        print("ERROR: --retailer sólo aplica a Fase 3.")
+    if retailer_mode:
+        if phase == 3 and retailer_mode not in PHASE3_RETAILER_SOURCES:
+            print("ERROR: retailer inválido para Fase 3.")
+            return 2
+        if phase == 4 and retailer_mode not in PHASE4_RETAILER_SOURCES:
+            print("ERROR: retailer inválido para Fase 4.")
+            return 2
+        if phase not in (3, 4):
+            print("ERROR: --retailer sólo aplica a Fase 3 o Fase 4.")
+            return 2
+
+    if phase == 4 and not retailer_mode:
+        print(
+            "ERROR: Fase 4 se integra por retailer. Usa --retailer "
+            "'Farmacias San Pablo' o 'Farmacias Benavides'."
+        )
         return 2
 
     cfg = PHASES[phase]
-    source = (
-        PHASE3_RETAILER_SOURCES[retailer_mode]["source"]
-        if retailer_mode
-        else cfg["source"]
-    )
+    if phase == 3 and retailer_mode:
+        source = PHASE3_RETAILER_SOURCES[retailer_mode]["source"]
+    elif phase == 4 and retailer_mode:
+        source = PHASE4_RETAILER_SOURCES[retailer_mode]["source"]
+    else:
+        source = cfg["source"]
 
     if not source.exists():
         print(f"ERROR: no existe la salida productiva de {cfg['label']}: {source}")
@@ -898,7 +926,7 @@ def main() -> int:
             phase_summary,
             phase_control,
         )
-    elif phase == 4:
+    elif phase == 4 and retailer_mode == "Farmacias San Pablo":
         phase_frame, phase_summary, phase_control = (
             _read_workbook_optional_control(source)
         )
@@ -906,7 +934,7 @@ def main() -> int:
             phase_frame,
             phase_summary,
         )
-    elif phase == 5:
+    elif phase == 4 and retailer_mode == "Farmacias Benavides":
         phase_frame, phase_summary, phase_control = (
             _read_workbook_optional_control(source)
         )
@@ -1047,7 +1075,7 @@ def main() -> int:
         phase_summary["source_status"] = phase_summary["status"].astype(str)
         phase_summary["status"] = "COMPLETE"
 
-    if phase == 4:
+    if phase == 4 and retailer_mode == "Farmacias San Pablo":
         phase_summary["source_status"] = phase_summary["status"].astype(str)
         phase_summary["status"] = "COMPLETE"
         phase_summary["retailer"] = "Farmacias San Pablo"
@@ -1056,7 +1084,7 @@ def main() -> int:
             errors="coerce",
         )
 
-    if phase == 5:
+    if phase == 4 and retailer_mode == "Farmacias Benavides":
         if "status" in phase_summary.columns:
             phase_summary["source_status"] = (
                 phase_summary["status"].astype(str)
@@ -1072,6 +1100,14 @@ def main() -> int:
         phase_summary["coverage"] = (
             products_numeric / targets_numeric
         )
+        if "price_order_errors" in phase_summary.columns:
+            price_errors = pd.to_numeric(
+                phase_summary["price_order_errors"],
+                errors="coerce",
+            ).fillna(products_numeric)
+            phase_summary["price_order_valid_rate"] = (
+                (products_numeric - price_errors) / products_numeric
+            )
 
     if "source_phase" in phase_summary.columns:
         phase_summary["source_phase"] = cfg["label"]
@@ -1128,6 +1164,40 @@ def main() -> int:
     if phase3_complete:
         completed = sorted(set(completed + [3]))
 
+    phase4_validated_retailers = sorted(
+        set(
+            concentrated.loc[
+                concentrated["retailer"]
+                .astype(str)
+                .isin(PHASES[4]["retailers"]),
+                "retailer",
+            ]
+            .dropna()
+            .astype(str)
+            .tolist()
+        )
+    )
+    phase4_summary = (
+        summary.loc[
+            summary["source_phase"].astype(str).eq("FASE 4")
+        ].copy()
+        if "source_phase" in summary.columns
+        else pd.DataFrame()
+    )
+    phase4_complete = bool(
+        set(phase4_validated_retailers) == PHASES[4]["retailers"]
+        and len(phase4_summary) == PHASES[4]["categories"]
+        and phase4_summary["status"]
+        .astype(str)
+        .str.upper()
+        .eq("COMPLETE")
+        .all()
+    )
+    if phase4_complete:
+        completed = sorted(set(completed + [4]))
+    else:
+        completed = [item for item in completed if item != 4]
+
     control = pd.DataFrame(
         [
             {
@@ -1146,6 +1216,18 @@ def main() -> int:
                 ),
                 "phase3_validated_retailers": " | ".join(
                     phase3_validated_retailers
+                ),
+                "phase4_status": (
+                    "COMPLETE"
+                    if 4 in completed
+                    else (
+                        "PARTIAL_VALIDATED"
+                        if phase4_validated_retailers
+                        else "PENDING"
+                    )
+                ),
+                "phase4_validated_retailers": " | ".join(
+                    phase4_validated_retailers
                 ),
                 "products": len(concentrated),
                 "categories": len(summary),
@@ -1186,15 +1268,6 @@ def main() -> int:
                         ]
                     )
                 ),
-                "phase5_products": int(
-                    len(
-                        concentrated.loc[
-                            concentrated["retailer"].astype(str).isin(
-                                PHASES[5]["retailers"]
-                            )
-                        ]
-                    )
-                ),
                 "capture_date": capture_date,
                 "master": str(master_path),
             }
@@ -1227,6 +1300,8 @@ def main() -> int:
         "completed_phases": completed,
         "phase3_status": control.iloc[0]["phase3_status"],
         "phase3_validated_retailers": phase3_validated_retailers,
+        "phase4_status": control.iloc[0]["phase4_status"],
+        "phase4_validated_retailers": phase4_validated_retailers,
         "generated_at": generated_at,
         "source": str(source),
         "capture_date": capture_date,
@@ -1254,10 +1329,16 @@ def main() -> int:
     print("=" * 80)
     print(f"Fases completadas : {control.iloc[0]['completed_phases']}")
     print(f"Estado Fase 3     : {control.iloc[0]['phase3_status']}")
-    if retailer_mode:
+    if phase == 3 and retailer_mode:
         print(
             "Retailers Fase 3  : "
             f"{control.iloc[0]['phase3_validated_retailers']}"
+        )
+    if phase == 4:
+        print(f"Estado Fase 4     : {control.iloc[0]['phase4_status']}")
+        print(
+            "Retailers Fase 4  : "
+            f"{control.iloc[0]['phase4_validated_retailers']}"
         )
     print(f"Filas acumuladas  : {len(concentrated)}")
     print(f"Categorías        : {len(summary)}")
