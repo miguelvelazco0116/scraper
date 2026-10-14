@@ -1,0 +1,70 @@
+{
+  "retailer": "Farmacias Benavides",
+  "validation_date": "2026-10-13",
+  "status": "VALIDATED_METHOD",
+  "phase": 5,
+  "source_workbook": "output/benavides_test.xlsx",
+  "categories": {
+    "medicamentos-respiratorios": {
+      "products": 456,
+      "target": 456,
+      "coverage": 1,
+      "sku_complete": 456,
+      "price_complete": 456,
+      "url_complete": 456,
+      "availability_complete": 455,
+      "availability_rate": 0.9978070175438597,
+      "available": 0,
+      "unavailable": 455,
+      "source_status": "PARTIAL",
+      "accepted_under_project_rule": true
+    },
+    "bienestar-sexual": {
+      "products": 170,
+      "target": 170,
+      "coverage": 1,
+      "sku_complete": 170,
+      "price_complete": 170,
+      "url_complete": 170,
+      "availability_complete": 170,
+      "availability_rate": 1,
+      "available": 0,
+      "unavailable": 170,
+      "source_status": "SUCCESS",
+      "accepted_under_project_rule": true
+    },
+    "higiene-bucal": {
+      "products": 174,
+      "target": 174,
+      "coverage": 1,
+      "sku_complete": 174,
+      "price_complete": 174,
+      "url_complete": 174,
+      "availability_complete": 174,
+      "availability_rate": 1,
+      "available": 0,
+      "unavailable": 174,
+      "source_status": "SUCCESS",
+      "accepted_under_project_rule": true
+    }
+  },
+  "totals": {
+    "products": 800,
+    "target": 800,
+    "coverage": 1,
+    "sku_complete": 800,
+    "price_complete": 800,
+    "url_complete": 800,
+    "availability_complete": 799,
+    "availability_rate": 0.99875
+  },
+  "validation_rule": {
+    "minimum_catalog_coverage": 0.9,
+    "minimum_sku_completeness": 0.9,
+    "minimum_price_completeness": 0.9,
+    "minimum_url_completeness": 0.9,
+    "minimum_availability_completeness": 0.9,
+    "price_order_errors_required": 0
+  },
+  "note": "Respiratorios was originally labeled PARTIAL only because the earlier runner required 100% availability. Under the project-wide >=90% valid-sample rule, the observed 455/456 availability completeness is valid."
+}
