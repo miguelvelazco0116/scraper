@@ -438,17 +438,24 @@ class ChedrauiScraper:
             )
         )
 
-        expected_postal = cls._normalize(location.postal_code)
-        actual_postal = cls._normalize(address.get("postalCode"))
-        if expected_postal and actual_postal and actual_postal != expected_postal:
-            return False
-
         name_match = cls._location_name_matches(blob, location)
         store_id_match = cls._location_store_id_matches_blob(
             blob,
             location,
         )
-        return name_match or store_id_match
+
+        # The VTEX pickup technical store ID is authoritative. A store can
+        # legitimately expose a pickup postal code different from the postal
+        # code used to regionalize the storefront session.
+        if store_id_match:
+            return True
+
+        expected_postal = cls._normalize(location.postal_code)
+        actual_postal = cls._normalize(address.get("postalCode"))
+        if expected_postal and actual_postal and actual_postal != expected_postal:
+            return False
+
+        return name_match
 
 
     def _list_pickup_points(self, page: Page, location: Location) -> list[dict]:
