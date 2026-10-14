@@ -171,6 +171,39 @@ def test_chedraui_pickup_exact_store_id_overrides_postal_mismatch():
 
 
 
+def test_chedraui_all_locations_use_same_directory_selector(monkeypatch):
+    scraper = ChedrauiPolancoScraper()
+    calls = []
+
+    def fake_directory(page, location):
+        calls.append(location.id)
+        return True, "directory_ui"
+
+    monkeypatch.setattr(
+        scraper,
+        "_try_select_store_directory_generic",
+        fake_directory,
+    )
+
+    for location in (
+        POLANCO,
+        TEPEYAC,
+        CANCUN_KABAH,
+        PUEBLA_CENTRO_SUR,
+    ):
+        assert scraper._try_select_store_ui(None, location) == (
+            True,
+            "directory_ui",
+        )
+
+    assert calls == [
+        "chedraui-polanco",
+        "chedraui-tepeyac",
+        "chedraui-cancun-kabah",
+        "chedraui-puebla-centro-sur",
+    ]
+
+
 def test_chedraui_brand_inference_uses_word_boundaries():
     assert ChedrauiPolancoScraper._infer_brand("Detergente Ace Líquido 2 L") == "Ace"
     assert ChedrauiPolancoScraper._infer_brand("Portacepillo Dental CoolxShock") is None
