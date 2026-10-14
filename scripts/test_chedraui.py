@@ -135,7 +135,10 @@ def _quality(frame: pd.DataFrame, meta: dict) -> tuple[str, dict]:
         and store_context_verified
         and (
             target is None
-            or products >= int(target)
+            or (
+                int(target) > 0
+                and products / int(target) >= 0.90
+            )
         )
     )
 
@@ -154,7 +157,7 @@ def _quality(frame: pd.DataFrame, meta: dict) -> tuple[str, dict]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Prueba aislada Chedraui Polanco."
+        description="Prueba aislada de Chedraui por tienda."
     )
     parser.add_argument(
         "--category",
