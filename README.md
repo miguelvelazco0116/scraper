@@ -785,6 +785,50 @@ Gate candidato:
 La categoría no incrementa todavía el conteo oficial de Fase 1 ni se integra al master hasta observar una corrida live válida.
 
 
+
+### Nueva categoría candidata — Desodorantes
+
+Estado: **AGREGADA / PENDIENTE DE VALIDACIÓN LIVE**
+
+Jerarquía:
+
+```text
+Higiene y Cuidado Personal
+└── Desodorantes
+    ├── Aerosol
+    ├── Barra
+    ├── Clinical
+    ├── Gel
+    └── Roll-On
+```
+
+URL:
+
+```text
+https://www.fahorro.com/cuidado-personal/desodorantes.html
+```
+
+ID interno:
+
+```text
+desodorantes
+```
+
+Prueba aislada:
+
+```powershell
+& .\scripts\test_farmacias_del_ahorro.ps1 -Category desodorantes
+```
+
+Gate candidato:
+- cobertura del target publicado >= 90%;
+- SKU >= 90%;
+- precio actual >= 90%;
+- URL >= 90%.
+
+La categoría no incrementa todavía el conteo oficial de Fase 1 ni se integra al master hasta observar una corrida live válida.
+
+
 ## Farmacias San Pablo
 
 Contexto:
