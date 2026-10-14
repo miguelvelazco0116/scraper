@@ -1,8 +1,10 @@
 param(
-    [ValidateSet("candidates", "all", "higiene-bucal", "lavanderia", "desodorantes-y-antitranspirantes", "depilacion", "respiratorios")]
+    [ValidateSet("candidates", "all", "full", "higiene-bucal", "lavanderia", "desodorantes-y-antitranspirantes", "depilacion", "respiratorios")]
     [string]$Category = "candidates",
     [ValidateRange(0, 600)]
     [int]$StoreDelaySeconds = 45,
+    [ValidateRange(0, 600)]
+    [int]$CategoryDelaySeconds = 15,
     [switch]$Headed,
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = ""
@@ -24,6 +26,7 @@ Write-Host "====================================================================
 Write-Host "Tiendas      : $($stores.Count)"
 Write-Host "Categoria(s) : $Category"
 Write-Host "Delay tienda : $StoreDelaySeconds segundos"
+Write-Host "Delay categ. : $CategoryDelaySeconds segundos"
 Write-Host "Modo         : SECUENCIAL (sin paralelismo)"
 Write-Host "Consolidado  : sin cambios"
 Write-Host ""
@@ -42,6 +45,7 @@ for ($i = 0; $i -lt $stores.Count; $i++) {
     $invokeParams = @{
         Store = $store
         Category = $Category
+        CategoryDelaySeconds = $CategoryDelaySeconds
     }
 
     if ($Headed) {
