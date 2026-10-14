@@ -23,7 +23,7 @@ TEPEYAC = Location(
     city="Gustavo A. Madero",
     state="CDMX",
     country="México",
-    postal_code="07820",
+    postal_code="07850",
     store="Chedraui México Tepeyac",
     store_id="173",
 )
@@ -106,7 +106,7 @@ def test_chedraui_generic_store_contexts():
 
 def test_chedraui_generic_pickup_points_match_location():
     cases = [
-        (TEPEYAC, "CHEDRAUI MEXICO TEPEYAC", "07820"),
+        (TEPEYAC, "CHEDRAUI MEXICO TEPEYAC", "07850"),
         (CANCUN_KABAH, "CHEDRAUI SELECTO CANCUN KABAH", "77501"),
         (PUEBLA_CENTRO_SUR, "CHEDRAUI PUEBLA CENTRO SUR", "72490"),
     ]
@@ -169,6 +169,40 @@ def test_chedraui_pickup_exact_store_id_overrides_postal_mismatch():
         TEPEYAC,
     )
 
+
+
+def test_chedraui_directory_option_matching_ignores_punctuation():
+    scraper = ChedrauiPolancoScraper()
+
+    class FakeOptions:
+        def all_text_contents(self):
+            return [
+                "Seleccione",
+                "GUSTAVO A MADERO",
+                "MIGUEL HIDALGO",
+            ]
+
+    class FakeSelect:
+        def __init__(self):
+            self.selected = None
+
+        def locator(self, selector):
+            assert selector == "option"
+            return FakeOptions()
+
+        def select_option(self, label):
+            self.selected = label
+
+    select = FakeSelect()
+    ok, options, selected = scraper._select_directory_option(
+        select,
+        ("GUSTAVO A. MADERO",),
+    )
+
+    assert ok is True
+    assert selected == "GUSTAVO A MADERO"
+    assert select.selected == "GUSTAVO A MADERO"
+    assert "GUSTAVO A MADERO" in options
 
 
 def test_chedraui_all_locations_use_same_directory_selector(monkeypatch):
