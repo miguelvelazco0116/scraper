@@ -381,6 +381,16 @@ def main() -> int:
         print(f"Output: {output_path}")
         print("")
 
+        if status == "STORE_CONTEXT_ERROR":
+            remaining = len(categories) - index
+            if remaining > 0:
+                print(
+                    f"Abortando {remaining} categoría(s) restante(s): "
+                    "la tienda aún no está verificada."
+                )
+                print("")
+            break
+
     print("=" * 72)
     print("RESUMEN CHEDRAUI")
     print("=" * 72)
