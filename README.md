@@ -811,6 +811,39 @@ Matriz pendiente de validación:
 Ninguna de estas tres categorías se incorpora al conteo productivo de Fase 1 hasta pasar la validación live.
 
 
+
+### Validación multitienda con pausa
+
+Para validar las categorías candidatas en las cuatro tiendas sin lanzar tráfico en paralelo:
+
+```powershell
+& .\scripts\test_chedraui_multistore.ps1 -Category candidates -Headed
+```
+
+El runner ejecuta secuencialmente:
+
+```text
+Polanco
+↓ 45 s
+Tepeyac
+↓ 45 s
+Cancún Kabah
+↓ 45 s
+Puebla Centro Sur
+```
+
+El delay se puede ajustar:
+
+```powershell
+& .\scripts\test_chedraui_multistore.ps1 `
+    -Category candidates `
+    -StoreDelaySeconds 60 `
+    -Headed
+```
+
+No hay paralelismo entre tiendas y cada tienda conserva su propio perfil/output. Una tienda con observaciones no impide probar las siguientes. El consolidado productivo no se modifica.
+
+
 ## Farmacias del Ahorro
 
 Contexto:
