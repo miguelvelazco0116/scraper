@@ -89,6 +89,7 @@ class _CategoryProductParser(HTMLParser):
         self._current: dict | None = None
         self._capture_title = False
         self._title_parts: list[str] = []
+        self._card_text_parts: list[str] = []
 
     @staticmethod
     def _attrs(attrs) -> dict[str, str]:
@@ -126,6 +127,7 @@ class _CategoryProductParser(HTMLParser):
                     or ""
                 ),
             }
+            self._card_text_parts = []
             return
 
         if self._product_depth:
@@ -164,6 +166,8 @@ class _CategoryProductParser(HTMLParser):
                     self._current["title"] = alt
 
     def handle_data(self, data: str) -> None:
+        if self._product_depth and data:
+            self._card_text_parts.append(data)
         if self._capture_title and data:
             self._title_parts.append(data)
 
@@ -184,15 +188,19 @@ class _CategoryProductParser(HTMLParser):
             href = clean_text(current.get("href"))
             title = clean_text(current.get("title"))
             if href and title:
+                card_text = clean_text(
+                    re.sub(r"\s+", " ", " ".join(self._card_text_parts))
+                )
                 self.products.append(
                     {
                         "href": href,
                         "title": title,
-                        "card_text": "",
+                        "card_text": card_text or "",
                         "sku_hint": clean_text(current.get("sku_hint")) or "",
                     }
                 )
             self._current = None
+            self._card_text_parts = []
 
 
 class BenavidesScraper:
@@ -416,6 +424,43 @@ class BenavidesScraper:
         return None
 
     @classmethod
+    def _availability_from_card(cls, card_text: str | None) -> dict:
+        text = clean_text(card_text)
+        lower = (text or "").casefold()
+
+        unavailable_markers = (
+            "agotado",
+            "sin existencia",
+            "no disponible",
+        )
+        available_markers = (
+            "agregar al carrito",
+            "añadir al carrito",
+            "comprar",
+        )
+
+        if any(marker in lower for marker in unavailable_markers):
+            return {
+                "is_available": 0,
+                "availability_status": "UNAVAILABLE",
+                "availability_raw": text,
+                "availability_source": "category_card",
+            }
+        if any(marker in lower for marker in available_markers):
+            return {
+                "is_available": 1,
+                "availability_status": "AVAILABLE",
+                "availability_raw": text,
+                "availability_source": "category_card",
+            }
+        return {
+            "is_available": None,
+            "availability_status": "UNKNOWN",
+            "availability_raw": text or None,
+            "availability_source": None,
+        }
+
+    @classmethod
     def _parse_detail(
         cls,
         text: str,
@@ -526,12 +571,15 @@ class BenavidesScraper:
         if unavailable:
             is_available = 0
             availability_status = "UNAVAILABLE"
+            availability_source = "pdp_text"
         elif available:
             is_available = 1
             availability_status = "AVAILABLE"
+            availability_source = "pdp_text"
         else:
             is_available = None
             availability_status = "UNKNOWN"
+            availability_source = None
 
         raw_parts = []
         for marker in (
@@ -553,6 +601,7 @@ class BenavidesScraper:
             "is_available": is_available,
             "availability_status": availability_status,
             "availability_raw": " | ".join(dict.fromkeys(raw_parts)) or None,
+            "availability_source": availability_source,
         }
 
     def _fetch_detail(
@@ -794,6 +843,12 @@ class BenavidesScraper:
                             fallback_title,
                             sku_hint,
                         )
+                        if detail.get("is_available") not in (0, 1):
+                            card_availability = self._availability_from_card(
+                                item.get("card_text")
+                            )
+                            if card_availability.get("is_available") in (0, 1):
+                                detail.update(card_availability)
                     except (BenavidesBlocked, BenavidesNetworkUnavailable):
                         raise
                     except Exception as exc:
@@ -874,6 +929,7 @@ class BenavidesScraper:
                                     "promotion": detail.get("promotion"),
                                     "http_status": http_status,
                                     "detail_transport": detail_transport,
+                                    "availability_source": detail.get("availability_source"),
                                 },
                                 ensure_ascii=False,
                                 separators=(",", ":"),
