@@ -156,6 +156,20 @@ def test_chedraui_pickup_matches_by_zero_padded_store_id():
     )
 
 
+def test_chedraui_pickup_exact_store_id_overrides_postal_mismatch():
+    item = {
+        "pickupPoint": {
+            "id": "chedrauimx0173_PP0173",
+            "friendlyName": "CHEDRAUI TEPEYAC",
+            "address": {"postalCode": "07800"},
+        }
+    }
+    assert ChedrauiScraper._pickup_matches_location(
+        item,
+        TEPEYAC,
+    )
+
+
 
 def test_chedraui_brand_inference_uses_word_boundaries():
     assert ChedrauiPolancoScraper._infer_brand("Detergente Ace Líquido 2 L") == "Ace"
