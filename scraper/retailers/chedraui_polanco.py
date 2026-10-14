@@ -110,8 +110,15 @@ class ChedrauiScraper(BaseChedrauiScraper):
         except Exception:
             options = []
 
+        def match_key(value: str) -> str:
+            return re.sub(
+                r"[^a-z0-9]+",
+                " ",
+                self._normalize(value),
+            ).strip()
+
         normalized_tokens = [
-            self._normalize(value)
+            match_key(value)
             for value in preferred_tokens
             if value
         ]
@@ -120,7 +127,7 @@ class ChedrauiScraper(BaseChedrauiScraper):
                 value
                 for value in options
                 if any(
-                    token and token in self._normalize(value)
+                    token and token in match_key(value)
                     for token in normalized_tokens
                 )
             ),
