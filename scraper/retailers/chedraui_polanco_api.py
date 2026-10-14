@@ -321,6 +321,26 @@ class ChedrauiScraper(PolancoUIScraper):
                 "reason": last_reason,
             }
         )
+
+        # A partial structured page is still trustworthy productSearchV3 data.
+        # Do not discard the whole page merely because VTEX returned fewer
+        # listable rows than the storefront counter expected. Overall coverage
+        # is validated at the category level.
+        if best_rows:
+            info["accepted_partial"] = True
+            self.run_meta.setdefault(
+                "structured_partial_pages",
+                [],
+            ).append(
+                {
+                    "page": page_number,
+                    "rows": len(best_rows),
+                    "target_rows": target_rows,
+                    "records_filtered": best_records_filtered,
+                }
+            )
+            return best_rows, info
+
         return [], info
 
     @staticmethod
