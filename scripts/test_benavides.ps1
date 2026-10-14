@@ -63,6 +63,24 @@ Write-Host "Diagnosticos: $ProjectDir\diagnostics\benavides_*"
 
 if ($code -ne 0) {
     Write-Warning "El test termino con observaciones (exit_code=$code)."
+    exit $code
 }
 
-exit $code
+if ($Category -eq "all") {
+    Write-Host ""
+    Write-Host "Fase 5 Benavides validada. Integrando al concentrado diario..."
+    & ".\scripts\integrate_validated_phase.ps1" `
+        -Phase 5 `
+        -ProjectDir $ProjectDir `
+        -PythonExe $PythonExe
+
+    $integrationCode = $LASTEXITCODE
+    if ($integrationCode -ne 0) {
+        Write-Warning "Benavides fue validado, pero NO pudo integrarse al concentrado diario."
+        exit $integrationCode
+    }
+
+    Write-Host "FASE 5 BENAVIDES VALIDADA E INTEGRADA AL CONCENTRADO."
+}
+
+exit 0
