@@ -122,17 +122,21 @@ class ChedrauiScraper(BaseChedrauiScraper):
             for value in preferred_tokens
             if value
         ]
-        preferred = next(
-            (
-                value
-                for value in options
-                if any(
-                    token and token in match_key(value)
-                    for token in normalized_tokens
-                )
-            ),
-            None,
-        )
+
+        preferred = None
+        for token in normalized_tokens:
+            if not token:
+                continue
+            preferred = next(
+                (
+                    value
+                    for value in options
+                    if token in match_key(value)
+                ),
+                None,
+            )
+            if preferred:
+                break
         if not preferred:
             return False, options, None
 
