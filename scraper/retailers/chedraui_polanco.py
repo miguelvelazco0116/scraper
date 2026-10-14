@@ -13,7 +13,7 @@ from ..config import Location
 
 
 class ChedrauiScraper(BaseChedrauiScraper):
-    """Chedraui scraper using the live VTEX store directory for Polanco."""
+    """Chedraui scraper using one live VTEX directory flow for every store."""
 
     def _accept_cookies(self, page) -> bool:
         clicked = False
@@ -304,105 +304,13 @@ class ChedrauiScraper(BaseChedrauiScraper):
         return False, None
 
     def _try_select_store_ui(self, page, location: Location):
-        # Preserve the live-validated Polanco directory flow unchanged.
-        # Other stores use the same storefront directory, generalized by
-        # configured state/city/store and VTEX pickup-point metadata.
-        if location.id != "chedraui-polanco":
-            return self._try_select_store_directory_generic(
-                page,
-                location,
-            )
-
-        self.run_meta["cookie_clicked"] = self._accept_cookies(page)
-
-        opened = self._open_locator(page)
-        self.run_meta["location_button_opened"] = opened
-        if not opened:
-            self._save_diagnostics(page, "store_location_button_not_found")
-            return False, None
-
-        pickup_clicked = self._click_text(
+        # One canonical store-selection flow for every Chedraui location.
+        # Store-specific behavior comes only from Location + live VTEX
+        # pickup metadata, never from a separate branch per store.
+        return self._try_select_store_directory_generic(
             page,
-            ("Recoger en una tienda", "Recoger en tienda", "Recoger en"),
+            location,
         )
-        self.run_meta["pickup_clicked"] = pickup_clicked
-        page.wait_for_timeout(500)
-
-        directory_clicked = self._click_text(page, ("Directorio de tiendas",))
-        self.run_meta["directory_clicked"] = directory_clicked
-        if not directory_clicked:
-            self._save_diagnostics(page, "store_directory_not_found")
-            return False, None
-        page.wait_for_timeout(800)
-
-        state_selected = False
-        city_selected = False
-        city_options: list[str] = []
-        try:
-            selects = page.locator("select.chedrauimx-locator-2-x-selectOption")
-            if selects.count() >= 1:
-                selects.nth(0).select_option(label="CDMX y area Metropolitana")
-                state_selected = True
-                page.wait_for_timeout(1_200)
-
-            if selects.count() >= 2:
-                city = selects.nth(1)
-                try:
-                    city_options = [
-                        x.strip()
-                        for x in city.locator("option").all_text_contents()
-                        if x.strip()
-                    ]
-                except Exception:
-                    city_options = []
-                preferred = next(
-                    (
-                        value
-                        for value in city_options
-                        if any(
-                            token in self._normalize(value)
-                            for token in (
-                                "miguel hidalgo",
-                                "ciudad de mexico",
-                                "cdmx",
-                                "polanco",
-                            )
-                        )
-                    ),
-                    None,
-                )
-                if preferred:
-                    city.select_option(label=preferred)
-                    city_selected = True
-                    page.wait_for_timeout(1_200)
-        except Exception as exc:
-            self.run_meta["directory_select_error"] = str(exc)
-
-        self.run_meta["state_selected"] = state_selected
-        self.run_meta["city_selected"] = city_selected
-        self.run_meta["city_options"] = city_options[:80]
-
-        store_clicked = self._click_polanco(page)
-        self.run_meta["store_clicked"] = store_clicked
-        page.wait_for_timeout(500)
-
-        confirmed = self._click_enabled_pickup_button(page)
-        if not confirmed and store_clicked:
-            confirmed = self._click_text(
-                page,
-                ("Seleccionar", "Elegir", "Confirmar", "Guardar", "Continuar"),
-                timeout=4_000,
-            )
-        self.run_meta["pickup_confirmed"] = confirmed
-        page.wait_for_timeout(1_400)
-
-        verified, method = self._verify_store_context(page, location)
-        if verified:
-            return True, f"{method}_after_directory_ui"
-
-        self.run_meta["store_modal_text"] = self._body_text(page)[:14_000]
-        self._save_diagnostics(page, "store_directory_selection_unverified")
-        return False, None
 
     @staticmethod
     def _infer_brand(product: str | None) -> str | None:
