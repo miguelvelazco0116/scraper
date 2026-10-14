@@ -26,6 +26,33 @@ locations:
     store_id: "232"
     enabled: true
 
+  - id: chedraui-tepeyac
+    city: Gustavo A. Madero
+    state: CDMX
+    country: México
+    postal_code: "07820"
+    store: Chedraui México Tepeyac
+    store_id: "173"
+    enabled: true
+
+  - id: chedraui-cancun-kabah
+    city: Cancún
+    state: Quintana Roo
+    country: México
+    postal_code: "77507"
+    store: Chedraui Cancún Kabah
+    store_id: "255"
+    enabled: true
+
+  - id: chedraui-puebla-centro-sur
+    city: Puebla
+    state: Puebla
+    country: México
+    postal_code: "72490"
+    store: Chedraui Puebla Centro Sur
+    store_id: "76"
+    enabled: true
+
   - id: fg-online
     city: Catálogo online
     state: Nacional
