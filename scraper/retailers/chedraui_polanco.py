@@ -331,7 +331,11 @@ class ChedrauiScraper(BaseChedrauiScraper):
         self.run_meta["store_clicked"] = store_clicked
         page.wait_for_timeout(700)
 
-        confirmed = self._click_enabled_pickup_button(page)
+        confirmed = (
+            self._click_enabled_pickup_button(page)
+            if store_clicked
+            else False
+        )
         if not confirmed and store_clicked:
             confirmed = self._click_text(
                 page,
