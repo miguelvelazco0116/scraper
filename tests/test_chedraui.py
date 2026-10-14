@@ -127,6 +127,18 @@ def test_chedraui_generic_orderform_store_ids():
             location,
         )
 
+def test_chedraui_store_id_does_not_match_unrelated_number():
+    blob = (
+        '{"friendlyName":"CHEDRAUI SELECTO FORTUNA",'
+        '"postalCode":"07760",'
+        '"geoCoordinates":[-99.176,19.49]}'
+    )
+    assert not ChedrauiScraper._location_store_id_matches_blob(
+        blob,
+        PUEBLA_CENTRO_SUR,
+    )
+
+
 def test_chedraui_store_id_matches_zero_padded_vtex_ids():
     assert ChedrauiScraper._location_store_id_matches_blob(
         "chedrauimx0255",
@@ -211,6 +223,39 @@ def test_chedraui_directory_option_matching_ignores_punctuation():
     assert selected == "GUSTAVO A MADERO"
     assert select.selected == "GUSTAVO A MADERO"
     assert "GUSTAVO A MADERO" in options
+
+
+def test_chedraui_directory_prefers_location_state_over_pickup_noise():
+    scraper = ChedrauiPolancoScraper()
+
+    class FakeOptions:
+        def all_text_contents(self):
+            return [
+                "CDMX y area Metropolitana",
+                "Puebla",
+                "Quintana Roo",
+            ]
+
+    class FakeSelect:
+        def __init__(self):
+            self.selected = None
+
+        def locator(self, selector):
+            assert selector == "option"
+            return FakeOptions()
+
+        def select_option(self, label):
+            self.selected = label
+
+    select = FakeSelect()
+    ok, _, selected = scraper._select_directory_option(
+        select,
+        ("Puebla", "CDMX"),
+    )
+
+    assert ok is True
+    assert selected == "Puebla"
+    assert select.selected == "Puebla"
 
 
 def test_chedraui_directory_selects_configured_area():
