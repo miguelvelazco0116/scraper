@@ -149,3 +149,23 @@ def test_benavides_server_html_product_discovery():
     assert links[0]["href"].endswith("/producto-uno")
     assert links[1]["sku_hint"] == "1000755"
     assert links[1]["href"].endswith("/producto-dos")
+
+
+def test_benavides_card_availability_fallback():
+    unavailable = BenavidesScraper._availability_from_card(
+        "Producto X $120.00 AGOTADO"
+    )
+    assert unavailable["is_available"] == 0
+    assert unavailable["availability_status"] == "UNAVAILABLE"
+
+    available = BenavidesScraper._availability_from_card(
+        "Producto Y $99.00 Agregar al carrito"
+    )
+    assert available["is_available"] == 1
+    assert available["availability_status"] == "AVAILABLE"
+
+    unknown = BenavidesScraper._availability_from_card(
+        "Producto Z $80.00"
+    )
+    assert unknown["is_available"] is None
+    assert unknown["availability_status"] == "UNKNOWN"
