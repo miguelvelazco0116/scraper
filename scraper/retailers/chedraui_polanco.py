@@ -296,6 +296,7 @@ class ChedrauiScraper(BaseChedrauiScraper):
                     page,
                     1,
                     (
+                        location.directory_area,
                         *pickup_cities,
                         location.city,
                         *self._location_store_tokens(location),
@@ -315,6 +316,7 @@ class ChedrauiScraper(BaseChedrauiScraper):
         self.run_meta["city_options"] = city_options[:80]
         self.run_meta["selected_state_label"] = state_label
         self.run_meta["selected_city_label"] = city_label
+        self.run_meta["configured_directory_area"] = location.directory_area
         self.run_meta["pickup_candidate_names"] = pickup_names[:10]
 
         store_clicked = self._click_configured_store(
