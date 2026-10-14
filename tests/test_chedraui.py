@@ -127,6 +127,35 @@ def test_chedraui_generic_orderform_store_ids():
             location,
         )
 
+def test_chedraui_store_id_matches_zero_padded_vtex_ids():
+    assert ChedrauiScraper._location_store_id_matches_blob(
+        "chedrauimx0255",
+        CANCUN_KABAH,
+    )
+    assert ChedrauiScraper._location_store_id_matches_blob(
+        "pickup-0173",
+        TEPEYAC,
+    )
+    assert ChedrauiScraper._location_store_id_matches_blob(
+        "dock-0076",
+        PUEBLA_CENTRO_SUR,
+    )
+
+
+def test_chedraui_pickup_matches_by_zero_padded_store_id():
+    item = {
+        "pickupPoint": {
+            "id": "chedrauimx0255",
+            "friendlyName": "Sucursal Kabah",
+            "address": {"postalCode": "77507"},
+        }
+    }
+    assert ChedrauiScraper._pickup_matches_location(
+        item,
+        CANCUN_KABAH,
+    )
+
+
 
 def test_chedraui_brand_inference_uses_word_boundaries():
     assert ChedrauiPolancoScraper._infer_brand("Detergente Ace Líquido 2 L") == "Ace"
