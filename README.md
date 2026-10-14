@@ -744,6 +744,47 @@ Total                 288
 
 Cobertura completa de SKU, precio actual y URL.
 
+
+### Nueva categoría candidata — Anti-Acné
+
+Estado: **AGREGADA / PENDIENTE DE VALIDACIÓN LIVE**
+
+Jerarquía:
+
+```text
+Cuidado de la Piel
+└── DERMA
+    └── Cuidado Facial
+        └── Anti-Acné
+```
+
+URL:
+
+```text
+https://www.fahorro.com/derma/cuidado-facial/anti-acne.html
+```
+
+ID interno:
+
+```text
+anti-acne
+```
+
+Prueba aislada:
+
+```powershell
+& .\scripts\test_farmacias_del_ahorro.ps1 -Category anti-acne
+```
+
+Gate candidato:
+- cobertura del target publicado >= 90%;
+- SKU >= 90%;
+- precio actual >= 90%;
+- URL >= 90%.
+
+La categoría no incrementa todavía el conteo oficial de Fase 1 ni se integra al master hasta observar una corrida live válida.
+
+
 ## Farmacias San Pablo
 
 Contexto:
