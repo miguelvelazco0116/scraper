@@ -39,3 +39,11 @@ categories:
     sub_subcategory: Anti-Acné
     url: https://www.fahorro.com/derma/cuidado-facial/anti-acne.html
     enabled: true
+
+  - id: desodorantes
+    department: Higiene y Cuidado Personal
+    name: Desodorantes
+    subcategory: null
+    sub_subcategory: null
+    url: https://www.fahorro.com/cuidado-personal/desodorantes.html
+    enabled: true
