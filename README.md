@@ -760,6 +760,57 @@ Prueba aislada de una tienda/categoría:
 
 Las tiendas candidatas no forman parte todavía de la corrida productiva de Fase 1. Se promoverán sólo después de validación live.
 
+
+### Nuevas categorías candidatas Chedraui
+
+Estado: **CONFIGURADAS / PENDIENTES DE VALIDACIÓN LIVE**
+
+Las categorías productivas actuales de Chedraui siguen siendo:
+
+```text
+higiene-bucal
+lavanderia
+```
+
+Las nuevas categorías se mantienen separadas en:
+
+```text
+config\chedraui\candidate_categories.yaml
+```
+
+Candidatas:
+
+```text
+desodorantes-y-antitranspirantes
+Cuidado e higiene personal > Cuidado corporal > Desodorantes y antitranspirantes
+
+depilacion
+Belleza > Afeitado y depilación > Depilación
+
+respiratorios
+Farmacia > Medicamentos > Respiratorios
+```
+
+Probar las tres candidatas en una tienda:
+
+```powershell
+& .\scripts\test_chedraui.ps1 -Store chedraui-tepeyac -Category candidates -Headed
+```
+
+Probar una sola combinación:
+
+```powershell
+& .\scripts\test_chedraui.ps1 -Store chedraui-cancun-kabah -Category respiratorios -Headed
+```
+
+Matriz pendiente de validación:
+- 3 categorías candidatas;
+- 4 tiendas: Polanco, Tepeyac, Cancún Kabah y Puebla Centro Sur;
+- 12 combinaciones tienda-categoría.
+
+Ninguna de estas tres categorías se incorpora al conteo productivo de Fase 1 hasta pasar la validación live.
+
+
 ## Farmacias del Ahorro
 
 Contexto:
