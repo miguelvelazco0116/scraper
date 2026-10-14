@@ -619,17 +619,23 @@ class ChedrauiScraper:
             self._click_text(page, ("Continuar", "Actualizar", "Buscar"), timeout=4_000)
             page.wait_for_timeout(1_200)
 
-        # Selecciona específicamente Polanco si está entre los puntos de recogida.
-        store_clicked = self._click_text(
-            page,
-            (
-                location.store or "Chedraui Selecto México Polanco",
-                "Selecto México Polanco",
-                "Selecto Mexico Polanco",
-                "México Polanco",
-                "Mexico Polanco",
-            ),
+        # Selecciona la tienda configurada. El directorio puede omitir palabras
+        # de formato como "Selecto" o "México", por lo que además del nombre
+        # completo se prueban los tokens significativos.
+        store_tokens = self._location_store_tokens(location)
+        token_label = " ".join(store_tokens)
+        short_label = " ".join(store_tokens[-2:]) if store_tokens else ""
+        labels = tuple(
+            value
+            for value in (
+                location.store,
+                token_label,
+                short_label,
+                store_tokens[-1] if store_tokens else None,
+            )
+            if value
         )
+        store_clicked = self._click_text(page, labels)
         page.wait_for_timeout(700)
         self.run_meta["store_clicked"] = store_clicked
 
