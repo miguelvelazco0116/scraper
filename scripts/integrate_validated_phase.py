@@ -31,7 +31,7 @@ PHASES = {
             "Ibarra Mayoreo",
             "Chedraui",
         },
-        "categories": 10,
+        "categories": 12,
         "require_fg_names": False,
     },
     2: {
