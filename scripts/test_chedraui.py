@@ -66,6 +66,12 @@ def _quality(frame: pd.DataFrame, meta: dict) -> tuple[str, dict]:
             "store_context_verified": bool(
                 meta.get("store_context_verified")
             ),
+            "structured_price_missing_pages": len(
+                meta.get("structured_price_missing_pages") or []
+            ),
+            "pagination_gaps": len(
+                meta.get("internal_pagination_gaps") or []
+            ),
             "price_order_errors": 0,
         }
 
@@ -122,6 +128,12 @@ def _quality(frame: pd.DataFrame, meta: dict) -> tuple[str, dict]:
     store_context_verified = bool(
         meta.get("store_context_verified")
     )
+    structured_missing = len(
+        meta.get("structured_price_missing_pages") or []
+    )
+    pagination_gaps = len(
+        meta.get("internal_pagination_gaps") or []
+    )
 
     coverage = None
     if target:
@@ -134,6 +146,8 @@ def _quality(frame: pd.DataFrame, meta: dict) -> tuple[str, dict]:
         and sku_complete == products
         and url_complete == products
         and store_context_verified
+        and structured_missing == 0
+        and pagination_gaps == 0
         and (
             target is None
             or (
@@ -152,6 +166,8 @@ def _quality(frame: pd.DataFrame, meta: dict) -> tuple[str, dict]:
         "price_required": price_required,
         "price_required_complete": price_required_complete,
         "store_context_verified": store_context_verified,
+        "structured_price_missing_pages": structured_missing,
+        "pagination_gaps": pagination_gaps,
         "price_order_errors": price_order_errors,
     }
 
