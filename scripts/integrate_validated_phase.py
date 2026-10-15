@@ -31,7 +31,8 @@ PHASES = {
             "Ibarra Mayoreo",
             "Chedraui",
         },
-        "categories": 12,
+        "categories": 15,
+        "cases": 30,
         "require_fg_names": False,
     },
     2: {
@@ -575,10 +576,23 @@ def _validate_phase(
         if status != "PRODUCTIVE":
             notes.append(f"Control status={status!r}")
 
-    if len(summary) != cfg["categories"]:
+    expected_cases = int(cfg.get("cases", cfg["categories"]))
+    if len(summary) != expected_cases:
         notes.append(
-            f"Categorías {len(summary)}/{cfg['categories']}"
+            f"Casos {len(summary)}/{expected_cases}"
         )
+
+    if {"retailer", "category_id"}.issubset(summary.columns):
+        retailer_categories = int(
+            summary[["retailer", "category_id"]]
+            .drop_duplicates()
+            .shape[0]
+        )
+        if retailer_categories != int(cfg["categories"]):
+            notes.append(
+                "Retailer-categorías "
+                f"{retailer_categories}/{cfg['categories']}"
+            )
 
     if "status" not in summary.columns:
         notes.append("Resumen sin status")
@@ -608,10 +622,113 @@ def _validate_phase(
         if metric not in summary.columns:
             notes.append(f"Resumen sin {metric}")
             continue
-        observed = pd.to_numeric(summary[metric], errors="coerce").fillna(-1)
-        products = pd.to_numeric(summary["products"], errors="coerce").fillna(-2)
+
+        products = pd.to_numeric(
+            summary["products"], errors="coerce"
+        ).fillna(-2)
+
+        if phase == 1 and metric == "price_complete":
+            chedraui_mask = (
+                summary["retailer"].astype(str).eq("Chedraui")
+            )
+            standard = summary.loc[~chedraui_mask]
+            if not standard.empty:
+                observed = pd.to_numeric(
+                    standard[metric], errors="coerce"
+                ).fillna(-1)
+                standard_products = pd.to_numeric(
+                    standard["products"], errors="coerce"
+                ).fillna(-2)
+                if not observed.eq(standard_products).all():
+                    notes.append(
+                        "price_complete incompleto fuera de Chedraui"
+                    )
+
+            chedraui = summary.loc[chedraui_mask]
+            required_cols = {
+                "price_required",
+                "price_required_complete",
+            }
+            if not required_cols.issubset(chedraui.columns):
+                notes.append(
+                    "Chedraui sin gate price_required"
+                )
+            elif not chedraui.empty:
+                required = pd.to_numeric(
+                    chedraui["price_required"],
+                    errors="coerce",
+                ).fillna(-1)
+                complete = pd.to_numeric(
+                    chedraui["price_required_complete"],
+                    errors="coerce",
+                ).fillna(-2)
+                if not complete.eq(required).all():
+                    notes.append(
+                        "Chedraui price_required incompleto"
+                    )
+            continue
+
+        observed = pd.to_numeric(
+            summary[metric], errors="coerce"
+        ).fillna(-1)
         if not observed.eq(products).all():
             notes.append(f"{metric} incompleto")
+
+    if phase == 1:
+        chedraui = summary.loc[
+            summary["retailer"].astype(str).eq("Chedraui")
+        ].copy()
+        if len(chedraui) != 20:
+            notes.append(f"Chedraui casos={len(chedraui)}/20")
+        else:
+            expected_store_ids = {"232", "173", "255", "76"}
+            observed_store_ids = set(
+                chedraui["store_id"]
+                .dropna()
+                .astype(str)
+                .str.replace(r"\.0$", "", regex=True)
+            )
+            if observed_store_ids != expected_store_ids:
+                notes.append(
+                    "Chedraui store_ids inesperados: "
+                    f"{sorted(observed_store_ids)}"
+                )
+
+            counts = (
+                chedraui.groupby("store_id", dropna=False)
+                .size()
+                .tolist()
+            )
+            if sorted(counts) != [5, 5, 5, 5]:
+                notes.append(
+                    "Chedraui no tiene 5 categorías por tienda"
+                )
+
+            if "store_context_verified" not in chedraui.columns:
+                notes.append(
+                    "Chedraui sin store_context_verified"
+                )
+            elif not chedraui[
+                "store_context_verified"
+            ].map(bool).all():
+                notes.append(
+                    "Chedraui store_context_verified=False"
+                )
+
+            for metric in (
+                "structured_price_missing_pages",
+                "pagination_gaps",
+                "price_order_errors",
+            ):
+                if metric not in chedraui.columns:
+                    notes.append(f"Chedraui sin {metric}")
+                    continue
+                values = pd.to_numeric(
+                    chedraui[metric],
+                    errors="coerce",
+                ).fillna(-1)
+                if not values.eq(0).all():
+                    notes.append(f"Chedraui {metric} > 0")
 
     if phase == 2 and cfg["require_fg_names"]:
         fg = summary.loc[
@@ -810,6 +927,19 @@ def _retailer_summary(frame: pd.DataFrame) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows).sort_values("retailer").reset_index(drop=True)
+
+
+def _retailer_category_count(summary: pd.DataFrame) -> int:
+    if summary.empty:
+        return 0
+    required = {"retailer", "category_id"}
+    if not required.issubset(summary.columns):
+        return len(summary)
+    return int(
+        summary[["retailer", "category_id"]]
+        .drop_duplicates()
+        .shape[0]
+    )
 
 
 def _style(writer: pd.ExcelWriter) -> None:
@@ -1230,7 +1360,8 @@ def main() -> int:
                     phase4_validated_retailers
                 ),
                 "products": len(concentrated),
-                "categories": len(summary),
+                "categories": _retailer_category_count(summary),
+                "execution_cases": len(summary),
                 "retailers": int(concentrated["retailer"].nunique()),
                 "phase1_products": int(
                     len(
@@ -1308,7 +1439,8 @@ def main() -> int:
         "master": str(master_path),
         "checkpoint": str(checkpoint),
         "products": len(concentrated),
-        "categories": len(summary),
+        "categories": _retailer_category_count(summary),
+        "execution_cases": len(summary),
         "retailers": sorted(
             concentrated["retailer"].dropna().astype(str).unique().tolist()
         ),
@@ -1341,7 +1473,11 @@ def main() -> int:
             f"{control.iloc[0]['phase4_validated_retailers']}"
         )
     print(f"Filas acumuladas  : {len(concentrated)}")
-    print(f"Categorías        : {len(summary)}")
+    print(
+        "Retailer-categorías: "
+        f"{_retailer_category_count(summary)}"
+    )
+    print(f"Casos ejecutados   : {len(summary)}")
     print(f"Retailers         : {control.iloc[0]['retailers']}")
     print(f"Fecha concentrado : {capture_date}")
     print(f"Master            : {master_path}")
