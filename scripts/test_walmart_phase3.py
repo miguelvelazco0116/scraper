@@ -15,6 +15,7 @@ from playwright.sync_api import sync_playwright
 
 from main import COLUMNS, deduplicate_catalog
 from scraper.config import load_categories, load_locations
+from scraper.quality_rules import meets_rate, valid_after_errors
 from scraper.retailers.walmart import (
     WalmartBlocked,
     WalmartScraper,
@@ -271,20 +272,27 @@ def run_category(
 
 
 def _summary_is_acceptable(summary: dict) -> bool:
+    products = int(summary.get("products") or 0)
     return bool(
-        summary["status"] == "COMPLETE"
-        and summary["source_status"] == "SUCCESS"
-        and summary["products"] > 0
-        and summary["sku_complete"] == summary["products"]
-        and summary["price_complete"] == summary["products"]
-        and summary["url_complete"] == summary["products"]
-        and summary["store_context_complete"] == summary["products"]
-        and bool(summary["store_context_verified"])
-        and summary["sources_discovered"] == summary["sources_visited"]
-        and summary["catalogue_gate_ok"]
-        and summary["price_order_errors"] == 0
-        and summary["duplicates_sku_url"] == 0
-        and summary["sponsored_banner_clicks"] == 0
+        summary.get("status") == "COMPLETE"
+        and summary.get("source_status") == "SUCCESS"
+        and products > 0
+        and meets_rate(summary.get("sku_complete") or 0, products)
+        and meets_rate(summary.get("price_complete") or 0, products)
+        and meets_rate(summary.get("url_complete") or 0, products)
+        and meets_rate(
+            summary.get("store_context_complete") or 0,
+            products,
+        )
+        and bool(summary.get("store_context_verified"))
+        and summary.get("sources_discovered") == summary.get("sources_visited")
+        and bool(summary.get("catalogue_gate_ok"))
+        and valid_after_errors(
+            products,
+            summary.get("price_order_errors") or 0,
+        )
+        and summary.get("duplicates_sku_url") == 0
+        and summary.get("sponsored_banner_clicks") == 0
     )
 
 
