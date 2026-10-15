@@ -19,6 +19,7 @@ import pandas as pd
 from main import COLUMNS
 from scraper.config import load_categories
 from scraper.io_utils import atomic_output_path
+from scraper.quality_rules import meets_rate, valid_after_errors
 
 
 PHASE = "FASE 2"
@@ -211,20 +212,20 @@ def _validate_fg(
                 notes.append(
                     f"cobertura {actual_coverage:.1%} < 90%"
                 )
-        if product_name_complete < products:
+        if not meets_rate(product_name_complete, products):
             notes.append(
-                f"producto {product_name_complete}/{products}"
+                f"producto {product_name_complete}/{products} < 90%"
             )
-        if product_name_invalid:
+        if not valid_after_errors(products, product_name_invalid):
             notes.append(
-                f"producto_invalido {product_name_invalid}/{products}"
+                f"producto_valido {products - product_name_invalid}/{products} < 90%"
             )
-        if sku_complete < products:
-            notes.append(f"sku {sku_complete}/{products}")
-        if price_complete < products:
-            notes.append(f"precio {price_complete}/{products}")
-        if url_complete < products:
-            notes.append(f"url {url_complete}/{products}")
+        if not meets_rate(sku_complete, products):
+            notes.append(f"sku {sku_complete}/{products} < 90%")
+        if not meets_rate(price_complete, products):
+            notes.append(f"precio {price_complete}/{products} < 90%")
+        if not meets_rate(url_complete, products):
+            notes.append(f"url {url_complete}/{products} < 90%")
 
         if source is not None:
             reported_products = _safe_int(source.get("products"))
@@ -314,12 +315,12 @@ def _validate_soriana(
             notes.append("sin productos")
         if total_pages is None or total_pages <= 0:
             notes.append("paginación no disponible")
-        if sku_complete < products:
-            notes.append(f"sku {sku_complete}/{products}")
-        if price_complete < products:
-            notes.append(f"precio {price_complete}/{products}")
-        if url_complete < products:
-            notes.append(f"url {url_complete}/{products}")
+        if not meets_rate(sku_complete, products):
+            notes.append(f"sku {sku_complete}/{products} < 90%")
+        if not meets_rate(price_complete, products):
+            notes.append(f"precio {price_complete}/{products} < 90%")
+        if not meets_rate(url_complete, products):
+            notes.append(f"url {url_complete}/{products} < 90%")
 
         if source is not None:
             reported_products = _safe_int(source.get("products"))
