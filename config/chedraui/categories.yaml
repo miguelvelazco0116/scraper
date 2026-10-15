@@ -15,3 +15,27 @@ categories:
     sub_subcategory: null
     url: https://www.chedraui.com.mx/supermercado/limpieza-del-hogar/lavanderia
     enabled: true
+
+  - id: desodorantes-y-antitranspirantes
+    department: Cuidado e higiene personal
+    name: Cuidado corporal
+    subcategory: Desodorantes y antitranspirantes
+    sub_subcategory: null
+    url: https://www.chedraui.com.mx/cuidado-e-higiene-personal/cuidado-corporal/desodorantes-y-antitranspirantes
+    enabled: true
+
+  - id: depilacion
+    department: Belleza
+    name: Afeitado y depilación
+    subcategory: Depilación
+    sub_subcategory: null
+    url: https://www.chedraui.com.mx/belleza/afeitado-y-depilacion/depilacion
+    enabled: true
+
+  - id: respiratorios
+    department: Farmacia
+    name: Medicamentos
+    subcategory: Respiratorios
+    sub_subcategory: null
+    url: https://www.chedraui.com.mx/farmacia/medicamentos/respiratorios
+    enabled: true
