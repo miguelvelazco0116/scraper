@@ -24,3 +24,12 @@ def test_similares_phase5_wrapper_supports_category():
     )
     assert '[string]$Category = "all"' in source
     assert "--category $Category" in source
+
+
+def test_similares_discovery_hydrates_without_brittle_selector_gate():
+    source = Path("scraper/retailers/farmacias_similares.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def _hydrate_product_links" in source
+    assert "discovery_coverage >= 0.90" in source
+    assert "wait_for_selector('a[href$=\"/p\"]" not in source
