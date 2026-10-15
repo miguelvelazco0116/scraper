@@ -677,12 +677,18 @@ class FarmaciasSimilaresScraper:
                     else:
                         row_coverage = 0.0
 
+                    attempted_details = (
+                        len(rows) + len(detail_errors) + len(no_price)
+                    )
                     detail_valid_rate = (
-                        (len(rows) - len(detail_errors)) / len(rows)
-                        if rows
+                        len(rows) / attempted_details
+                        if attempted_details > 0
                         else 0.0
                     )
-                    if row_coverage < 0.90 or detail_valid_rate < 0.90:
+                    if (
+                        row_coverage < 0.90
+                        or detail_valid_rate < 0.90
+                    ):
                         status = "PARTIAL"
 
                 self.run_meta.update(
