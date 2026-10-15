@@ -10,12 +10,34 @@ def test_walmart_categories_hierarchy():
     assert oral.department == "Belleza y cuidado personal"
     assert oral.name == "Higiene y cuidado personal"
     assert oral.subcategory == "Cuidado bucal"
-    assert oral.url.endswith("/browse/cuidado-personal/cuidado-bucal/264479_950014")
+    assert oral.url == oral.source_urls[0]
+    assert {
+        url.rsplit("/", 1)[-1]
+        for url in oral.source_urls
+    } == {
+        "264479_950014_950022",
+        "264479_950014_950025",
+    }
 
     laundry = categories["cuidado-de-la-ropa"]
     assert laundry.department == "Limpieza del hogar y cuidado personal"
     assert laundry.name == "Cuidado de la ropa"
-    assert laundry.url.endswith("/browse/cuidado-de-la-ropa/3680083")
+    assert laundry.subcategory == "Detergentes"
+    assert laundry.url == laundry.source_urls[0]
+    assert {
+        url.rsplit("/", 1)[-1]
+        for url in laundry.source_urls
+    } == {
+        "3680083_3570057_3570059",
+        "3680083_3570057_3570058",
+    }
+
+    shaving = categories["depilacion-y-rasurado"]
+    assert shaving.department == "Belleza y cuidado personal"
+    assert shaving.name == "Depilación y rasurado"
+    assert shaving.url.endswith(
+        "/browse/belleza/depilacion-y-rasurado/930017_264512"
+    )
 
 
 def test_walmart_sc_toreo_config():
