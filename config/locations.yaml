@@ -126,3 +126,12 @@ locations:
     store: Farmacias Benavides online
     store_id: null
     enabled: true
+
+  - id: heb-online
+    city: Catálogo online
+    state: Nacional
+    country: México
+    postal_code: null
+    store: HEB online
+    store_id: null
+    enabled: true
