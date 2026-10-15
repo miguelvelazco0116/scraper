@@ -17,6 +17,7 @@ from playwright.sync_api import sync_playwright
 from main import COLUMNS, CONSOLIDATED_PATH, update_consolidated_output
 from scraper.config import load_categories, load_locations
 from scraper.parsers import clean_text
+from scraper.quality_rules import meets_rate
 from scraper.retailers.farmacias_san_pablo import (
     FarmaciasSanPabloBlocked,
     FarmaciasSanPabloNetworkUnavailable,
@@ -506,7 +507,11 @@ def _load_existing_valid_results(
         except (TypeError, ValueError):
             continue
 
-        if target <= 0 or products != target or prices != products:
+        if (
+            target <= 0
+            or not meets_rate(products, target)
+            or not meets_rate(prices, products)
+        ):
             continue
 
         subset = concentrated.loc[
@@ -713,11 +718,12 @@ def main() -> int:
             # SKU y URL se reportan como métricas informativas, no bloqueantes.
             if products == 0:
                 status = "EMPTY"
-            elif price_complete < products:
+            elif not meets_rate(price_complete, products):
                 status = "PARTIAL"
-            elif target is not None and products != int(target):
-                # Under- and over-shoot are both failures when San Pablo
-                # publishes an authoritative category total.
+            elif target is not None and not meets_rate(
+                products,
+                int(target),
+            ):
                 status = "PARTIAL"
             else:
                 status = "SUCCESS"
@@ -782,7 +788,14 @@ def main() -> int:
 
     successful = all(
         item["status"] == "SUCCESS"
-        and int(item["price_complete"]) == int(item["products_extracted"])
+        and meets_rate(
+            int(item["price_complete"]),
+            int(item["products_extracted"]),
+        )
+        and meets_rate(
+            int(item["products_extracted"]),
+            int(item["target_products"]),
+        )
         for item in summaries
     )
 
