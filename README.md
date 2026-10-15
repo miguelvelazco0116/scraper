@@ -22,7 +22,8 @@ No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadi
 | Farmacias San Pablo | 4 | 232 | 100% | Informativo; 100% en validación previa | Validado / OCC capturado |
 | Ibarra Mayoreo | 4 | 572 | 100% | SKU informativo; gates unitarios completos | Validado / Fase 1 |
 | Bodega Aurrera | 2 | 1,883 | 100% | 100% | Método validado / muestra diaria válida |
-| Farmacias Similares | 2 | 30 | 100% | 100% | Activo |
+| Farmacias Similares | 2 | 30 | 100% | 100% | Validado / Fase 5 |
+| HEB | 1 | Pendiente | Pendiente | Pendiente | En validación / Fase 5 |
 | La Comer | 2 | Pendiente | Pendiente | Pendiente | Implementado, no activo |
 | Walmart | 3 | Pendiente de validación Fase 3 | — | — | En validación / Fase 3 |
 | Farmacias Guadalajara | 4 | 870 | 100% | 100% | Validado / Fase 2 |
@@ -58,7 +59,7 @@ Fase 1 -> validar -> integrar al master -> liberar recursos
 Fase 2 -> validar -> integrar al master -> liberar recursos
 Fase 3 -> Bodega Aurrera + Walmart
 Fase 4 -> Farmacias San Pablo + Farmacias Benavides
-Fase 5 -> Farmacias Similares
+Fase 5 -> Farmacias Similares + HEB
 ```
 
 Integración automática:
@@ -74,7 +75,7 @@ Los comandos manuales se conservan para recuperación o auditoría:
 & .\scripts\integrate_validated_phase.ps1 -Phase 1
 & .\scripts\integrate_validated_phase.ps1 -Phase 2
 & .\scripts\integrate_validated_phase.ps1 -Phase 3
-& .\scripts\integrate_validated_phase.ps1 -Phase 5
+& .\scripts\integrate_validated_phase.ps1 -Phase 5 -Retailer "Farmacias Similares"
 ```
 
 Master incremental fechado:
@@ -653,7 +654,7 @@ diagnostics\run_all
 
 ## Política global de reintentos y umbral de calidad
 
-Regla vigente para **Fases 1, 2, 3 y 4**:
+Regla vigente para **Fases 1, 2, 3, 4 y 5**:
 
 - el umbral común de aceptación para cobertura y completitud cuantitativa es **>= 90%**;
 - una categoría/caso que ya terminó válido **en la fecha actual** se conserva como checkpoint y **no se vuelve a scrapear**;
@@ -668,7 +669,7 @@ Implementación por fase:
 - **Fase 2:** `farmacias_guadalajara_phase2_test.xlsx` y `soriana_manual_phase2_test.xlsx` conservan categorías exitosas del día; el runner productivo ya no borra estos checkpoints.
 - **Fase 3:** Bodega Aurrera y Walmart reutilizan categorías válidas del día; el runner productivo ya no elimina sus workbooks antes de ejecutarse.
 - **Fase 4:** San Pablo y Benavides conservan categorías válidas del día y sólo ejecutan las pendientes.
-- **Fase 5:** Farmacias Similares conserva categorías válidas del día, reintenta sólo las pendientes y usa el mismo umbral >=90%. La Comer permanece fuera de Fase 5 hasta completar validación live.
+- **Fase 5:** Farmacias Similares y HEB se integran de forma incremental por retailer. Ambos conservan categorías válidas del día, reintentan sólo las pendientes y usan el umbral >=90%. HEB inicia con la categoría `pasta-dental` y queda pendiente de validación live. La Comer permanece fuera de Fase 5.
 
 El umbral común está centralizado en:
 
@@ -1218,6 +1219,55 @@ Test dedicado:
 ```powershell
 & .\scripts\test_farmacias_similares.ps1
 ```
+
+## HEB
+
+Estado: **IMPLEMENTADO / PENDIENTE DE VALIDACIÓN LIVE / FASE 5**
+
+Categoría inicial:
+
+```text
+pasta-dental
+Cuidado personal y belleza > Higiene dental > Pasta dental
+```
+
+URL:
+
+```text
+https://www.heb.com.mx/cuidado-personal-y-belleza/higiene-dental/pasta-dental
+```
+
+El scraper captura las respuestas estructuradas VTEX `productSearchV3` generadas por el storefront de HEB y usa el botón nativo de mostrar más para completar el catálogo. La disponibilidad se registra como `1` cuando `AvailableQuantity > 0` y `0` cuando `AvailableQuantity <= 0`.
+
+Gate inicial:
+- cobertura de catálogo >= 90%;
+- SKU >= 90%;
+- precio actual >= 90%;
+- URL >= 90%;
+- disponibilidad binaria >= 90%;
+- orden de precios válido >= 90%;
+- al menos una respuesta estructurada `productSearchV3`;
+- sin bloqueo.
+
+Test:
+
+```powershell
+& .\scripts\test_heb.ps1
+```
+
+Salida:
+
+```text
+output\heb_phase5_test.xlsx
+```
+
+Después de una validación live satisfactoria:
+
+```powershell
+& .\scripts\integrate_validated_phase.ps1 -Phase 5 -Retailer "HEB"
+```
+
+Fase 5 sólo queda `COMPLETE` cuando Farmacias Similares y HEB están integrados para la misma fecha.
 
 ## La Comer
 
