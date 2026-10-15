@@ -956,46 +956,42 @@ def test_chedraui_retries_structured_page_until_target_is_complete():
     assert info["attempts"][-1]["accepted"] is True
 
 
-def test_chedraui_candidate_categories_are_separate_from_production():
+def test_chedraui_validated_categories_are_promoted_to_production():
     active = {
         item.id
         for item in load_categories("config/chedraui/categories.yaml")
     }
-    candidates = {
-        item.id
-        for item in load_categories(
-            "config/chedraui/candidate_categories.yaml"
-        )
-    }
+    candidates = load_categories(
+        "config/chedraui/candidate_categories.yaml"
+    )
 
-    assert active == {"higiene-bucal", "lavanderia"}
-    assert candidates == {
+    assert active == {
+        "higiene-bucal",
+        "lavanderia",
         "desodorantes-y-antitranspirantes",
         "depilacion",
         "respiratorios",
     }
-    assert active.isdisjoint(candidates)
+    assert candidates == []
 
 
-def test_chedraui_candidate_category_hierarchy():
-    candidates = {
+def test_chedraui_promoted_category_hierarchy():
+    active = {
         item.id: item
-        for item in load_categories(
-            "config/chedraui/candidate_categories.yaml"
-        )
+        for item in load_categories("config/chedraui/categories.yaml")
     }
 
-    deodorants = candidates["desodorantes-y-antitranspirantes"]
+    deodorants = active["desodorantes-y-antitranspirantes"]
     assert deodorants.department == "Cuidado e higiene personal"
     assert deodorants.name == "Cuidado corporal"
     assert deodorants.subcategory == "Desodorantes y antitranspirantes"
 
-    depilation = candidates["depilacion"]
+    depilation = active["depilacion"]
     assert depilation.department == "Belleza"
     assert depilation.name == "Afeitado y depilación"
     assert depilation.subcategory == "Depilación"
 
-    respiratory = candidates["respiratorios"]
+    respiratory = active["respiratorios"]
     assert respiratory.department == "Farmacia"
     assert respiratory.name == "Medicamentos"
     assert respiratory.subcategory == "Respiratorios"
