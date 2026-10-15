@@ -387,11 +387,15 @@ def main() -> int:
         if x.id == "similares-online"
     )
 
-    category_order = [item.id for item in categories]
-    results: dict[str, dict] = {}
+    category_order = [item.id for item in configured_categories]
+    results: dict[str, dict] = _load_existing_valid_results(
+        configured_categories
+    )
 
-    if args.category == "all":
-        results = _load_existing_valid_results(configured_categories)
+    # An isolated rerun replaces only the requested category while
+    # preserving other same-day successes in the workbook.
+    if args.category != "all":
+        results.pop(args.category, None)
 
     print("=" * 72)
     print("FASE 5 - FARMACIAS SIMILARES")
@@ -525,15 +529,19 @@ def main() -> int:
     print(f"Archivo: {OUTPUT_PATH}")
     print("Diagnósticos: diagnostics\\farmacias_similares_*")
 
+    expected_categories = (
+        configured_categories
+        if args.category == "all"
+        else categories
+    )
     acceptable = bool(
-        len(summary_df) == len(categories)
-        and not summary_df.empty
+        not summary_df.empty
         and all(
             category.id in results
             and _summary_is_acceptable(
                 results[category.id]["summary"]
             )
-            for category in categories
+            for category in expected_categories
         )
     )
 
