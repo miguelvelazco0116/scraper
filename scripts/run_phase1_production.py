@@ -391,6 +391,7 @@ def _run_chedraui(
     profile_dir: Path,
     headed: bool,
     low_memory: bool,
+    category_delay_seconds: int = 0,
 ) -> tuple[list[pd.DataFrame], list[dict[str, Any]]]:
     frames: list[pd.DataFrame] = []
     summaries: list[dict[str, Any]] = []
@@ -449,8 +450,13 @@ def _run_chedraui(
                 notes.append("sin productos")
             if target is None:
                 notes.append("target no disponible")
-            elif metrics["products"] < int(target):
-                notes.append(f"cobertura {metrics['products']}/{target}")
+            elif int(target) > 0:
+                coverage = metrics["products"] / int(target)
+                if coverage < 0.90:
+                    notes.append(
+                        f"cobertura {metrics['products']}/{target} "
+                        f"({coverage:.1%}) < 90%"
+                    )
             if metrics["sku_complete"] < metrics["products"]:
                 notes.append(f"sku {metrics['sku_complete']}/{metrics['products']}")
             if metrics["url_complete"] < metrics["products"]:
@@ -483,6 +489,11 @@ def _run_chedraui(
             api_price_pages=len(meta.get("api_price_pages") or []),
             structured_price_missing_pages=structured_missing,
             pagination_gaps=pagination_gaps,
+            location_id=location.id,
+            store=location.store,
+            store_id=location.store_id,
+            city=location.city,
+            state=location.state,
         )
         summaries.append(summary)
         print(
@@ -491,6 +502,12 @@ def _run_chedraui(
             f"structured_missing={structured_missing} gaps={pagination_gaps}"
         )
         _release_between_cases(low_memory)
+        if index < len(categories) and category_delay_seconds > 0:
+            print(
+                f"  pausa Chedraui: {category_delay_seconds}s "
+                "antes de la siguiente categoría"
+            )
+            time.sleep(category_delay_seconds)
 
     return frames, summaries
 
@@ -509,7 +526,12 @@ def _write_productive(
                 "generated_at": generated_at,
                 "capture_date": generated_at[:10],
                 "retailers": " | ".join(RETAILERS),
-                "categories": len(summary),
+                "categories": int(
+                    summary[["retailer", "category_id"]]
+                    .drop_duplicates()
+                    .shape[0]
+                ),
+                "execution_cases": len(summary),
                 "products": len(concentrated),
                 "all_categories_complete": bool(
                     summary["status"].eq("COMPLETE").all()
@@ -570,7 +592,12 @@ def _create_baseline_if_missing(
         "source": str(OUTPUT_PATH),
         "baseline": str(BASELINE_PATH),
         "products": len(concentrated),
-        "categories": len(summary),
+        "categories": int(
+            summary[["retailer", "category_id"]]
+            .drop_duplicates()
+            .shape[0]
+        ),
+        "execution_cases": len(summary),
         "retailers": list(RETAILERS),
         "note": (
             "Primera muestra productiva valida de Fase 1. "
@@ -603,6 +630,18 @@ def main() -> int:
         action="store_true",
         help="Optimiza Chrome para servidores con poca RAM.",
     )
+    parser.add_argument(
+        "--chedraui-category-delay-seconds",
+        type=int,
+        default=15,
+        help="Pausa entre categorías de una misma tienda Chedraui.",
+    )
+    parser.add_argument(
+        "--chedraui-store-delay-seconds",
+        type=int,
+        default=60,
+        help="Pausa entre tiendas Chedraui.",
+    )
     args = parser.parse_args()
 
     if args.low_memory:
@@ -623,19 +662,39 @@ def main() -> int:
             load_categories(ROOT / "config" / "ibarra-mayoreo" / "categories.yaml"),
             locations["ibarra-online"],
         ),
-        "chedraui": (
-            load_categories(ROOT / "config" / "chedraui" / "categories.yaml"),
-            locations["chedraui-polanco"],
-        ),
     }
+    chedraui_categories = load_categories(
+        ROOT / "config" / "chedraui" / "categories.yaml"
+    )
+    chedraui_locations = [
+        locations["chedraui-polanco"],
+        locations["chedraui-tepeyac"],
+        locations["chedraui-cancun-kabah"],
+        locations["chedraui-puebla-centro-sur"],
+    ]
 
-    expected_cases = sum(len(value[0]) for value in configurations.values())
+    expected_retailer_categories = (
+        len(configurations["ahorro"][0])
+        + len(configurations["ibarra"][0])
+        + len(chedraui_categories)
+    )
+    expected_cases = (
+        len(configurations["ahorro"][0])
+        + len(configurations["ibarra"][0])
+        + len(chedraui_categories) * len(chedraui_locations)
+    )
 
     print("=" * 72)
     print("FASE 1 - CORRIDA PRODUCTIVA")
     print("=" * 72)
     print("Retailers : Farmacias del Ahorro, Ibarra Mayoreo, Chedraui")
-    print(f"Categorías: {expected_cases}")
+    print(f"Retailer-categorías únicas: {expected_retailer_categories}")
+    print(f"Casos productivos         : {expected_cases}")
+    print(
+        "Chedraui                 : "
+        f"{len(chedraui_locations)} tiendas x "
+        f"{len(chedraui_categories)} categorías"
+    )
     print(f"Salida    : {OUTPUT_PATH}")
     print(f"Navegador : {'visible' if args.headed else 'headless'}")
     print(f"Memoria   : {'LOW-MEMORY' if args.low_memory else 'standard'}")
@@ -660,14 +719,50 @@ def main() -> int:
     all_frames.extend(frames)
     summaries.extend(rows)
 
-    frames, rows = _run_chedraui(
-        *configurations["chedraui"],
-        profile_dir=(ROOT / args.profile_dir).resolve(),
-        headed=args.headed,
-        low_memory=args.low_memory,
-    )
-    all_frames.extend(frames)
-    summaries.extend(rows)
+    for store_index, location in enumerate(
+        chedraui_locations,
+        start=1,
+    ):
+        print("")
+        print("=" * 72)
+        print(
+            "CHEDRAUI TIENDA "
+            f"[{store_index}/{len(chedraui_locations)}] "
+            f"{location.store} ({location.store_id})"
+        )
+        print("=" * 72)
+
+        if location.id == "chedraui-polanco":
+            profile_dir = (ROOT / args.profile_dir).resolve()
+        else:
+            suffix = location.id.removeprefix("chedraui-")
+            profile_dir = (
+                ROOT / f".chedraui_profile_{suffix}"
+            ).resolve()
+
+        frames, rows = _run_chedraui(
+            chedraui_categories,
+            location,
+            profile_dir=profile_dir,
+            headed=args.headed,
+            low_memory=args.low_memory,
+            category_delay_seconds=(
+                args.chedraui_category_delay_seconds
+            ),
+        )
+        all_frames.extend(frames)
+        summaries.extend(rows)
+
+        if (
+            store_index < len(chedraui_locations)
+            and args.chedraui_store_delay_seconds > 0
+        ):
+            print(
+                "Pausa de "
+                f"{args.chedraui_store_delay_seconds}s "
+                "antes de la siguiente tienda Chedraui..."
+            )
+            time.sleep(args.chedraui_store_delay_seconds)
 
     summary = pd.DataFrame(summaries)
     concentrated = (
@@ -678,7 +773,7 @@ def main() -> int:
     concentrated = _canonical_frame(concentrated)
     if not concentrated.empty:
         concentrated = concentrated.sort_values(
-            ["retailer", "category_id", "brand", "product"],
+            ["retailer", "store_id", "category_id", "brand", "product"],
             na_position="last",
         ).reset_index(drop=True)
 
@@ -687,8 +782,9 @@ def main() -> int:
         "phase": PHASE,
         "generated_at": generated_at,
         "output": str(OUTPUT_PATH),
-        "categories_expected": expected_cases,
-        "categories_executed": len(summary),
+        "retailer_categories_expected": expected_retailer_categories,
+        "execution_cases_expected": expected_cases,
+        "execution_cases_executed": len(summary),
         "products_collected": len(concentrated),
         "results": summary.where(pd.notna(summary), None).to_dict("records"),
     }
@@ -703,6 +799,7 @@ def main() -> int:
     print("=" * 72)
     display_columns = [
         "retailer",
+        "store_id",
         "category_id",
         "status",
         "target_products",
@@ -714,8 +811,16 @@ def main() -> int:
     ]
     print(summary[display_columns].to_string(index=False))
 
+    observed_retailer_categories = (
+        summary[["retailer", "category_id"]]
+        .drop_duplicates()
+        .shape[0]
+        if not summary.empty
+        else 0
+    )
     publishable = (
         len(summary) == expected_cases
+        and observed_retailer_categories == expected_retailer_categories
         and not summary.empty
         and summary["status"].eq("COMPLETE").all()
     )
