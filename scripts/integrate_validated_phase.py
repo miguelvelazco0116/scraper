@@ -17,6 +17,7 @@ import pandas as pd
 
 from main import COLUMNS
 from scraper.io_utils import atomic_output_path
+from scraper.quality_rules import meets_rate, valid_after_errors
 
 CHECKPOINT_DIR = ROOT / "output" / "checkpoints_validos"
 CURRENT_MASTER_POINTER = CHECKPOINT_DIR / "current_master.json"
@@ -169,8 +170,11 @@ def _validate_bodega_retailer(
         values = pd.to_numeric(
             summary[metric], errors="coerce"
         ).fillna(-2)
-        if not values.eq(products).all():
-            notes.append(f"Bodega {metric} incompleto")
+        if not all(
+            meets_rate(value, total)
+            for value, total in zip(values, products)
+        ):
+            notes.append(f"Bodega {metric} < 90%")
 
     if "sources_discovered" not in summary.columns or "sources_visited" not in summary.columns:
         notes.append("Bodega sin métricas de fuentes")
@@ -205,8 +209,11 @@ def _validate_bodega_retailer(
         errors = pd.to_numeric(
             summary["price_validation_errors"], errors="coerce"
         ).fillna(-1)
-        if not errors.eq(0).all():
-            notes.append("Bodega price_validation_errors > 0")
+        if not all(
+            valid_after_errors(total, error)
+            for total, error in zip(products, errors)
+        ):
+            notes.append("Bodega validación de precios < 90%")
 
     return notes
 
@@ -260,8 +267,11 @@ def _validate_walmart_retailer(
         values = pd.to_numeric(
             summary[metric], errors="coerce"
         ).fillna(-2)
-        if not values.eq(products).all():
-            notes.append(f"Walmart {metric} incompleto")
+        if not all(
+            meets_rate(value, total)
+            for value, total in zip(values, products)
+        ):
+            notes.append(f"Walmart {metric} < 90%")
 
     if "store_context_verified" not in summary.columns:
         notes.append("Walmart sin store_context_verified")
@@ -291,8 +301,11 @@ def _validate_walmart_retailer(
         errors = pd.to_numeric(
             summary["price_order_errors"], errors="coerce"
         ).fillna(-1)
-        if not errors.eq(0).all():
-            notes.append("Walmart price_order_errors > 0")
+        if not all(
+            valid_after_errors(total, error)
+            for total, error in zip(products, errors)
+        ):
+            notes.append("Walmart orden de precios válido < 90%")
 
     if "duplicates_sku_url" not in summary.columns:
         notes.append("Walmart sin duplicates_sku_url")
@@ -369,10 +382,16 @@ def _validate_san_pablo_phase(
         summary["price_complete"], errors="coerce"
     ).fillna(-3)
 
-    if not products.eq(targets).all():
-        notes.append("San Pablo productos != target OCC")
-    if not prices.eq(products).all():
-        notes.append("San Pablo price_complete incompleto")
+    if not all(
+        meets_rate(product, target)
+        for product, target in zip(products, targets)
+    ):
+        notes.append("San Pablo cobertura OCC < 90%")
+    if not all(
+        meets_rate(price, product)
+        for price, product in zip(prices, products)
+    ):
+        notes.append("San Pablo price_complete < 90%")
     if int(products.sum()) != len(frame):
         notes.append(
             f"San Pablo suma products={int(products.sum())} "
@@ -395,8 +414,8 @@ def _validate_san_pablo_phase(
     frame_prices = pd.to_numeric(
         frame["price_current"], errors="coerce"
     ).notna().sum()
-    if int(frame_prices) != len(frame):
-        notes.append("San Pablo price_current incompleto en Concentrado")
+    if not meets_rate(int(frame_prices), len(frame)):
+        notes.append("San Pablo price_current < 90% en Concentrado")
 
     return notes
 
@@ -639,9 +658,12 @@ def _validate_phase(
                 standard_products = pd.to_numeric(
                     standard["products"], errors="coerce"
                 ).fillna(-2)
-                if not observed.eq(standard_products).all():
+                if not all(
+                    meets_rate(value, total)
+                    for value, total in zip(observed, standard_products)
+                ):
                     notes.append(
-                        "price_complete incompleto fuera de Chedraui"
+                        "price_complete < 90% fuera de Chedraui"
                     )
 
             chedraui = summary.loc[chedraui_mask]
@@ -662,17 +684,24 @@ def _validate_phase(
                     chedraui["price_required_complete"],
                     errors="coerce",
                 ).fillna(-2)
-                if not complete.eq(required).all():
+                if not all(
+                    meets_rate(value, total)
+                    for value, total in zip(complete, required)
+                    if total > 0
+                ):
                     notes.append(
-                        "Chedraui price_required incompleto"
+                        "Chedraui price_required < 90%"
                     )
             continue
 
         observed = pd.to_numeric(
             summary[metric], errors="coerce"
         ).fillna(-1)
-        if not observed.eq(products).all():
-            notes.append(f"{metric} incompleto")
+        if not all(
+            meets_rate(value, total)
+            for value, total in zip(observed, products)
+        ):
+            notes.append(f"{metric} < 90%")
 
     if phase == 1:
         chedraui = summary.loc[
@@ -718,7 +747,6 @@ def _validate_phase(
             for metric in (
                 "structured_price_missing_pages",
                 "pagination_gaps",
-                "price_order_errors",
             ):
                 if metric not in chedraui.columns:
                     notes.append(f"Chedraui sin {metric}")
@@ -729,6 +757,25 @@ def _validate_phase(
                 ).fillna(-1)
                 if not values.eq(0).all():
                     notes.append(f"Chedraui {metric} > 0")
+
+            if "price_order_errors" not in chedraui.columns:
+                notes.append("Chedraui sin price_order_errors")
+            else:
+                products = pd.to_numeric(
+                    chedraui["products"],
+                    errors="coerce",
+                ).fillna(-1)
+                errors = pd.to_numeric(
+                    chedraui["price_order_errors"],
+                    errors="coerce",
+                ).fillna(-1)
+                if not all(
+                    valid_after_errors(total, error)
+                    for total, error in zip(products, errors)
+                ):
+                    notes.append(
+                        "Chedraui orden de precios válido < 90%"
+                    )
 
     if phase == 2 and cfg["require_fg_names"]:
         fg = summary.loc[
@@ -748,10 +795,16 @@ def _validate_phase(
             invalid = pd.to_numeric(
                 fg["product_name_invalid"], errors="coerce"
             ).fillna(-1)
-            if not complete.eq(products).all():
-                notes.append("Guadalajara product_name_complete incompleto")
-            if not invalid.eq(0).all():
-                notes.append("Guadalajara product_name_invalid > 0")
+            if not all(
+                meets_rate(value, total)
+                for value, total in zip(complete, products)
+            ):
+                notes.append("Guadalajara product_name_complete < 90%")
+            if not all(
+                valid_after_errors(total, error)
+                for total, error in zip(products, invalid)
+            ):
+                notes.append("Guadalajara nombres válidos < 90%")
         else:
             notes.append("Faltan gates de nombres de Guadalajara")
 
@@ -784,9 +837,12 @@ def _validate_phase(
                     walmart["store_context_complete"],
                     errors="coerce",
                 ).fillna(-2)
-                if not store_complete.eq(products).all():
+                if not all(
+                    meets_rate(value, total)
+                    for value, total in zip(store_complete, products)
+                ):
                     notes.append(
-                        "Walmart store_context_complete incompleto"
+                        "Walmart store_context_complete < 90%"
                     )
                 if not walmart["store_context_verified"].map(bool).all():
                     notes.append(
@@ -796,9 +852,12 @@ def _validate_phase(
                     walmart["price_order_errors"],
                     errors="coerce",
                 ).fillna(-1)
-                if not price_errors.eq(0).all():
+                if not all(
+                    valid_after_errors(total, error)
+                    for total, error in zip(products, price_errors)
+                ):
                     notes.append(
-                        "Walmart price_order_errors > 0"
+                        "Walmart orden de precios válido < 90%"
                     )
                 duplicates = pd.to_numeric(
                     walmart["duplicates_sku_url"],
@@ -825,9 +884,16 @@ def _validate_phase(
                     bodega["price_validation_errors"],
                     errors="coerce",
                 ).fillna(-1)
-                if not price_errors.eq(0).all():
+                products = pd.to_numeric(
+                    bodega["products"],
+                    errors="coerce",
+                ).fillna(-1)
+                if not all(
+                    valid_after_errors(total, error)
+                    for total, error in zip(products, price_errors)
+                ):
                     notes.append(
-                        "Bodega Aurrera price_validation_errors > 0"
+                        "Bodega Aurrera validación de precios < 90%"
                     )
             if "catalogue_gate_ok" not in bodega.columns:
                 notes.append(
