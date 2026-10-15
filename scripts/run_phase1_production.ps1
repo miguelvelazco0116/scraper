@@ -4,7 +4,11 @@ param(
     [string]$ProfileDir = ".chedraui_profile",
     [switch]$Headed,
     [switch]$Headless,
-    [switch]$StandardMemory
+    [switch]$StandardMemory,
+    [ValidateRange(0, 600)]
+    [int]$ChedrauiCategoryDelaySeconds = 15,
+    [ValidateRange(0, 600)]
+    [int]$ChedrauiStoreDelaySeconds = 60
 )
 
 $ErrorActionPreference = "Stop"
@@ -57,6 +61,9 @@ $UseLowMemory = -not $StandardMemory
 Write-Host "Profile   : $ProfileDir"
 Write-Host "Navegador : $(if ($UseHeaded) { 'VISIBLE' } else { 'HEADLESS' })"
 Write-Host "Memoria   : $(if ($UseLowMemory) { 'LOW-MEMORY' } else { 'STANDARD' })"
+Write-Host "Chedraui  : 4 tiendas x 5 categorias"
+Write-Host "Delay cat.: $ChedrauiCategoryDelaySeconds segundos"
+Write-Host "Delay store: $ChedrauiStoreDelaySeconds segundos"
 Write-Host "Salida    : $ProjectDir\output\concentrado_productivo.xlsx"
 Write-Host "Log       : $LogPath"
 Write-Host ""
@@ -65,7 +72,9 @@ Write-Host ""
 
 $ArgsList = @(
     ".\scripts\run_phase1_production.py",
-    "--profile-dir", $ProfileDir
+    "--profile-dir", $ProfileDir,
+    "--chedraui-category-delay-seconds", $ChedrauiCategoryDelaySeconds,
+    "--chedraui-store-delay-seconds", $ChedrauiStoreDelaySeconds
 )
 
 if ($UseHeaded) {
