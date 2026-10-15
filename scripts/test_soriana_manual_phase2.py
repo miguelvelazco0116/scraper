@@ -110,7 +110,7 @@ def _summary_is_acceptable(summary: dict) -> bool:
     if products <= 0:
         return False
     target = summary.get("target_products")
-    if target not in (None, ""):
+    if target not in (None, "") and not pd.isna(target):
         try:
             if not meets_rate(products, int(target)):
                 return False
