@@ -515,8 +515,8 @@ diagnostics\phase2_production\phase2_YYYYMMDD_HHMMSS.log
 
 Gates productivos:
 
-- **Farmacias Guadalajara**: cobertura por categoría >= 90%, SKU/precio/URL completos y ejecución exitosa.
-- **Soriana**: recorrido de toda la paginación detectada, productos > 0 y SKU/precio/URL completos.
+- **Farmacias Guadalajara**: cobertura por categoría >= 90%, nombre/SKU/precio/URL >=90% y ejecución exitosa.
+- **Soriana**: recorrido de toda la paginación detectada, productos > 0 y SKU/precio/URL >=90%.
 
 ### Farmacias Guadalajara - navegador manual
 
@@ -649,6 +649,31 @@ Los logs del runner completo se guardan en:
 diagnostics\run_all
 ```
 
+## Política global de reintentos y umbral de calidad
+
+Regla vigente para **Fases 1, 2, 3 y 4**:
+
+- el umbral común de aceptación para cobertura y completitud cuantitativa es **>= 90%**;
+- una categoría/caso que ya terminó válido **en la fecha actual** se conserva como checkpoint y **no se vuelve a scrapear**;
+- si una categoría falla, queda pendiente y en el siguiente intento se ejecuta **sólo esa categoría/caso fallido**;
+- los checkpoints de otro día no se reutilizan para una captura nueva;
+- los gates estructurales siguen siendo obligatorios: contexto de tienda cuando aplique, ausencia de bloqueo, paginación demostrada, retailer/categoría correctos y consistencia interna del workbook;
+- errores de orden/validación de precio se evalúan por tasa válida: al menos 90% de las filas deben conservar orden de precio consistente.
+
+Implementación por fase:
+
+- **Fase 1:** usa `output/fase1_progress.xlsx` como checkpoint parcial del día. Farmacias del Ahorro, Ibarra y cada combinación tienda-categoría de Chedraui se reanudan individualmente.
+- **Fase 2:** `farmacias_guadalajara_phase2_test.xlsx` y `soriana_manual_phase2_test.xlsx` conservan categorías exitosas del día; el runner productivo ya no borra estos checkpoints.
+- **Fase 3:** Bodega Aurrera y Walmart reutilizan categorías válidas del día; el runner productivo ya no elimina sus workbooks antes de ejecutarse.
+- **Fase 4:** San Pablo y Benavides conservan categorías válidas del día y sólo ejecutan las pendientes.
+
+El umbral común está centralizado en:
+
+```text
+scraper/quality_rules.py
+MIN_SUCCESS_RATE = 0.90
+```
+
 ## Criterio operativo de calidad
 
 El objetivo principal del proyecto es poder descargar de forma confiable:
@@ -717,7 +742,7 @@ depilacion
 respiratorios
 ```
 
-El 14 de octubre de 2026 se completó la certificación exhaustiva de **4 tiendas × 5 categorías = 20 combinaciones**, todas con exit code 0. El gate productivo exige contexto de tienda verificado, cobertura >=90%, SKU y URL completos, precio completo para productos que lo requieren, cero páginas estructuradas faltantes, cero huecos internos de paginación y cero errores de orden de precio.
+El 14 de octubre de 2026 se completó la certificación exhaustiva de **4 tiendas × 5 categorías = 20 combinaciones**, todas con exit code 0. El gate productivo exige contexto de tienda verificado, cobertura >=90%, SKU y URL >=90%, precio requerido >=90%, cero páginas estructuradas faltantes y cero huecos internos de paginación. El orden de precio debe ser válido en >=90% de las filas.
 
 Prueba completa aislada:
 
@@ -989,7 +1014,7 @@ pastas-dentales      85 / 85   SUCCESS
 Total               232 / 232
 ```
 
-Las cuatro categorías usaron `transport=captured_storefront_response`. El gate exige coincidencia exacta contra `target_products` cuando OCC lo publica y precio completo en todas las filas extraídas.
+Las cuatro categorías usaron `transport=captured_storefront_response`. El gate exige cobertura contra `target_products` **>= 90%** cuando OCC lo publica y precio actual completo en **>= 90%** de las filas extraídas.
 
 Cobertura en la última validación:
 
@@ -1073,7 +1098,7 @@ Gate candidato:
 - precio actual >= 90%;
 - URL >= 90%;
 - disponibilidad binaria >= 90%;
-- cero casos `price_current > price_regular`.
+- orden de precio consistente en **>= 90%** de las filas (`price_current <= price_regular` cuando ambos existen).
 
 Regla de muestra válida:
 - el proyecto considera válida una muestra con cobertura >= 90% del universo publicado;
