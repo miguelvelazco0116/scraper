@@ -33,3 +33,25 @@ def test_similares_discovery_hydrates_without_brittle_selector_gate():
     assert "def _hydrate_product_links" in source
     assert "discovery_coverage >= 0.90" in source
     assert "wait_for_selector('a[href$=\"/p\"]" not in source
+
+
+def test_phase5_integrator_uses_similares_only():
+    source = Path("scripts/integrate_validated_phase.py").read_text(
+        encoding="utf-8"
+    )
+    phase5 = source.split("5: {", 1)[1].split("} ", 1)[0]
+    assert '"Farmacias Similares"' in phase5
+    assert '"La Comer"' not in phase5
+    assert '"categories": 2' in phase5
+    assert "def _validate_similares_phase" in source
+
+
+def test_phase5_requires_previous_phases_and_wrapper_accepts_5():
+    integrator = Path(
+        "scripts/integrate_validated_phase.py"
+    ).read_text(encoding="utf-8")
+    wrapper = Path(
+        "scripts/integrate_validated_phase.ps1"
+    ).read_text(encoding="utf-8")
+    assert "required_previous = list(range(1, phase))" in integrator
+    assert "[ValidateSet(1, 2, 3, 4, 5)]" in wrapper
