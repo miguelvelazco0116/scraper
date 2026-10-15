@@ -406,6 +406,227 @@ class HEBScraper:
         return list(rows_by_key.values()), target
 
     @staticmethod
+    def _target_from_body(page) -> int | None:
+        try:
+            body = page.locator("body").inner_text(timeout=8_000)
+        except Exception:
+            return None
+        match = re.search(
+            r"([0-9][0-9.,]*)\s+resultados\b",
+            body,
+            flags=re.I,
+        )
+        if not match:
+            return None
+        digits = re.sub(r"[^0-9]", "", match.group(1))
+        return int(digits) if digits else None
+
+    @staticmethod
+    def _dom_product_cards(page) -> list[dict]:
+        return page.locator("body").evaluate(
+            r"""
+            () => {
+              const norm = value =>
+                String(value || '').replace(/\s+/g, ' ').trim();
+              const out = [];
+              const seen = new Set();
+
+              for (const a of Array.from(document.querySelectorAll('a[href]'))) {
+                let url;
+                try { url = new URL(a.href, location.href); } catch (_) { continue; }
+                if (url.origin !== location.origin) continue;
+
+                const pathname = url.pathname.replace(/\/+$/, '');
+                if (!/\/p$/i.test(pathname)) continue;
+
+                const key = url.origin + pathname;
+                if (seen.has(key)) continue;
+
+                let card = a;
+                let cardText = '';
+                for (let i = 0; i < 12 && card; i++, card = card.parentElement) {
+                  const text = norm(card.innerText || card.textContent);
+                  if (
+                    text.length >= 4 &&
+                    text.length <= 2200 &&
+                    /\$\s*[0-9]/.test(text)
+                  ) {
+                    cardText = text;
+                    break;
+                  }
+                }
+
+                const image = a.querySelector('img[alt]');
+                const title =
+                  norm(a.getAttribute('aria-label')) ||
+                  norm(a.getAttribute('title')) ||
+                  norm(a.innerText) ||
+                  norm(image ? image.alt : '');
+
+                if (!cardText && !title) continue;
+
+                seen.add(key);
+                out.push({
+                  href: key,
+                  title,
+                  card_text: cardText,
+                });
+              }
+
+              return out;
+            }
+            """
+        )
+
+    @staticmethod
+    def _price_values(text: str) -> list[float]:
+        values: list[float] = []
+        for raw in re.findall(
+            r"\$\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)",
+            text or "",
+        ):
+            try:
+                values.append(float(raw.replace(",", "")))
+            except ValueError:
+                continue
+        return values
+
+    @classmethod
+    def _row_from_dom_card(
+        cls,
+        card: dict,
+        category: Category,
+        location: Location,
+    ) -> dict | None:
+        url = clean_text(card.get("href"))
+        title = clean_text(card.get("title"))
+        card_text = clean_text(card.get("card_text"))
+        if not url or not title:
+            return None
+
+        sku_match = re.search(r"-([0-9]+)\/p\/?$", url)
+        if not sku_match:
+            return None
+        sku = sku_match.group(1)
+
+        prices = cls._price_values(card_text)
+        current = min(prices) if prices else None
+        regular = max(prices) if len(prices) > 1 else current
+
+        normalized = (card_text or "").casefold()
+        unavailable_markers = (
+            "agotado",
+            "sin existencia",
+            "no disponible",
+        )
+        if any(marker in normalized for marker in unavailable_markers):
+            availability_status = UNAVAILABLE
+            is_available = 0
+            availability_raw = "dom_card_unavailable_marker"
+        elif current is not None:
+            availability_status = AVAILABLE
+            is_available = 1
+            availability_raw = "dom_card_rendered_with_price"
+        else:
+            availability_status = UNKNOWN
+            is_available = None
+            availability_raw = "dom_card_availability_unknown"
+
+        promotion = ""
+        if (
+            current is not None
+            and regular is not None
+            and current < regular
+        ):
+            promotion = "Precio promocional"
+
+        return {
+            "scrape_timestamp": datetime.now()
+            .astimezone()
+            .isoformat(timespec="seconds"),
+            "retailer": "HEB",
+            "city": location.city,
+            "state": location.state,
+            "postal_code": location.postal_code,
+            "store": location.store,
+            "store_id": location.store_id,
+            "department": category.department,
+            "category": category.name,
+            "subcategory": category.subcategory,
+            "sub_subcategory": category.sub_subcategory,
+            "category_id": category.id,
+            "sku": sku,
+            "brand": None,
+            "product": title,
+            "price_current": current,
+            "price_regular": regular,
+            "promotion": promotion,
+            "availability_status": availability_status,
+            "is_available": is_available,
+            "availability_raw": availability_raw,
+            "pickup_available": (
+                None
+                if is_available is None
+                else bool(is_available)
+            ),
+            "store_context_verified": False,
+            "store_context_method": "heb_dom_category_session_context",
+            "url": url,
+            "price_raw": card_text,
+        }
+
+    @classmethod
+    def _rows_from_dom(
+        cls,
+        page,
+        category: Category,
+        location: Location,
+    ) -> list[dict]:
+        try:
+            cards = cls._dom_product_cards(page)
+        except Exception:
+            return []
+
+        rows_by_key: dict[str, dict] = {}
+        for card in cards:
+            row = cls._row_from_dom_card(
+                card,
+                category,
+                location,
+            )
+            if row is None:
+                continue
+            key = clean_text(row.get("sku")) or clean_text(row.get("url"))
+            if key:
+                rows_by_key[key] = row
+        return list(rows_by_key.values())
+
+    @staticmethod
+    def _merge_rows(
+        structured_rows: list[dict],
+        dom_rows: list[dict],
+    ) -> list[dict]:
+        merged: dict[str, dict] = {}
+
+        for row in dom_rows:
+            key = clean_text(row.get("sku")) or clean_text(row.get("url"))
+            if key:
+                merged[key] = dict(row)
+
+        for row in structured_rows:
+            key = clean_text(row.get("sku")) or clean_text(row.get("url"))
+            if not key:
+                continue
+            existing = merged.get(key, {})
+            combined = dict(existing)
+            for field, value in row.items():
+                if value is not None and value != "":
+                    combined[field] = value
+            merged[key] = combined
+
+        return list(merged.values())
+
+    @staticmethod
     def _accept_cookies(page) -> None:
         for label in (
             "Aceptar todo",
@@ -487,13 +708,31 @@ class HEBScraper:
                 clicks = 0
                 stale_rounds = 0
                 previous_products = -1
+                target = self._target_from_body(page)
 
                 for _ in range(self.max_show_more_clicks + 1):
-                    rows, target = self._rows_from_payloads(
+                    structured_rows, structured_target = self._rows_from_payloads(
                         self._payloads,
                         category,
                         location,
                     )
+                    dom_rows = self._rows_from_dom(
+                        page,
+                        category,
+                        location,
+                    )
+                    rows = self._merge_rows(
+                        structured_rows,
+                        dom_rows,
+                    )
+
+                    body_target = self._target_from_body(page)
+                    target_candidates = [
+                        value
+                        for value in (target, structured_target, body_target)
+                        if value is not None and int(value) > 0
+                    ]
+                    target = max(target_candidates) if target_candidates else None
                     current_products = len(rows)
 
                     if (
@@ -510,9 +749,27 @@ class HEBScraper:
                     )
                     previous_products = current_products
 
-                    if not self._click_show_more(page):
-                        if stale_rounds >= 2:
-                            break
+                    clicked = self._click_show_more(page)
+                    if clicked:
+                        clicks += 1
+                        page.wait_for_timeout(1_100)
+                        self._assert_not_blocked(page)
+                        continue
+
+                    try:
+                        page.evaluate(
+                            """
+                            () => window.scrollBy(
+                              0,
+                              Math.max(800, Math.floor(window.innerHeight * 0.9))
+                            )
+                            """
+                        )
+                    except Exception:
+                        pass
+                    page.wait_for_timeout(800)
+
+                    if stale_rounds >= 3:
                         try:
                             page.evaluate(
                                 "window.scrollTo(0, document.body.scrollHeight)"
@@ -520,20 +777,33 @@ class HEBScraper:
                         except Exception:
                             pass
                         page.wait_for_timeout(900)
-                        if not self._click_show_more(page):
-                            break
 
-                    clicks += 1
-                    page.wait_for_timeout(1_100)
-                    self._assert_not_blocked(page)
+                    if stale_rounds >= 6:
+                        break
 
-                page.wait_for_timeout(1_200)
+                page.wait_for_timeout(800)
 
-                rows, target = self._rows_from_payloads(
+                structured_rows, structured_target = self._rows_from_payloads(
                     self._payloads,
                     category,
                     location,
                 )
+                dom_rows = self._rows_from_dom(
+                    page,
+                    category,
+                    location,
+                )
+                rows = self._merge_rows(
+                    structured_rows,
+                    dom_rows,
+                )
+                body_target = self._target_from_body(page)
+                target_candidates = [
+                    value
+                    for value in (target, structured_target, body_target)
+                    if value is not None and int(value) > 0
+                ]
+                target = max(target_candidates) if target_candidates else None
 
                 products = len(rows)
                 sku_complete = sum(
@@ -597,6 +867,16 @@ class HEBScraper:
                         "availability_complete": availability_complete,
                         "price_order_errors": price_order_errors,
                         "structured_responses": len(self._payloads),
+                        "dom_rows": len(dom_rows),
+                        "catalogue_source": (
+                            "productSearchV3+dom_fallback"
+                            if self._payloads and dom_rows
+                            else (
+                                "productSearchV3"
+                                if self._payloads
+                                else "dom_fallback"
+                            )
+                        ),
                         "show_more_clicks": clicks,
                         "response_errors": len(self._response_errors),
                         "final_url": page.url,
