@@ -368,8 +368,8 @@ def _validate_soriana(
 
 
 def _run_child(label: str, cmd: list[str], output_path: Path) -> int:
-    output_path.unlink(missing_ok=True)
-
+    # Preserve same-day retailer checkpoints. Child runners reuse successful
+    # categories and retry only pending failures.
     print("")
     print("=" * 80)
     print(label)
