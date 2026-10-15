@@ -21,6 +21,7 @@ import pandas as pd
 from main import COLUMNS
 from scraper.config import Category, Location, load_categories, load_locations
 from scraper.io_utils import atomic_output_path
+from scraper.quality_rules import MIN_SUCCESS_RATE, meets_rate, valid_after_errors
 from scraper.retailers.chedraui import ChedrauiBlocked, ChedrauiStoreContextError
 from scraper.retailers.chedraui_polanco_api import ChedrauiScraper
 from scraper.retailers.farmacias_del_ahorro import (
@@ -39,6 +40,7 @@ OUTPUT_PATH = ROOT / "output" / "concentrado_productivo.xlsx"
 BASELINE_PATH = ROOT / "output" / "fase1_muestra_inicial_valida.xlsx"
 BASELINE_META_PATH = ROOT / "output" / "fase1_muestra_inicial_valida.json"
 DIAGNOSTIC_PATH = ROOT / "diagnostics" / "phase1_production" / "last_run.json"
+PROGRESS_PATH = ROOT / "output" / "fase1_progress.xlsx"
 
 PHASE = "FASE 1"
 RETAILERS = (
@@ -46,6 +48,135 @@ RETAILERS = (
     "Ibarra Mayoreo",
     "Chedraui",
 )
+
+
+def _normalize_store_id(value: Any) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    return str(value).strip().removesuffix(".0")
+
+
+def _case_key(
+    retailer: str,
+    category_id: str,
+    store_id: Any = None,
+) -> tuple[str, str, str]:
+    store = _normalize_store_id(store_id) if retailer == "Chedraui" else ""
+    return (str(retailer).strip(), str(category_id).strip(), store)
+
+
+def _read_phase1_snapshot(
+    path: Path,
+) -> dict[tuple[str, str, str], tuple[pd.DataFrame, dict[str, Any]]]:
+    if not path.exists():
+        return {}
+
+    try:
+        frame = pd.read_excel(
+            path,
+            sheet_name="Concentrado",
+            dtype={"sku": str, "store_id": str, "category_id": str},
+        )
+        summary = pd.read_excel(
+            path,
+            sheet_name="Resumen",
+            dtype={"category_id": str, "store_id": str},
+        )
+        control = pd.read_excel(path, sheet_name="Control")
+    except Exception:
+        return {}
+
+    today = datetime.now().astimezone().date().isoformat()
+    capture_date = ""
+    if not control.empty:
+        capture_date = str(control.iloc[0].get("capture_date") or "").strip()
+    if capture_date and capture_date != today:
+        return {}
+
+    if frame.empty or summary.empty:
+        return {}
+
+    dates = set(
+        frame["scrape_timestamp"]
+        .dropna()
+        .astype(str)
+        .str.slice(0, 10)
+    )
+    if dates and dates != {today}:
+        return {}
+
+    results: dict[
+        tuple[str, str, str],
+        tuple[pd.DataFrame, dict[str, Any]],
+    ] = {}
+
+    for _, summary_row in summary.iterrows():
+        if str(summary_row.get("status") or "").strip().upper() != "COMPLETE":
+            continue
+
+        retailer = str(summary_row.get("retailer") or "").strip()
+        category_id = str(summary_row.get("category_id") or "").strip()
+        store_id = summary_row.get("store_id")
+        key = _case_key(retailer, category_id, store_id)
+
+        mask = (
+            frame["retailer"].astype(str).eq(retailer)
+            & frame["category_id"].astype(str).eq(category_id)
+        )
+        if retailer == "Chedraui":
+            normalized = frame["store_id"].map(_normalize_store_id)
+            mask = mask & normalized.eq(key[2])
+
+        subset = frame.loc[mask].copy()
+        try:
+            expected_products = int(summary_row.get("products"))
+        except (TypeError, ValueError):
+            continue
+        if len(subset) != expected_products or expected_products <= 0:
+            continue
+
+        results[key] = (subset, summary_row.to_dict())
+
+    return results
+
+
+def _load_existing_valid_results(
+) -> dict[tuple[str, str, str], tuple[pd.DataFrame, dict[str, Any]]]:
+    progress = _read_phase1_snapshot(PROGRESS_PATH)
+    if progress:
+        return progress
+    return _read_phase1_snapshot(OUTPUT_PATH)
+
+
+def _write_progress(
+    concentrated: pd.DataFrame,
+    summary: pd.DataFrame,
+    *,
+    generated_at: str,
+) -> None:
+    control = pd.DataFrame(
+        [
+            {
+                "phase": PHASE,
+                "status": "PROGRESS",
+                "generated_at": generated_at,
+                "capture_date": generated_at[:10],
+                "categories": int(
+                    summary[["retailer", "category_id"]]
+                    .drop_duplicates()
+                    .shape[0]
+                ) if not summary.empty else 0,
+                "execution_cases": len(summary),
+                "products": len(concentrated),
+            }
+        ]
+    )
+    PROGRESS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with atomic_output_path(PROGRESS_PATH) as temporary:
+        with pd.ExcelWriter(temporary, engine="openpyxl") as writer:
+            concentrated.to_excel(writer, index=False, sheet_name="Concentrado")
+            summary.to_excel(writer, index=False, sheet_name="Resumen")
+            control.to_excel(writer, index=False, sheet_name="Control")
 
 
 def _set_low_priority() -> None:
@@ -207,14 +338,19 @@ def _run_ahorro(
                         f"cobertura {metrics['products']}/{target} "
                         f"({coverage:.1%}) < 90%"
                     )
-            if metrics["sku_complete"] < metrics["products"]:
-                notes.append(f"sku {metrics['sku_complete']}/{metrics['products']}")
-            if metrics["price_complete"] < metrics["products"]:
-                notes.append(f"precio {metrics['price_complete']}/{metrics['products']}")
-            if metrics["url_complete"] < metrics["products"]:
-                notes.append(f"url {metrics['url_complete']}/{metrics['products']}")
-            if metrics["price_order_errors"]:
-                notes.append(f"orden_precio {metrics['price_order_errors']}")
+            if not meets_rate(metrics["sku_complete"], metrics["products"]):
+                notes.append(f"sku {metrics['sku_complete']}/{metrics['products']} < 90%")
+            if not meets_rate(metrics["price_complete"], metrics["products"]):
+                notes.append(f"precio {metrics['price_complete']}/{metrics['products']} < 90%")
+            if not meets_rate(metrics["url_complete"], metrics["products"]):
+                notes.append(f"url {metrics['url_complete']}/{metrics['products']} < 90%")
+            if not valid_after_errors(
+                metrics["products"],
+                metrics["price_order_errors"],
+            ):
+                notes.append(
+                    f"orden_precio_valido < {MIN_SUCCESS_RATE:.0%}"
+                )
             status = "COMPLETE" if not notes else "PARTIAL"
 
         if not frame.empty:
@@ -324,22 +460,25 @@ def _run_ibarra(
                 notes.append(
                     f"cobertura_catalogo {coverage_text} < 90%"
                 )
-            if parse_errors:
-                notes.append(f"parse_errors {parse_errors}")
-            if metrics["price_complete"] < metrics["products"]:
-                notes.append(f"precio {metrics['price_complete']}/{metrics['products']}")
-            if unit_count_complete < metrics["products"]:
+            if not meets_rate(metrics["price_complete"], metrics["products"]):
+                notes.append(f"precio {metrics['price_complete']}/{metrics['products']} < 90%")
+            if not meets_rate(unit_count_complete, metrics["products"]):
                 notes.append(
-                    f"unidades {unit_count_complete}/{metrics['products']}"
+                    f"unidades {unit_count_complete}/{metrics['products']} < 90%"
                 )
-            if unit_price_complete < metrics["products"]:
+            if not meets_rate(unit_price_complete, metrics["products"]):
                 notes.append(
-                    f"precio_unitario {unit_price_complete}/{metrics['products']}"
+                    f"precio_unitario {unit_price_complete}/{metrics['products']} < 90%"
                 )
-            if metrics["url_complete"] < metrics["products"]:
-                notes.append(f"url {metrics['url_complete']}/{metrics['products']}")
-            if metrics["price_order_errors"]:
-                notes.append(f"orden_precio {metrics['price_order_errors']}")
+            if not meets_rate(metrics["url_complete"], metrics["products"]):
+                notes.append(f"url {metrics['url_complete']}/{metrics['products']} < 90%")
+            if not valid_after_errors(
+                metrics["products"],
+                metrics["price_order_errors"],
+            ):
+                notes.append(
+                    f"orden_precio_valido < {MIN_SUCCESS_RATE:.0%}"
+                )
             # SKU incompleto y ausencia de precio individual se informan.
             # Unidades por presentación y precio por pieza sí son bloqueantes.
             status = "COMPLETE" if not notes else "PARTIAL"
@@ -457,14 +596,24 @@ def _run_chedraui(
                         f"cobertura {metrics['products']}/{target} "
                         f"({coverage:.1%}) < 90%"
                     )
-            if metrics["sku_complete"] < metrics["products"]:
-                notes.append(f"sku {metrics['sku_complete']}/{metrics['products']}")
-            if metrics["url_complete"] < metrics["products"]:
-                notes.append(f"url {metrics['url_complete']}/{metrics['products']}")
-            if price_required_complete < price_required:
-                notes.append(f"precio_requerido {price_required_complete}/{price_required}")
-            if metrics["price_order_errors"]:
-                notes.append(f"orden_precio {metrics['price_order_errors']}")
+            if not meets_rate(metrics["sku_complete"], metrics["products"]):
+                notes.append(f"sku {metrics['sku_complete']}/{metrics['products']} < 90%")
+            if not meets_rate(metrics["url_complete"], metrics["products"]):
+                notes.append(f"url {metrics['url_complete']}/{metrics['products']} < 90%")
+            if price_required > 0 and not meets_rate(
+                price_required_complete,
+                price_required,
+            ):
+                notes.append(
+                    f"precio_requerido {price_required_complete}/{price_required} < 90%"
+                )
+            if not valid_after_errors(
+                metrics["products"],
+                metrics["price_order_errors"],
+            ):
+                notes.append(
+                    f"orden_precio_valido < {MIN_SUCCESS_RATE:.0%}"
+                )
             if not store_verified:
                 notes.append("tienda no verificada")
             if structured_missing:
@@ -701,18 +850,50 @@ def main() -> int:
     print("Publicación: sólo si TODOS los casos quedan COMPLETE")
     print("")
 
-    all_frames: list[pd.DataFrame] = []
-    summaries: list[dict[str, Any]] = []
+    existing = _load_existing_valid_results()
+    all_frames: list[pd.DataFrame] = [
+        item[0].copy()
+        for item in existing.values()
+    ]
+    summaries: list[dict[str, Any]] = [
+        dict(item[1])
+        for item in existing.values()
+    ]
 
+    if existing:
+        print(f"Casos válidos reutilizados hoy: {len(existing)}")
+        print("Sólo se ejecutarán casos pendientes o fallidos.")
+        print("")
+
+    ahorro_categories, ahorro_location = configurations["ahorro"]
+    pending_ahorro = [
+        category
+        for category in ahorro_categories
+        if _case_key(
+            "Farmacias del Ahorro",
+            category.id,
+        ) not in existing
+    ]
     frames, rows = _run_ahorro(
-        *configurations["ahorro"],
+        pending_ahorro,
+        ahorro_location,
         low_memory=args.low_memory,
     )
     all_frames.extend(frames)
     summaries.extend(rows)
 
+    ibarra_categories, ibarra_location = configurations["ibarra"]
+    pending_ibarra = [
+        category
+        for category in ibarra_categories
+        if _case_key(
+            "Ibarra Mayoreo",
+            category.id,
+        ) not in existing
+    ]
     frames, rows = _run_ibarra(
-        *configurations["ibarra"],
+        pending_ibarra,
+        ibarra_location,
         headed=args.headed,
         low_memory=args.low_memory,
     )
@@ -740,8 +921,21 @@ def main() -> int:
                 ROOT / f".chedraui_profile_{suffix}"
             ).resolve()
 
+        pending_categories = [
+            category
+            for category in chedraui_categories
+            if _case_key(
+                "Chedraui",
+                category.id,
+                location.store_id,
+            ) not in existing
+        ]
+        if not pending_categories:
+            print("5/5 categorías ya válidas hoy; tienda omitida.")
+            continue
+
         frames, rows = _run_chedraui(
-            chedraui_categories,
+            pending_categories,
             location,
             profile_dir=profile_dir,
             headed=args.headed,
@@ -776,6 +970,12 @@ def main() -> int:
             ["retailer", "store_id", "category_id", "brand", "product"],
             na_position="last",
         ).reset_index(drop=True)
+
+    _write_progress(
+        concentrated,
+        summary,
+        generated_at=generated_at,
+    )
 
     DIAGNOSTIC_PATH.parent.mkdir(parents=True, exist_ok=True)
     diagnostic_payload = {
@@ -837,6 +1037,7 @@ def main() -> int:
         summary,
         generated_at=generated_at,
     )
+    PROGRESS_PATH.unlink(missing_ok=True)
 
     baseline_created = _create_baseline_if_missing(
         generated_at=generated_at,
