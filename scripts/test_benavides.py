@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 from copy import copy
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +14,7 @@ import pandas as pd
 
 from main import COLUMNS
 from scraper.config import load_categories, load_locations
+from scraper.quality_rules import meets_rate, valid_after_errors
 from scraper.retailers.benavides import (
     BenavidesBlocked,
     BenavidesNetworkUnavailable,
@@ -183,7 +185,7 @@ def run_category(category, location, *, headed: bool, max_pages: int):
             or price_rate < 0.90
             or url_rate < 0.90
             or availability_rate < 0.90
-            or price_order_errors
+            or not valid_after_errors(products, price_order_errors)
         ):
             status = "PARTIAL"
         else:
@@ -275,6 +277,100 @@ def run_category(category, location, *, headed: bool, max_pages: int):
     )
 
 
+def _summary_is_acceptable(summary: dict) -> bool:
+    products = int(summary.get("products") or 0)
+    target = int(summary.get("target_products") or 0)
+    if products <= 0 or target <= 0:
+        return False
+    return bool(
+        str(summary.get("status") or "").upper() == "SUCCESS"
+        and meets_rate(products, target)
+        and meets_rate(summary.get("sku_complete") or 0, products)
+        and meets_rate(summary.get("price_complete") or 0, products)
+        and meets_rate(summary.get("url_complete") or 0, products)
+        and meets_rate(
+            summary.get("availability_complete") or 0,
+            products,
+        )
+        and valid_after_errors(
+            products,
+            summary.get("price_order_errors") or 0,
+        )
+        and not bool(summary.get("blocked_detected"))
+    )
+
+
+def _load_existing_valid_results(categories) -> dict[str, dict]:
+    if not OUTPUT_PATH.exists():
+        return {}
+    try:
+        concentrated = pd.read_excel(
+            OUTPUT_PATH,
+            sheet_name="Concentrado",
+            dtype={"sku": str, "store_id": str, "category_id": str},
+        )
+        summary_df = pd.read_excel(
+            OUTPUT_PATH,
+            sheet_name="Resumen",
+            dtype={"category_id": str},
+        )
+    except Exception:
+        return {}
+    if concentrated.empty or summary_df.empty:
+        return {}
+
+    today = datetime.now().astimezone().date().isoformat()
+    dates = set(
+        concentrated["scrape_timestamp"]
+        .dropna()
+        .astype(str)
+        .str.slice(0, 10)
+    )
+    if dates != {today}:
+        return {}
+
+    optional = {}
+    for sheet in ("Paginas", "Errores", "SinPrecio", "SinDisponibilidad"):
+        try:
+            optional[sheet] = pd.read_excel(
+                OUTPUT_PATH,
+                sheet_name=sheet,
+                dtype={"category_id": str},
+            )
+        except Exception:
+            optional[sheet] = pd.DataFrame()
+
+    configured = {item.id for item in categories}
+    results: dict[str, dict] = {}
+    for _, row in summary_df.iterrows():
+        category_id = str(row.get("category_id") or "").strip()
+        if category_id not in configured:
+            continue
+        summary = row.to_dict()
+        if not _summary_is_acceptable(summary):
+            continue
+        frame = concentrated.loc[
+            concentrated["category_id"].astype(str).eq(category_id)
+        ].copy()
+        if len(frame) != int(summary["products"]):
+            continue
+
+        payload = {
+            "frame": frame,
+            "summary": summary,
+        }
+        for sheet, df in optional.items():
+            if "category_id" in df.columns:
+                payload[sheet] = df.loc[
+                    df["category_id"].astype(str).eq(category_id)
+                ].to_dict("records")
+            else:
+                payload[sheet] = []
+        results[category_id] = payload
+
+    return results
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Test completo de Farmacias Benavides"
@@ -318,12 +414,42 @@ def main() -> int:
     for category in categories:
         print(f"  - {category.id}: {category.url}")
 
+    existing = (
+        _load_existing_valid_results(categories)
+        if args.category == "all"
+        else {}
+    )
+
     frames: list[pd.DataFrame] = []
     summaries: list[dict] = []
     pages: list[dict] = []
     detail_errors: list[dict] = []
     no_price_rows: list[dict] = []
     availability_errors: list[dict] = []
+
+    if existing:
+        print("")
+        print("CATEGORÍAS BENAVIDES YA VÁLIDAS HOY:")
+        for category in categories:
+            saved = existing.get(category.id)
+            if saved is None:
+                continue
+            print(
+                f"- {category.id}: REUTILIZADA, NO SE DESCARGA DE NUEVO"
+            )
+            frames.append(saved["frame"].copy())
+            summaries.append(dict(saved["summary"]))
+            pages.extend(saved.get("Paginas", []))
+            detail_errors.extend(saved.get("Errores", []))
+            no_price_rows.extend(saved.get("SinPrecio", []))
+            availability_errors.extend(
+                saved.get("SinDisponibilidad", [])
+            )
+        categories = [
+            category
+            for category in categories
+            if category.id not in existing
+        ]
 
     # For an isolated category rerun, preserve the other successful categories
     # already present in today's workbook and replace only the requested one.
@@ -439,7 +565,7 @@ def main() -> int:
     print("Diagnósticos: diagnostics\\benavides_*")
 
     acceptable = bool(summaries) and all(
-        item["status"] == "SUCCESS"
+        _summary_is_acceptable(item)
         for item in summaries
     )
     return 0 if acceptable else 2
