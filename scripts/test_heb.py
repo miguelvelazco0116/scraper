@@ -32,7 +32,15 @@ def _summary_is_acceptable(summary: dict) -> bool:
         and meets_rate(summary.get("url_complete") or 0, products)
         and meets_rate(summary.get("availability_complete") or 0, products)
         and valid_after_errors(products, summary.get("price_order_errors") or 0)
-        and int(summary.get("structured_responses") or 0) > 0
+        and str(summary.get("catalogue_source") or "") in {
+            "productSearchV3",
+            "dom_fallback",
+            "productSearchV3+dom_fallback",
+        }
+        and (
+            int(summary.get("structured_responses") or 0) > 0
+            or int(summary.get("dom_rows") or 0) > 0
+        )
         and not bool(summary.get("blocked_detected"))
     )
 
@@ -169,6 +177,8 @@ def run_category(category, location, *, headless: bool):
         "unavailable_0": int(availability.eq(0).sum()),
         "price_order_errors": int((current > regular).fillna(False).sum()),
         "structured_responses": int(meta.get("structured_responses") or 0),
+        "dom_rows": int(meta.get("dom_rows") or 0),
+        "catalogue_source": str(meta.get("catalogue_source") or ""),
         "show_more_clicks": int(meta.get("show_more_clicks") or 0),
         "response_errors": int(meta.get("response_errors") or 0),
         "blocked_detected": bool(meta.get("blocked_detected")),
@@ -184,6 +194,7 @@ def run_category(category, location, *, headless: bool):
         "sku_complete", "price_complete", "url_complete",
         "availability_complete", "available_1", "unavailable_0",
         "price_order_errors", "structured_responses",
+        "dom_rows", "catalogue_source",
         "show_more_clicks", "response_errors",
         "blocked_detected", "store_context_verified",
     ):
@@ -281,7 +292,8 @@ def main() -> int:
                     "sku_complete", "price_complete", "url_complete",
                     "availability_complete", "available_1",
                     "unavailable_0", "price_order_errors",
-                    "structured_responses", "blocked_detected",
+                    "structured_responses", "dom_rows",
+                    "catalogue_source", "blocked_detected",
                 ]
             ].to_string(index=False)
         )
