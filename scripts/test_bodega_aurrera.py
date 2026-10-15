@@ -4,6 +4,7 @@ import argparse
 import json
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,6 +16,7 @@ from playwright.sync_api import sync_playwright
 
 from main import COLUMNS
 from scraper.config import load_categories, load_locations
+from scraper.quality_rules import meets_rate, valid_after_errors
 from scraper.retailers.bodega_aurrera import (
     BodegaAurreraBlocked,
     BodegaAurreraNetworkUnavailable,
@@ -342,16 +344,111 @@ def run_category(category, location, page):
 
 
 def _summary_is_acceptable(summary: dict) -> bool:
+    products = int(summary.get("products") or 0)
     return bool(
-        summary["status"] == "SUCCESS"
-        and summary["products"] > 0
-        and summary["sku_complete"] == summary["products"]
-        and summary["price_complete"] == summary["products"]
-        and summary["url_complete"] == summary["products"]
-        and summary["sources_discovered"] == summary["sources_visited"]
-        and summary["catalogue_gate_ok"]
-        and summary["price_validation_errors"] == 0
+        summary.get("status") == "SUCCESS"
+        and products > 0
+        and meets_rate(summary.get("sku_complete") or 0, products)
+        and meets_rate(summary.get("price_complete") or 0, products)
+        and meets_rate(summary.get("url_complete") or 0, products)
+        and summary.get("sources_discovered") == summary.get("sources_visited")
+        and bool(summary.get("catalogue_gate_ok"))
+        and valid_after_errors(
+            products,
+            summary.get("price_validation_errors") or 0,
+        )
+        and not bool(summary.get("blocked_detected"))
     )
+
+
+def _load_existing_valid_results(categories) -> dict[str, tuple]:
+    """Reuse only valid Bodega categories already captured today."""
+    if not OUTPUT_PATH.exists():
+        return {}
+    try:
+        concentrated = pd.read_excel(
+            OUTPUT_PATH,
+            sheet_name="Concentrado",
+            dtype={"sku": str, "store_id": str, "category_id": str},
+        )
+        summary_df = pd.read_excel(
+            OUTPUT_PATH,
+            sheet_name="Resumen",
+            dtype={"category_id": str},
+        )
+    except Exception:
+        return {}
+    if concentrated.empty or summary_df.empty:
+        return {}
+
+    today = datetime.now().astimezone().date().isoformat()
+    dates = set(
+        concentrated["scrape_timestamp"]
+        .dropna()
+        .astype(str)
+        .str.slice(0, 10)
+    )
+    if dates != {today}:
+        return {}
+
+    optional = {}
+    for sheet in ("Fuentes", "Extraccion", "ValidacionPrecios"):
+        try:
+            optional[sheet] = pd.read_excel(
+                OUTPUT_PATH,
+                sheet_name=sheet,
+                dtype={"category_id": str},
+            )
+        except Exception:
+            optional[sheet] = pd.DataFrame()
+
+    configured = {item.id for item in categories}
+    results = {}
+    for _, row in summary_df.iterrows():
+        category_id = str(row.get("category_id") or "").strip()
+        if category_id not in configured:
+            continue
+        summary = row.to_dict()
+        if not _summary_is_acceptable(summary):
+            continue
+        frame = concentrated.loc[
+            concentrated["category_id"].astype(str).eq(category_id)
+        ].copy()
+        if len(frame) != int(summary["products"]):
+            continue
+
+        sources_df = optional["Fuentes"]
+        extraction_df = optional["Extraccion"]
+        audit_df = optional["ValidacionPrecios"]
+        sources = (
+            sources_df.loc[
+                sources_df["category_id"].astype(str).eq(category_id)
+            ].to_dict("records")
+            if "category_id" in sources_df.columns
+            else []
+        )
+        extraction = (
+            extraction_df.loc[
+                extraction_df["category_id"].astype(str).eq(category_id)
+            ].to_dict("records")
+            if "category_id" in extraction_df.columns
+            else []
+        )
+        audit = (
+            audit_df.loc[
+                audit_df["category_id"].astype(str).eq(category_id)
+            ].copy()
+            if "category_id" in audit_df.columns
+            else pd.DataFrame()
+        )
+        results[category_id] = (
+            frame,
+            summary,
+            sources,
+            extraction,
+            audit,
+        )
+    return results
 
 
 def _write_results(
@@ -505,7 +602,20 @@ def main() -> int:
     print("verificación en Chrome. El scraper NO la evade.")
 
     category_order = [category.id for category in categories]
-    results: dict[str, tuple] = {}
+    results: dict[str, tuple] = (
+        _load_existing_valid_results(categories)
+        if not args.category
+        else {}
+    )
+    if results:
+        print("")
+        print("CATEGORÍAS BODEGA YA VÁLIDAS HOY:")
+        for category_id in category_order:
+            if category_id in results:
+                print(
+                    f"- {category_id}: REUTILIZADA, NO SE DESCARGA DE NUEVO"
+                )
+        _write_results(results, category_order)
 
     with sync_playwright() as playwright:
         try:
@@ -538,6 +648,12 @@ def main() -> int:
         category_by_id = {item.id: item for item in categories}
 
         for category in categories:
+            if category.id in results:
+                print(
+                    f"BODEGA | {category.id}: "
+                    "YA VÁLIDA HOY, SE OMITE DESCARGA."
+                )
+                continue
             result = run_category(category, location, page)
             results[category.id] = result
             _write_results(results, category_order)
