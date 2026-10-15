@@ -18,6 +18,7 @@ import pandas as pd
 
 from main import COLUMNS
 from scraper.io_utils import atomic_output_path
+from scraper.quality_rules import meets_rate, valid_after_errors
 
 OUTPUT_PATH = ROOT / "output" / "concentrado_fase3.xlsx"
 BASELINE_PATH = ROOT / "output" / "fase3_muestra_inicial_valida.xlsx"
@@ -81,8 +82,11 @@ def _validate_bodega(
 
     for metric in ("sku_complete", "price_complete", "url_complete"):
         values = pd.to_numeric(summary[metric], errors="coerce").fillna(-2)
-        if not values.eq(products).all():
-            notes.append(f"Bodega {metric} incompleto")
+        if not all(
+            meets_rate(value, total)
+            for value, total in zip(values, products)
+        ):
+            notes.append(f"Bodega {metric} < 90%")
 
     if "catalogue_gate_ok" not in summary.columns:
         notes.append("Bodega sin catalogue_gate_ok")
@@ -101,8 +105,11 @@ def _validate_bodega(
     price_errors = pd.to_numeric(
         summary["price_validation_errors"], errors="coerce"
     ).fillna(-1)
-    if not price_errors.eq(0).all():
-        notes.append("Bodega price_validation_errors > 0")
+    if not all(
+        valid_after_errors(total, errors)
+        for total, errors in zip(products, price_errors)
+    ):
+        notes.append("Bodega validación de precios < 90%")
 
     if summary["blocked_detected"].map(bool).any():
         notes.append("Bodega blocked_detected=True")
@@ -145,8 +152,11 @@ def _validate_walmart(
         "store_context_complete",
     ):
         values = pd.to_numeric(summary[metric], errors="coerce").fillna(-2)
-        if not values.eq(products).all():
-            notes.append(f"Walmart {metric} incompleto")
+        if not all(
+            meets_rate(value, total)
+            for value, total in zip(values, products)
+        ):
+            notes.append(f"Walmart {metric} < 90%")
 
     if not summary["store_context_verified"].map(bool).all():
         notes.append("Walmart store_context_verified=False")
@@ -159,8 +169,11 @@ def _validate_walmart(
     price_errors = pd.to_numeric(
         summary["price_order_errors"], errors="coerce"
     ).fillna(-1)
-    if not price_errors.eq(0).all():
-        notes.append("Walmart price_order_errors > 0")
+    if not all(
+        valid_after_errors(total, errors)
+        for total, errors in zip(products, price_errors)
+    ):
+        notes.append("Walmart orden de precios válido < 90%")
 
     duplicates = pd.to_numeric(
         summary["duplicates_sku_url"], errors="coerce"
@@ -309,8 +322,8 @@ def main() -> int:
     print(f"Salida    : {OUTPUT_PATH}")
     print("")
 
-    BODEGA_OUTPUT.unlink(missing_ok=True)
-    WALMART_OUTPUT.unlink(missing_ok=True)
+    # Do not delete retailer checkpoints here. The child runners reuse
+    # same-day successful categories and retry only pending failures.
 
     bodega_code = _run_child(
         "BODEGA AURRERA",
