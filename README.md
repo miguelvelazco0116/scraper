@@ -725,18 +725,18 @@ Prueba completa aislada:
 & .\scripts\test_chedraui.ps1 -Headed
 ```
 
-Sin `-Category`, el runner ejecuta ambas categorías. Para una sola categoría puede usarse `-Category higiene-bucal` o `-Category lavanderia`.
+Sin `-Category`, el runner ejecuta las cinco categorías productivas. Para una sola categoría puede usarse cualquiera de los cinco IDs activos.
 
 ### Expansión multitienda Chedraui
 
 Estado: **VALIDADA LIVE / PRODUCTIVA**
 
-La tienda productiva validada sigue siendo Polanco (232). Se agregaron tres ubicaciones para pruebas aisladas:
+Las cuatro tiendas productivas validadas son:
 
 ```text
 chedraui-tepeyac
 store_id: 173
-CP: 07820
+CP: 07850
 Ciudad: Gustavo A. Madero, CDMX
 
 chedraui-cancun-kabah
@@ -750,7 +750,7 @@ CP: 72490
 Ciudad: Puebla, Puebla
 ```
 
-El scraper de contexto de tienda fue generalizado para verificar nombre, store_id y código postal. El flujo Polanco validado conserva su ruta específica; las tiendas nuevas usan el selector genérico.
+El scraper usa un único flujo de selección por directorio VTEX para las cuatro tiendas. Las diferencias de estado, zona de directorio, store_id y código postal se resuelven por configuración y metadata live, no mediante ramas específicas por tienda.
 
 Prueba aislada de una tienda/categoría:
 
@@ -784,10 +784,10 @@ respiratorios
 Farmacia > Medicamentos > Respiratorios
 ```
 
-Probar las tres candidatas en una tienda:
+Probar las cinco categorías productivas en una tienda:
 
 ```powershell
-& .\scripts\test_chedraui.ps1 -Store chedraui-tepeyac -Category candidates -Headed
+& .\scripts\test_chedraui.ps1 -Store chedraui-tepeyac -Category all -Headed
 ```
 
 Probar una sola combinación:
