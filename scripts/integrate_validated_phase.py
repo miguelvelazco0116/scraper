@@ -66,6 +66,15 @@ PHASES = {
         "categories": 7,
         "require_fg_names": False,
     },
+    5: {
+        "label": "FASE 5",
+        "source": ROOT / "output" / "farmacias_similares_test.xlsx",
+        "retailers": {
+            "Farmacias Similares",
+        },
+        "categories": 2,
+        "require_fg_names": False,
+    },
 } 
 
 PHASE3_RETAILER_SOURCES = {
@@ -540,6 +549,162 @@ def _validate_benavides_phase(
     if retailers != {"Farmacias Benavides"}:
         notes.append(
             f"Retailers Benavides inesperados: {sorted(retailers)}"
+        )
+
+    return notes
+
+
+def _validate_similares_phase(
+    frame: pd.DataFrame,
+    summary: pd.DataFrame,
+) -> list[str]:
+    notes: list[str] = []
+
+    if frame.empty:
+        notes.append("Concentrado Farmacias Similares vacío")
+    if len(summary) != 2:
+        notes.append(
+            f"Farmacias Similares categorías {len(summary)}/2"
+        )
+        return notes
+
+    required = {
+        "category_id",
+        "status",
+        "target_products",
+        "product_links",
+        "discovery_complete",
+        "products",
+        "sku_complete",
+        "price_complete",
+        "regular_price_complete",
+        "url_complete",
+        "detail_errors",
+        "promotion_price_errors",
+        "blocked_detected",
+    }
+    missing = required.difference(summary.columns)
+    if missing:
+        notes.append(
+            "Farmacias Similares Resumen sin columnas: "
+            + ", ".join(sorted(missing))
+        )
+        return notes
+
+    expected_categories = {
+        "aparato-respiratorio",
+        "condones",
+    }
+    observed_categories = set(
+        summary["category_id"].dropna().astype(str)
+    )
+    if observed_categories != expected_categories:
+        notes.append(
+            "Categorías Farmacias Similares inesperadas: "
+            f"{sorted(observed_categories)}"
+        )
+
+    if not summary["status"].astype(str).str.upper().eq("SUCCESS").all():
+        notes.append(
+            "Farmacias Similares tiene categorías no SUCCESS"
+        )
+
+    products = pd.to_numeric(
+        summary["products"], errors="coerce"
+    ).fillna(0)
+    targets = pd.to_numeric(
+        summary["target_products"], errors="coerce"
+    ).fillna(0)
+    links = pd.to_numeric(
+        summary["product_links"], errors="coerce"
+    ).fillna(0)
+
+    if int(products.sum()) != len(frame):
+        notes.append(
+            "Farmacias Similares suma products="
+            f"{int(products.sum())} != filas={len(frame)}"
+        )
+
+    for index in summary.index:
+        category_id = str(summary.loc[index, "category_id"])
+        product_count = float(products.loc[index])
+        target_count = float(targets.loc[index])
+        link_count = float(links.loc[index])
+
+        if target_count <= 0:
+            notes.append(
+                f"Farmacias Similares {category_id} sin target válido"
+            )
+            continue
+
+        if not meets_rate(product_count, target_count):
+            notes.append(
+                f"Farmacias Similares {category_id} cobertura < 90%"
+            )
+        if not meets_rate(link_count, target_count):
+            notes.append(
+                f"Farmacias Similares {category_id} discovery < 90%"
+            )
+        if not bool(summary.loc[index, "discovery_complete"]):
+            notes.append(
+                f"Farmacias Similares {category_id} "
+                "discovery_complete=False"
+            )
+        if bool(summary.loc[index, "blocked_detected"]):
+            notes.append(
+                f"Farmacias Similares {category_id} bloqueado"
+            )
+
+        if product_count <= 0:
+            notes.append(
+                f"Farmacias Similares {category_id} sin productos"
+            )
+            continue
+
+        for metric in (
+            "sku_complete",
+            "price_complete",
+            "regular_price_complete",
+            "url_complete",
+        ):
+            complete = float(
+                pd.to_numeric(
+                    pd.Series([summary.loc[index, metric]]),
+                    errors="coerce",
+                ).fillna(0).iloc[0]
+            )
+            if not meets_rate(complete, product_count):
+                notes.append(
+                    f"Farmacias Similares {category_id} "
+                    f"{metric} < 90%"
+                )
+
+        for metric in (
+            "detail_errors",
+            "promotion_price_errors",
+        ):
+            errors = float(
+                pd.to_numeric(
+                    pd.Series([summary.loc[index, metric]]),
+                    errors="coerce",
+                ).fillna(product_count).iloc[0]
+            )
+            denominator = (
+                product_count + errors
+                if metric == "detail_errors"
+                else product_count
+            )
+            if not valid_after_errors(denominator, errors):
+                notes.append(
+                    f"Farmacias Similares {category_id} "
+                    f"{metric} excede 10%"
+                )
+
+    retailers = set(frame["retailer"].dropna().astype(str))
+    if retailers != {"Farmacias Similares"}:
+        notes.append(
+            "Retailers Farmacias Similares inesperados: "
+            f"{sorted(retailers)}"
         )
 
     return notes
@@ -1058,7 +1223,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Integra una fase productiva validada al concentrado maestro."
     )
-    parser.add_argument("--phase", type=int, choices=[1, 2, 3, 4], required=True)
+    parser.add_argument(
+        "--phase",
+        type=int,
+        choices=[1, 2, 3, 4, 5],
+        required=True,
+    )
     parser.add_argument(
         "--retailer",
         choices=[
@@ -1135,6 +1305,14 @@ def main() -> int:
             _read_workbook_optional_control(source)
         )
         notes = _validate_benavides_phase(
+            phase_frame,
+            phase_summary,
+        )
+    elif phase == 5:
+        phase_frame, phase_summary, phase_control = (
+            _read_workbook_optional_control(source)
+        )
+        notes = _validate_similares_phase(
             phase_frame,
             phase_summary,
         )
@@ -1305,6 +1483,22 @@ def main() -> int:
                 (products_numeric - price_errors) / products_numeric
             )
 
+    if phase == 5:
+        phase_summary["source_status"] = (
+            phase_summary["status"].astype(str)
+        )
+        phase_summary["status"] = "COMPLETE"
+        phase_summary["retailer"] = "Farmacias Similares"
+        products_numeric = pd.to_numeric(
+            phase_summary["products"], errors="coerce"
+        )
+        targets_numeric = pd.to_numeric(
+            phase_summary["target_products"], errors="coerce"
+        )
+        phase_summary["coverage"] = (
+            products_numeric / targets_numeric
+        )
+
     if "source_phase" in phase_summary.columns:
         phase_summary["source_phase"] = cfg["label"]
     else:
@@ -1465,6 +1659,20 @@ def main() -> int:
                         ]
                     )
                 ),
+                "phase5_products": int(
+                    len(
+                        concentrated.loc[
+                            concentrated["retailer"].astype(str).isin(
+                                PHASES[5]["retailers"]
+                            )
+                        ]
+                    )
+                ),
+                "phase5_status": (
+                    "COMPLETE"
+                    if 5 in completed
+                    else "PENDING"
+                ),
                 "capture_date": capture_date,
                 "master": str(master_path),
             }
@@ -1499,6 +1707,7 @@ def main() -> int:
         "phase3_validated_retailers": phase3_validated_retailers,
         "phase4_status": control.iloc[0]["phase4_status"],
         "phase4_validated_retailers": phase4_validated_retailers,
+        "phase5_status": control.iloc[0]["phase5_status"],
         "generated_at": generated_at,
         "source": str(source),
         "capture_date": capture_date,
@@ -1538,6 +1747,9 @@ def main() -> int:
             "Retailers Fase 4  : "
             f"{control.iloc[0]['phase4_validated_retailers']}"
         )
+    if phase == 5:
+        print(f"Estado Fase 5     : {control.iloc[0]['phase5_status']}")
+        print("Retailers Fase 5  : Farmacias Similares")
     print(f"Filas acumuladas  : {len(concentrated)}")
     print(
         "Retailer-categorías: "
