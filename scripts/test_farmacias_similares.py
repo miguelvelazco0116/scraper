@@ -195,7 +195,7 @@ def _summary_is_acceptable(summary: dict) -> bool:
         )
         and meets_rate(summary.get("url_complete") or 0, products)
         and valid_after_errors(
-            products,
+            products + int(summary.get("detail_errors") or 0),
             summary.get("detail_errors") or 0,
         )
         and valid_after_errors(
