@@ -403,7 +403,7 @@ Estado actual del runner integral: **PENDIENTE DE PRIMERA VALIDACIÓN LIVE**.
 
 ## Fase 1 productiva
 
-Fase 1 ahora contiene **12 categorías**: 6 de Farmacias del Ahorro, 4 de Ibarra Mayoreo y 2 de Chedraui. Las categorías `anti-acne` y `desodorantes` fueron validadas live el 14 de octubre de 2026.
+Fase 1 ahora contiene **15 retailer-categorías únicas**: 6 de Farmacias del Ahorro, 4 de Ibarra Mayoreo y 5 de Chedraui. Debido a que Chedraui se ejecuta en 4 tiendas, la Fase 1 completa tiene **30 casos productivos**: 6 Ahorro + 4 Ibarra + 20 Chedraui. Las categorías `anti-acne` y `desodorantes` de Farmacias del Ahorro, así como las tres nuevas categorías de Chedraui, fueron validadas live el 14 de octubre de 2026.
 
 Importante: el master histórico `concentrado_productivo_total_2026-10-13.xlsx` conserva 32 categorías porque fue generado antes de estas altas. Las dos nuevas categorías entran a partir de la siguiente corrida diaria fresca y no se retroinsertan en una fecha anterior.
 
@@ -412,7 +412,7 @@ La primera corrida productiva está limitada a los retailers estables:
 
 - Farmacias del Ahorro: todas las categorías activas.
 - Ibarra Mayoreo: todas las categorías activas, conservando presentación, unidades por empaque y precio por pieza. Cuando existe CAJA, el precio unitario se calcula como precio de caja / artículos por caja; si sólo existe presentación individual, se registra como single item.
-- Chedraui Polanco (tienda 232): todas las categorías activas.
+- Chedraui: 5 categorías activas en 4 tiendas validadas: Polanco (232), Tepeyac (173), Cancún Kabah (255) y Puebla Centro Sur (76).
 
 El runner productivo es:
 
@@ -698,26 +698,26 @@ Las rutas de desodorantes fueron validadas el 2 de octubre de 2026.
 
 ## Chedraui
 
-Ubicación validada:
+Tiendas productivas validadas:
 
 ```text
-id: chedraui-polanco
-store: Chedraui Selecto México Polanco
-store_id: 232
-postal_code: 11500
-city: Miguel Hidalgo
-state: CDMX
+chedraui-polanco             store_id 232   CDMX
+chedraui-tepeyac             store_id 173   CDMX
+chedraui-cancun-kabah        store_id 255   Quintana Roo
+chedraui-puebla-centro-sur   store_id 76    Puebla
 ```
 
-Categorías activas:
+Categorías productivas activas:
 
 ```text
-higiene-bucal   303
-lavanderia      352
-Total           655
+higiene-bucal
+lavanderia
+desodorantes-y-antitranspirantes
+depilacion
+respiratorios
 ```
 
-La validación del 8 de octubre de 2026 tuvo cobertura completa: higiene bucal 303/303 y lavandería 352/352, con precios requeridos completos, contexto de tienda Polanco 232 verificado, cero huecos de paginación y cero errores de orden de precios.
+El 14 de octubre de 2026 se completó la certificación exhaustiva de **4 tiendas × 5 categorías = 20 combinaciones**, todas con exit code 0. El gate productivo exige contexto de tienda verificado, cobertura >=90%, SKU y URL completos, precio completo para productos que lo requieren, cero páginas estructuradas faltantes, cero huecos internos de paginación y cero errores de orden de precio.
 
 Prueba completa aislada:
 
@@ -727,9 +727,9 @@ Prueba completa aislada:
 
 Sin `-Category`, el runner ejecuta ambas categorías. Para una sola categoría puede usarse `-Category higiene-bucal` o `-Category lavanderia`.
 
-### Nuevas tiendas candidatas Chedraui
+### Expansión multitienda Chedraui
 
-Estado: **CONFIGURADAS / PENDIENTES DE VALIDACIÓN LIVE**
+Estado: **VALIDADA LIVE / PRODUCTIVA**
 
 La tienda productiva validada sigue siendo Polanco (232). Se agregaron tres ubicaciones para pruebas aisladas:
 
@@ -758,27 +758,20 @@ Prueba aislada de una tienda/categoría:
 & .\scripts\test_chedraui.ps1 -Store chedraui-tepeyac -Category higiene-bucal -Headed
 ```
 
-Las tiendas candidatas no forman parte todavía de la corrida productiva de Fase 1. Se promoverán sólo después de validación live.
+Las cuatro tiendas forman parte de la corrida productiva de Fase 1. El runner usa el mismo flujo de directorio VTEX para todas y mantiene perfiles separados por tienda.
 
 
-### Nuevas categorías candidatas Chedraui
+### Nuevas categorías Chedraui
 
-Estado: **CONFIGURADAS / PENDIENTES DE VALIDACIÓN LIVE**
+Estado: **VALIDADAS LIVE / PRODUCTIVAS**
 
-Las categorías productivas actuales de Chedraui siguen siendo:
-
-```text
-higiene-bucal
-lavanderia
-```
-
-Las nuevas categorías se mantienen separadas en:
+Las cinco categorías productivas actuales de Chedraui están en:
 
 ```text
-config\chedraui\candidate_categories.yaml
+config\chedraui\categories.yaml
 ```
 
-Candidatas:
+Las tres categorías promovidas son:
 
 ```text
 desodorantes-y-antitranspirantes
@@ -803,12 +796,7 @@ Probar una sola combinación:
 & .\scripts\test_chedraui.ps1 -Store chedraui-cancun-kabah -Category respiratorios -Headed
 ```
 
-Matriz pendiente de validación:
-- 3 categorías candidatas;
-- 4 tiendas: Polanco, Tepeyac, Cancún Kabah y Puebla Centro Sur;
-- 12 combinaciones tienda-categoría.
-
-Ninguna de estas tres categorías se incorpora al conteo productivo de Fase 1 hasta pasar la validación live.
+La matriz de expansión de las tres categorías nuevas cerró 12/12 combinaciones válidas. Después se ejecutó una certificación completa de las cinco categorías en las cuatro tiendas, cerrando 20/20 casos exitosos.
 
 
 
@@ -817,18 +805,18 @@ Ninguna de estas tres categorías se incorpora al conteo productivo de Fase 1 ha
 Para validar las categorías candidatas en las cuatro tiendas sin lanzar tráfico en paralelo:
 
 ```powershell
-& .\scripts\test_chedraui_multistore.ps1 -Category candidates -Headed
+& .\scripts\test_chedraui_multistore.ps1 -Category all -Headed
 ```
 
 El runner ejecuta secuencialmente:
 
 ```text
 Polanco
-↓ 45 s
+↓ 60 s
 Tepeyac
-↓ 45 s
+↓ 60 s
 Cancún Kabah
-↓ 45 s
+↓ 60 s
 Puebla Centro Sur
 ```
 
@@ -836,7 +824,7 @@ El delay se puede ajustar:
 
 ```powershell
 & .\scripts\test_chedraui_multistore.ps1 `
-    -Category candidates `
+    -Category all `
     -StoreDelaySeconds 60 `
     -Headed
 ```
