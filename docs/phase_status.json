@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-14",
+  "updated_at": "2026-10-15",
   "operating_rule": "A validated phase remains validated and must not be reworked unless a new concrete failure proves necessary. A pending phase is added only after a successful live Windows Server run.",
   "phases": {
     "1": {
@@ -178,6 +178,50 @@
         "master": "output/concentrado_productivo_total_2026-10-13.xlsx",
         "checkpoint": "output/checkpoints_validos/checkpoint_fase4_farmacias_benavides_20261013_195608.xlsx"
       }
+    },
+    "5": {
+      "name": "Fase 5",
+      "status": "PARTIAL_VALIDATED",
+      "categories": 3,
+      "retailers": [
+        "Farmacias Similares",
+        "HEB"
+      ],
+      "retailer_progress": {
+        "Farmacias Similares": {
+          "status": "VALIDATED_LIVE",
+          "categories": {
+            "aparato-respiratorio": "VALIDATED_LIVE",
+            "condones": "VALIDATED_LIVE"
+          },
+          "products": 30,
+          "source_workbook": "output/farmacias_similares_test.xlsx",
+          "integration_command": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 5 -Retailer \"Farmacias Similares\"",
+          "note": "Validación live del 2026-10-15: 30/30 productos, discovery/SKU/precio/precio regular/URL completos, cero errores y cero bloqueos."
+        },
+        "HEB": {
+          "status": "PENDING_LIVE_VALIDATION",
+          "categories": {
+            "pasta-dental": "PENDING_LIVE_VALIDATION"
+          },
+          "source_workbook": "output/heb_phase5_test.xlsx",
+          "test_command": "& .\\scripts\\test_heb.ps1",
+          "integration_command": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 5 -Retailer \"HEB\"",
+          "category_url": "https://www.heb.com.mx/cuidado-personal-y-belleza/higiene-dental/pasta-dental",
+          "strategy": "VTEX_PRODUCTSEARCHV3_STOREFRONT_CAPTURE_SHOW_MORE",
+          "validation_rules": {
+            "minimum_catalog_coverage": 0.9,
+            "minimum_sku_completeness": 0.9,
+            "minimum_price_completeness": 0.9,
+            "minimum_url_completeness": 0.9,
+            "minimum_availability_completeness": 0.9,
+            "minimum_price_order_valid_rate": 0.9,
+            "availability_encoding": "1=available, 0=unavailable"
+          },
+          "note": "No integrar ni marcar VALIDATED hasta observar una corrida live satisfactoria."
+        }
+      },
+      "note": "Fase 5 queda COMPLETE sólo cuando Farmacias Similares y HEB estén validados e integrados para la misma fecha. La Comer permanece fuera de Fase 5."
     }
   }
 }
