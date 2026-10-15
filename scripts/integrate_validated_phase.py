@@ -68,11 +68,12 @@ PHASES = {
     },
     5: {
         "label": "FASE 5",
-        "source": ROOT / "output" / "farmacias_similares_test.xlsx",
+        "source": ROOT / "output" / "concentrado_fase5.xlsx",
         "retailers": {
             "Farmacias Similares",
+            "HEB",
         },
-        "categories": 2,
+        "categories": 3,
         "require_fg_names": False,
     },
 } 
@@ -96,6 +97,18 @@ PHASE4_RETAILER_SOURCES = {
     "Farmacias Benavides": {
         "source": ROOT / "output" / "benavides_test.xlsx",
         "categories": 3,
+    },
+}
+
+
+PHASE5_RETAILER_SOURCES = {
+    "Farmacias Similares": {
+        "source": ROOT / "output" / "farmacias_similares_test.xlsx",
+        "categories": 2,
+    },
+    "HEB": {
+        "source": ROOT / "output" / "heb_phase5_test.xlsx",
+        "categories": 1,
     },
 }
 
@@ -710,6 +723,115 @@ def _validate_similares_phase(
     return notes
 
 
+def _validate_heb_phase(
+    frame: pd.DataFrame,
+    summary: pd.DataFrame,
+) -> list[str]:
+    notes: list[str] = []
+
+    if frame.empty:
+        notes.append("Concentrado HEB vacío")
+    if len(summary) != 1:
+        notes.append(f"HEB categorías {len(summary)}/1")
+        return notes
+
+    required = {
+        "category_id",
+        "status",
+        "target_products",
+        "products",
+        "sku_complete",
+        "price_complete",
+        "url_complete",
+        "availability_complete",
+        "price_order_errors",
+        "structured_responses",
+        "blocked_detected",
+    }
+    missing = required.difference(summary.columns)
+    if missing:
+        notes.append(
+            "HEB Resumen sin columnas: "
+            + ", ".join(sorted(missing))
+        )
+        return notes
+
+    observed_categories = set(
+        summary["category_id"].dropna().astype(str)
+    )
+    if observed_categories != {"pasta-dental"}:
+        notes.append(
+            f"Categorías HEB inesperadas: {sorted(observed_categories)}"
+        )
+
+    if not summary["status"].astype(str).str.upper().eq("SUCCESS").all():
+        notes.append("HEB tiene categoría no SUCCESS")
+
+    row = summary.iloc[0]
+    products = float(pd.to_numeric(
+        pd.Series([row.get("products")]),
+        errors="coerce",
+    ).fillna(0).iloc[0])
+    target = float(pd.to_numeric(
+        pd.Series([row.get("target_products")]),
+        errors="coerce",
+    ).fillna(0).iloc[0])
+
+    if int(products) != len(frame):
+        notes.append(
+            f"HEB products={int(products)} != filas={len(frame)}"
+        )
+
+    if target <= 0:
+        notes.append("HEB sin target válido")
+    elif not meets_rate(products, target):
+        notes.append("HEB cobertura < 90%")
+
+    if products > 0:
+        for metric in (
+            "sku_complete",
+            "price_complete",
+            "url_complete",
+            "availability_complete",
+        ):
+            complete = float(pd.to_numeric(
+                pd.Series([row.get(metric)]),
+                errors="coerce",
+            ).fillna(0).iloc[0])
+            if not meets_rate(complete, products):
+                notes.append(f"HEB {metric} < 90%")
+
+        price_errors = float(pd.to_numeric(
+            pd.Series([row.get("price_order_errors")]),
+            errors="coerce",
+        ).fillna(products).iloc[0])
+        if not valid_after_errors(products, price_errors):
+            notes.append("HEB orden de precios válido < 90%")
+
+    if int(row.get("structured_responses") or 0) <= 0:
+        notes.append("HEB sin respuestas productSearchV3")
+
+    if bool(row.get("blocked_detected")):
+        notes.append("HEB blocked_detected=True")
+
+    retailers = set(frame["retailer"].dropna().astype(str))
+    if retailers != {"HEB"}:
+        notes.append(f"Retailers HEB inesperados: {sorted(retailers)}")
+
+    if "is_available" not in frame.columns:
+        notes.append("HEB sin is_available")
+    elif not frame.empty:
+        availability = pd.to_numeric(
+            frame["is_available"],
+            errors="coerce",
+        )
+        valid_availability = int(availability.isin([0, 1]).sum())
+        if not meets_rate(valid_availability, len(frame)):
+            notes.append("HEB disponibilidad binaria < 90%")
+
+    return notes
+
+
 def _control_capture_date(control: pd.DataFrame) -> str | None:
     if control.empty:
         return None
@@ -1236,10 +1358,12 @@ def main() -> int:
             "Walmart",
             "Farmacias San Pablo",
             "Farmacias Benavides",
+            "Farmacias Similares",
+            "HEB",
         ],
         help=(
-            "Integra un retailer validado dentro de Fase 3 o Fase 4 "
-            "sin reemplazar las otras particiones de la misma fase."
+            "Integra un retailer validado dentro de Fase 3, Fase 4 "
+            "o Fase 5 sin reemplazar las otras particiones de la misma fase."
         ),
     )
     args = parser.parse_args()
@@ -1254,8 +1378,13 @@ def main() -> int:
         if phase == 4 and retailer_mode not in PHASE4_RETAILER_SOURCES:
             print("ERROR: retailer inválido para Fase 4.")
             return 2
-        if phase not in (3, 4):
-            print("ERROR: --retailer sólo aplica a Fase 3 o Fase 4.")
+        if phase == 5 and retailer_mode not in PHASE5_RETAILER_SOURCES:
+            print("ERROR: retailer inválido para Fase 5.")
+            return 2
+        if phase not in (3, 4, 5):
+            print(
+                "ERROR: --retailer sólo aplica a Fase 3, Fase 4 o Fase 5."
+            )
             return 2
 
     if phase == 4 and not retailer_mode:
@@ -1265,11 +1394,20 @@ def main() -> int:
         )
         return 2
 
+    if phase == 5 and not retailer_mode:
+        print(
+            "ERROR: Fase 5 se integra por retailer. Usa --retailer "
+            "'Farmacias Similares' o 'HEB'."
+        )
+        return 2
+
     cfg = PHASES[phase]
     if phase == 3 and retailer_mode:
         source = PHASE3_RETAILER_SOURCES[retailer_mode]["source"]
     elif phase == 4 and retailer_mode:
         source = PHASE4_RETAILER_SOURCES[retailer_mode]["source"]
+    elif phase == 5 and retailer_mode:
+        source = PHASE5_RETAILER_SOURCES[retailer_mode]["source"]
     else:
         source = cfg["source"]
 
@@ -1308,11 +1446,19 @@ def main() -> int:
             phase_frame,
             phase_summary,
         )
-    elif phase == 5:
+    elif phase == 5 and retailer_mode == "Farmacias Similares":
         phase_frame, phase_summary, phase_control = (
             _read_workbook_optional_control(source)
         )
         notes = _validate_similares_phase(
+            phase_frame,
+            phase_summary,
+        )
+    elif phase == 5 and retailer_mode == "HEB":
+        phase_frame, phase_summary, phase_control = (
+            _read_workbook_optional_control(source)
+        )
+        notes = _validate_heb_phase(
             phase_frame,
             phase_summary,
         )
@@ -1483,12 +1629,12 @@ def main() -> int:
                 (products_numeric - price_errors) / products_numeric
             )
 
-    if phase == 5:
+    if phase == 5 and retailer_mode in {"Farmacias Similares", "HEB"}:
         phase_summary["source_status"] = (
             phase_summary["status"].astype(str)
         )
         phase_summary["status"] = "COMPLETE"
-        phase_summary["retailer"] = "Farmacias Similares"
+        phase_summary["retailer"] = retailer_mode
         products_numeric = pd.to_numeric(
             phase_summary["products"], errors="coerce"
         )
@@ -1588,6 +1734,40 @@ def main() -> int:
     else:
         completed = [item for item in completed if item != 4]
 
+    phase5_validated_retailers = sorted(
+        set(
+            concentrated.loc[
+                concentrated["retailer"]
+                .astype(str)
+                .isin(PHASES[5]["retailers"]),
+                "retailer",
+            ]
+            .dropna()
+            .astype(str)
+            .tolist()
+        )
+    )
+    phase5_summary = (
+        summary.loc[
+            summary["source_phase"].astype(str).eq("FASE 5")
+        ].copy()
+        if "source_phase" in summary.columns
+        else pd.DataFrame()
+    )
+    phase5_complete = bool(
+        set(phase5_validated_retailers) == PHASES[5]["retailers"]
+        and len(phase5_summary) == PHASES[5]["categories"]
+        and phase5_summary["status"]
+        .astype(str)
+        .str.upper()
+        .eq("COMPLETE")
+        .all()
+    )
+    if phase5_complete:
+        completed = sorted(set(completed + [5]))
+    else:
+        completed = [item for item in completed if item != 5]
+
     control = pd.DataFrame(
         [
             {
@@ -1671,7 +1851,14 @@ def main() -> int:
                 "phase5_status": (
                     "COMPLETE"
                     if 5 in completed
-                    else "PENDING"
+                    else (
+                        "PARTIAL_VALIDATED"
+                        if phase5_validated_retailers
+                        else "PENDING"
+                    )
+                ),
+                "phase5_validated_retailers": " | ".join(
+                    phase5_validated_retailers
                 ),
                 "capture_date": capture_date,
                 "master": str(master_path),
@@ -1708,6 +1895,7 @@ def main() -> int:
         "phase4_status": control.iloc[0]["phase4_status"],
         "phase4_validated_retailers": phase4_validated_retailers,
         "phase5_status": control.iloc[0]["phase5_status"],
+        "phase5_validated_retailers": phase5_validated_retailers,
         "generated_at": generated_at,
         "source": str(source),
         "capture_date": capture_date,
@@ -1749,7 +1937,10 @@ def main() -> int:
         )
     if phase == 5:
         print(f"Estado Fase 5     : {control.iloc[0]['phase5_status']}")
-        print("Retailers Fase 5  : Farmacias Similares")
+        print(
+            "Retailers Fase 5  : "
+            f"{control.iloc[0]['phase5_validated_retailers']}"
+        )
     print(f"Filas acumuladas  : {len(concentrated)}")
     print(
         "Retailer-categorías: "
