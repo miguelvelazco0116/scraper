@@ -1,4 +1,6 @@
 param(
+    [string]$Category = "all",
+    [int]$RetryFailedAtEnd = 1,
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = ""
 )
@@ -26,12 +28,16 @@ if ([string]::IsNullOrWhiteSpace($PythonExe) -or -not (Test-Path $PythonExe)) {
 }
 
 Write-Host "============================================================"
-Write-Host "Farmacias Similares - test categorias activas"
+Write-Host "FASE 5 - Farmacias Similares"
 Write-Host "============================================================"
-Write-Host "Python: $PythonExe"
+Write-Host "Python     : $PythonExe"
+Write-Host "Categoria  : $Category"
+Write-Host "Reintentos : $RetryFailedAtEnd"
 Write-Host ""
 
-& $PythonExe .\scripts\test_farmacias_similares.py
+& $PythonExe .\scripts\test_farmacias_similares.py `
+    --category $Category `
+    --retry-failed-at-end $RetryFailedAtEnd
 $code = $LASTEXITCODE
 
 Write-Host ""
