@@ -746,6 +746,8 @@ def _validate_heb_phase(
         "availability_complete",
         "price_order_errors",
         "structured_responses",
+        "dom_rows",
+        "catalogue_source",
         "blocked_detected",
     }
     missing = required.difference(summary.columns)
@@ -808,8 +810,21 @@ def _validate_heb_phase(
         if not valid_after_errors(products, price_errors):
             notes.append("HEB orden de precios válido < 90%")
 
-    if int(row.get("structured_responses") or 0) <= 0:
-        notes.append("HEB sin respuestas productSearchV3")
+    catalogue_source = str(row.get("catalogue_source") or "")
+    if catalogue_source not in {
+        "productSearchV3",
+        "dom_fallback",
+        "productSearchV3+dom_fallback",
+    }:
+        notes.append(
+            f"HEB catalogue_source inválido: {catalogue_source!r}"
+        )
+
+    if (
+        int(row.get("structured_responses") or 0) <= 0
+        and int(row.get("dom_rows") or 0) <= 0
+    ):
+        notes.append("HEB sin evidencia de catálogo")
 
     if bool(row.get("blocked_detected")):
         notes.append("HEB blocked_detected=True")
