@@ -57,3 +57,21 @@ def test_phase5_integrator_supports_heb_retailer():
     assert '"HEB": {' in source
     assert '"source": ROOT / "output" / "heb_phase5_test.xlsx"' in source
     assert "def _validate_heb_phase" in source
+
+
+def test_heb_supports_dom_fallback_when_graphql_is_absent():
+    source = Path("scraper/retailers/heb.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def _target_from_body" in source
+    assert "def _dom_product_cards" in source
+    assert "dom_fallback" in source
+    assert r"\s+resultados" in source
+
+
+def test_heb_runner_accepts_dom_or_structured_transport():
+    source = Path("scripts/test_heb.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"dom_fallback"' in source
+    assert '"productSearchV3+dom_fallback"' in source
