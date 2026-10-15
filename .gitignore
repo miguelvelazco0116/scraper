@@ -15,3 +15,13 @@ walmart_profile/
 .walmart_export_profile/
 walmart_session.json
 walmart_session.secret.txt
+
+# Local browser profiles and runtime artifacts
+.chedraui_profile*/
+.farmacias_guadalajara_manual_profile/
+.la_comer_profile/
+.san_pablo_profile/
+.similares_profile/
+.soriana_profile/
+diagnostics/
+output/
