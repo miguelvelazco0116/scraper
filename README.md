@@ -57,7 +57,8 @@ Para reducir consumo de memoria, la operación productiva se ejecuta y consolida
 Fase 1 -> validar -> integrar al master -> liberar recursos
 Fase 2 -> validar -> integrar al master -> liberar recursos
 Fase 3 -> Bodega Aurrera + Walmart
-Fase 4 -> Farmacias San Pablo + Farmacias Benavides (validada; integración incremental)
+Fase 4 -> Farmacias San Pablo + Farmacias Benavides
+Fase 5 -> Farmacias Similares
 ```
 
 Integración automática:
@@ -73,6 +74,7 @@ Los comandos manuales se conservan para recuperación o auditoría:
 & .\scripts\integrate_validated_phase.ps1 -Phase 1
 & .\scripts\integrate_validated_phase.ps1 -Phase 2
 & .\scripts\integrate_validated_phase.ps1 -Phase 3
+& .\scripts\integrate_validated_phase.ps1 -Phase 5
 ```
 
 Master incremental fechado:
@@ -666,6 +668,7 @@ Implementación por fase:
 - **Fase 2:** `farmacias_guadalajara_phase2_test.xlsx` y `soriana_manual_phase2_test.xlsx` conservan categorías exitosas del día; el runner productivo ya no borra estos checkpoints.
 - **Fase 3:** Bodega Aurrera y Walmart reutilizan categorías válidas del día; el runner productivo ya no elimina sus workbooks antes de ejecutarse.
 - **Fase 4:** San Pablo y Benavides conservan categorías válidas del día y sólo ejecutan las pendientes.
+- **Fase 5:** Farmacias Similares conserva categorías válidas del día, reintenta sólo las pendientes y usa el mismo umbral >=90%. La Comer permanece fuera de Fase 5 hasta completar validación live.
 
 El umbral común está centralizado en:
 
@@ -1218,7 +1221,7 @@ Test dedicado:
 
 ## La Comer
 
-Implementado pero no activado en el runner principal.
+Implementado pero no activado en el runner principal. **La Comer no forma parte de Fase 5** y permanece pendiente hasta completar una validación live satisfactoria.
 
 Categorías configuradas:
 
