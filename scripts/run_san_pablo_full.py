@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 from copy import copy
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urljoin
 
@@ -248,6 +249,16 @@ class _BrowserOccSanPabloScraper(FarmaciasSanPabloScraper):
             )
             captured = driver.read_occ_payload()
 
+            if captured is None:
+                print(
+                    f"San Pablo [{category.id}] OCC no capturado; "
+                    "reintentando la misma página una vez",
+                    flush=True,
+                )
+                driver.page.wait_for_timeout(1_000)
+                cls._goto(driver, storefront_url)
+                captured = driver.read_occ_payload()
+
             if captured is None and page_index == 0:
                 query = (
                     clean_text(category.subcategory)
@@ -428,6 +439,89 @@ def _safe_for_global(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[has_product & has_price].copy()
 
 
+def _load_existing_valid_results(
+    categories,
+) -> dict[str, tuple[pd.DataFrame, dict]]:
+    """Reuse only same-day categories validated through captured OCC."""
+    if not OUTPUT_PATH.exists():
+        return {}
+
+    try:
+        concentrated = pd.read_excel(
+            OUTPUT_PATH,
+            sheet_name="Concentrado",
+            dtype={"sku": str, "store_id": str, "category_id": str},
+        )
+        summary = pd.read_excel(
+            OUTPUT_PATH,
+            sheet_name="Resumen",
+            dtype={"category_id": str},
+        )
+    except Exception:
+        return {}
+
+    if concentrated.empty or summary.empty:
+        return {}
+
+    required_summary = {
+        "category_id",
+        "target_products",
+        "products_extracted",
+        "price_complete",
+        "occ_transport",
+        "status",
+    }
+    if not required_summary.issubset(summary.columns):
+        return {}
+
+    today = datetime.now().astimezone().date().isoformat()
+    capture_dates = (
+        concentrated["scrape_timestamp"]
+        .fillna("")
+        .astype(str)
+        .str.slice(0, 10)
+        if "scrape_timestamp" in concentrated.columns
+        else pd.Series("", index=concentrated.index)
+    )
+
+    configured_ids = {item.id for item in categories}
+    results: dict[str, tuple[pd.DataFrame, dict]] = {}
+
+    for _, row in summary.iterrows():
+        category_id = str(row.get("category_id") or "").strip()
+        if category_id not in configured_ids:
+            continue
+        if str(row.get("status") or "").strip().upper() != "SUCCESS":
+            continue
+        if (
+            str(row.get("occ_transport") or "").strip()
+            != "captured_storefront_response"
+        ):
+            continue
+
+        try:
+            target = int(row.get("target_products"))
+            products = int(row.get("products_extracted"))
+            prices = int(row.get("price_complete"))
+        except (TypeError, ValueError):
+            continue
+
+        if target <= 0 or products != target or prices != products:
+            continue
+
+        subset = concentrated.loc[
+            concentrated["category_id"].astype(str).eq(category_id)
+            & capture_dates.eq(today)
+        ].copy()
+
+        if len(subset) != products:
+            continue
+
+        results[category_id] = (subset, row.to_dict())
+
+    return results
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Test completo Farmacias San Pablo con Chrome"
@@ -442,9 +536,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    categories = load_categories(
+    configured_categories = load_categories(
         ROOT / "config" / "farmacias-san-pablo" / "categories.yaml"
     )
+    categories = list(configured_categories)
     if args.category != "all":
         categories = [x for x in categories if x.id == args.category]
     if not categories:
@@ -455,8 +550,37 @@ def main() -> int:
     if location is None:
         raise SystemExit(f"Ubicación no encontrada: {args.location}")
 
+    existing = (
+        _load_existing_valid_results(configured_categories)
+        if args.category == "all"
+        else {}
+    )
+
     all_rows: list[dict] = []
     summaries: list[dict] = []
+    for category in configured_categories:
+        saved = existing.get(category.id)
+        if saved is None:
+            continue
+        frame, summary_row = saved
+        all_rows.extend(frame.to_dict("records"))
+        summaries.append(summary_row)
+
+    if existing:
+        print("")
+        print("CATEGORÍAS SAN PABLO YA VÁLIDAS HOY:")
+        for category in configured_categories:
+            if category.id in existing:
+                print(
+                    f"- {category.id}: REUTILIZADA, "
+                    "NO SE DESCARGA DE NUEVO"
+                )
+
+    categories = [
+        category
+        for category in categories
+        if category.id not in existing
+    ]
 
     scraper = _BrowserOccSanPabloScraper(
         headless=False,
@@ -486,7 +610,12 @@ def main() -> int:
     print("=" * 68)
     print("FARMACIAS SAN PABLO - TEST COMPLETO")
     print("=" * 68)
-    print(f"Categorías : {len(categories)}")
+    print(
+        f"Categorías : {len(configured_categories) if args.category == 'all' else len(categories)}"
+    )
+    if args.category == "all":
+        print(f"Reutilizadas: {len(existing)}")
+        print(f"Pendientes  : {len(categories)}")
     print(f"Salida     : {OUTPUT_PATH}")
     print(f"Consolidado: {CONSOLIDATED_PATH}")
     print("Chrome     : SESION EXISTENTE POR CDP")
@@ -625,6 +754,17 @@ def main() -> int:
         )
         print(f"Output actualizado: {OUTPUT_PATH}")
         print("")
+
+    summary_by_id = {
+        str(item.get("category_id") or ""): item
+        for item in summaries
+    }
+    summaries = [
+        summary_by_id[item.id]
+        for item in configured_categories
+        if item.id in summary_by_id
+    ]
+    _write_test_output(all_rows, summaries)
 
     print("=" * 68)
     print("RESUMEN FARMACIAS SAN PABLO")
