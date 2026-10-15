@@ -236,20 +236,23 @@ class FarmaciasSimilaresScraper:
                 let url;
                 try { url = new URL(a.href, location.href); } catch (_) { continue; }
                 if (url.origin !== location.origin) continue;
-                if (!/\/p\/?$/i.test(url.pathname)) continue;
 
-                const key = url.origin + url.pathname.replace(/\/$/, '');
+                // Product PDPs currently end in /p, but tolerate an optional
+                // trailing slash/query/hash representation from hydrated DOM.
+                const pathname = url.pathname.replace(/\/+$/, '');
+                if (!/\/p$/i.test(pathname)) continue;
+
+                const key = url.origin + pathname;
                 if (seen.has(key)) continue;
 
                 let card = a;
                 let cardText = '';
-                for (let i = 0; i < 10 && card; i++, card = card.parentElement) {
+                for (let i = 0; i < 12 && card; i++, card = card.parentElement) {
                   const text = norm(card.innerText || card.textContent);
                   if (
-                    text.length >= 10 &&
-                    text.length <= 2800 &&
-                    /Comprar ahora/i.test(text) &&
-                    /\$\s*[0-9]/.test(text)
+                    text.length >= 6 &&
+                    text.length <= 4000 &&
+                    (/Comprar ahora/i.test(text) || /\$\s*[0-9]/.test(text))
                   ) {
                     cardText = text;
                     break;
@@ -276,6 +279,68 @@ class FarmaciasSimilaresScraper:
             }
             """
         )
+
+    def _hydrate_product_links(
+        self,
+        page,
+        target: int | None,
+        *,
+        max_rounds: int = 18,
+    ) -> list[dict]:
+        """Accumulate product links while the VTEX shelf hydrates/lazy-loads."""
+        found: dict[str, dict] = {}
+        stable_rounds = 0
+        previous = -1
+
+        for round_number in range(1, max_rounds + 1):
+            self._assert_not_blocked(page)
+
+            try:
+                links = self._product_links(page)
+            except Exception:
+                links = []
+
+            for item in links:
+                href = clean_text(item.get("href"))
+                if href:
+                    found[href] = item
+
+            current = len(found)
+            if target is not None and current >= target:
+                break
+
+            stable_rounds = stable_rounds + 1 if current == previous else 0
+            previous = current
+
+            # Give VTEX React shelves a chance to hydrate and lazy-load cards.
+            try:
+                page.evaluate(
+                    """
+                    () => {
+                      window.scrollBy(
+                        0,
+                        Math.max(700, Math.floor(window.innerHeight * 0.9))
+                      );
+                    }
+                    """
+                )
+            except Exception:
+                pass
+
+            page.wait_for_timeout(650)
+
+            # After several stable rounds, force the bottom of the shelf once.
+            if stable_rounds >= 3:
+                try:
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                except Exception:
+                    pass
+                page.wait_for_timeout(900)
+
+            if stable_rounds >= 5:
+                break
+
+        return list(found.values())
 
     @staticmethod
     def _float(raw: str | None) -> float | None:
@@ -410,12 +475,12 @@ class FarmaciasSimilaresScraper:
             if current_target is not None:
                 target = max(target or 0, current_target)
 
-            try:
-                page.wait_for_selector('a[href$="/p"], a[href*="/p?"]', timeout=20_000)
-            except PlaywrightTimeoutError:
-                links = []
-            else:
-                links = self._product_links(page)
+            # Do not gate extraction on one brittle href selector. The shelf
+            # may expose /p/, absolute links, or hydrate product anchors late.
+            links = self._hydrate_product_links(
+                page,
+                target,
+            )
 
             before = len(found)
             for item in links:
@@ -449,13 +514,25 @@ class FarmaciasSimilaresScraper:
             if stale_pages >= 2:
                 break
 
-        discovery_complete = bool(
+        discovery_coverage = (
+            (len(found) / target)
+            if target is not None and target > 0
+            else 0.0
+        )
+        discovery_exact = bool(
             target is not None and len(found) >= target
+        )
+        discovery_complete = bool(
+            target is not None
+            and target > 0
+            and discovery_coverage >= 0.90
         )
 
         return list(found.values()), {
             "target_products": target,
             "product_links": len(found),
+            "discovery_coverage": discovery_coverage,
+            "discovery_exact": discovery_exact,
             "discovery_complete": discovery_complete,
             "pages": pages,
         }
@@ -591,10 +668,22 @@ class FarmaciasSimilaresScraper:
                 status = "SUCCESS"
                 if not rows:
                     status = "EMPTY"
-                elif detail_errors or no_price:
-                    status = "PARTIAL"
                 elif not self.run_meta.get("discovery_complete"):
                     status = "PARTIAL"
+                else:
+                    target_products = self.run_meta.get("target_products")
+                    if target_products:
+                        row_coverage = len(rows) / int(target_products)
+                    else:
+                        row_coverage = 0.0
+
+                    detail_valid_rate = (
+                        (len(rows) - len(detail_errors)) / len(rows)
+                        if rows
+                        else 0.0
+                    )
+                    if row_coverage < 0.90 or detail_valid_rate < 0.90:
+                        status = "PARTIAL"
 
                 self.run_meta.update(
                     {
