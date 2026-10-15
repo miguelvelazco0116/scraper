@@ -5,6 +5,7 @@ import json
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,6 +16,7 @@ import pandas as pd
 from openpyxl.styles import Font
 
 from main import COLUMNS
+from scraper.quality_rules import meets_rate, valid_after_errors
 
 CATEGORY_ORDER = [
     "vias-respiratorias",
@@ -97,6 +99,75 @@ def _invalid_product_name(value: object) -> bool:
     )
 
 
+def _summary_is_acceptable(summary: dict) -> bool:
+    products = int(summary.get("products") or 0)
+    target = int(summary.get("target_products") or 0)
+    if products <= 0 or target <= 0:
+        return False
+    return bool(
+        str(summary.get("status") or "").upper() == "SUCCESS"
+        and meets_rate(products, target)
+        and meets_rate(summary.get("product_name_complete") or 0, products)
+        and valid_after_errors(
+            products,
+            summary.get("product_name_invalid") or 0,
+        )
+        and meets_rate(summary.get("sku_complete") or 0, products)
+        and meets_rate(summary.get("price_complete") or 0, products)
+        and meets_rate(summary.get("url_complete") or 0, products)
+    )
+
+
+def _load_existing_valid_results(
+    categories: list[str],
+) -> dict[str, tuple[pd.DataFrame, dict]]:
+    if not OUTPUT.exists():
+        return {}
+    try:
+        concentrated = pd.read_excel(
+            OUTPUT,
+            sheet_name="Concentrado",
+            dtype={"sku": str, "store_id": str, "category_id": str},
+        )
+        summary_df = pd.read_excel(
+            OUTPUT,
+            sheet_name="Resumen",
+            dtype={"category_id": str},
+        )
+    except Exception:
+        return {}
+
+    if concentrated.empty or summary_df.empty:
+        return {}
+
+    today = datetime.now().astimezone().date().isoformat()
+    dates = set(
+        concentrated["scrape_timestamp"]
+        .dropna()
+        .astype(str)
+        .str.slice(0, 10)
+    )
+    if dates != {today}:
+        return {}
+
+    configured = set(categories)
+    results: dict[str, tuple[pd.DataFrame, dict]] = {}
+    for _, row in summary_df.iterrows():
+        category_id = str(row.get("category_id") or "").strip()
+        if category_id not in configured:
+            continue
+        summary = row.to_dict()
+        if not _summary_is_acceptable(summary):
+            continue
+        frame = concentrated.loc[
+            concentrated["category_id"].astype(str).eq(category_id)
+        ].copy()
+        if len(frame) != int(summary["products"]):
+            continue
+        results[category_id] = (frame, summary)
+    return results
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Prueba completa de Farmacias Guadalajara usando CDP directo."
@@ -105,7 +176,8 @@ def main() -> int:
     parser.add_argument("--category", default="all")
     args = parser.parse_args()
 
-    categories = CATEGORY_ORDER
+    configured_categories = list(CATEGORY_ORDER)
+    categories = list(configured_categories)
     if args.category != "all":
         if args.category not in CATEGORY_ORDER:
             raise SystemExit(f"Categoría no encontrada: {args.category}")
@@ -114,8 +186,31 @@ def main() -> int:
     TEMP_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
 
-    frames: list[pd.DataFrame] = []
-    summaries: list[dict] = []
+    existing = (
+        _load_existing_valid_results(configured_categories)
+        if args.category == "all"
+        else {}
+    )
+    frames: list[pd.DataFrame] = [
+        existing[item][0].copy()
+        for item in configured_categories
+        if item in existing
+    ]
+    summaries: list[dict] = [
+        dict(existing[item][1])
+        for item in configured_categories
+        if item in existing
+    ]
+    if existing:
+        print("CATEGORÍAS GUADALAJARA YA VÁLIDAS HOY:")
+        for category_id in configured_categories:
+            if category_id in existing:
+                print(
+                    f"- {category_id}: REUTILIZADA, NO SE DESCARGA DE NUEVO"
+                )
+        categories = [
+            item for item in categories if item not in existing
+        ]
 
     print("=" * 84)
     print("FARMACIAS GUADALAJARA - PRUEBA COMPLETA CDP DIRECTO")
@@ -196,15 +291,15 @@ def main() -> int:
             frame["url"].fillna("").astype(str).str.strip().ne("").sum()
         ) if not frame.empty else 0
 
-        if (
-            completed.returncode == 0
-            and status == "SUCCESS"
-            and (
-                product_name_complete < products
-                or product_name_invalid > 0
-            )
-        ):
-            status = "PARTIAL"
+        if completed.returncode == 0 and status == "SUCCESS":
+            if (
+                not meets_rate(product_name_complete, products)
+                or not valid_after_errors(products, product_name_invalid)
+                or not meets_rate(sku_complete, products)
+                or not meets_rate(price_complete, products)
+                or not meets_rate(url_complete, products)
+            ):
+                status = "PARTIAL"
 
         retry_attempts = 1 if completed.returncode == 0 else 2
         summary = {
@@ -271,14 +366,18 @@ def main() -> int:
     if summary_df.empty:
         return 2
 
-    bad = summary_df["status"].astype(str).str.startswith("ERROR")
-    bad = bad | summary_df["status"].isin(["EMPTY", "PARTIAL"])
-    bad = bad | (summary_df["product_name_complete"] < summary_df["products"])
-    bad = bad | (summary_df["product_name_invalid"] > 0)
-    bad = bad | (summary_df["sku_complete"] < summary_df["products"])
-    bad = bad | (summary_df["price_complete"] < summary_df["products"])
-    bad = bad | (summary_df["url_complete"] < summary_df["products"])
-    return 2 if bool(bad.any()) else 0
+    expected_count = (
+        len(configured_categories)
+        if args.category == "all"
+        else 1
+    )
+    if len(summary_df) != expected_count:
+        return 2
+    acceptable = all(
+        _summary_is_acceptable(row)
+        for row in summary_df.to_dict("records")
+    )
+    return 0 if acceptable else 2
 
 
 if __name__ == "__main__":
