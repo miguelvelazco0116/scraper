@@ -1,6 +1,6 @@
 param(
     [ValidateSet("candidates", "all", "full", "higiene-bucal", "lavanderia", "desodorantes-y-antitranspirantes", "depilacion", "respiratorios")]
-    [string]$Category = "candidates",
+    [string]$Category = "all",
     [ValidateRange(0, 600)]
     [int]$StoreDelaySeconds = 45,
     [ValidateRange(0, 600)]
