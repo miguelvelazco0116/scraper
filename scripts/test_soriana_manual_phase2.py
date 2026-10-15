@@ -4,6 +4,7 @@ import argparse
 import json
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -18,6 +19,7 @@ from playwright.sync_api import sync_playwright
 
 from main import COLUMNS
 from scraper.config import load_categories, load_locations
+from scraper.quality_rules import meets_rate
 from scraper.retailers.soriana import PRODUCT_SELECTOR, SorianaBlocked, SorianaScraper
 
 OUTPUT = ROOT / "output" / "soriana_manual_phase2_test.xlsx"
@@ -103,6 +105,73 @@ def normalize_frame(rows: list[dict]) -> pd.DataFrame:
     )
 
 
+def _summary_is_acceptable(summary: dict) -> bool:
+    products = int(summary.get("products") or 0)
+    if products <= 0:
+        return False
+    target = summary.get("target_products")
+    if target not in (None, ""):
+        try:
+            if not meets_rate(products, int(target)):
+                return False
+        except (TypeError, ValueError):
+            return False
+    return bool(
+        str(summary.get("status") or "").upper() == "COMPLETE"
+        and int(summary.get("total_pages") or 0) > 0
+        and meets_rate(summary.get("sku_complete") or 0, products)
+        and meets_rate(summary.get("price_complete") or 0, products)
+        and meets_rate(summary.get("url_complete") or 0, products)
+    )
+
+
+def _load_existing_valid_results(categories) -> dict[str, tuple[pd.DataFrame, dict]]:
+    if not OUTPUT.exists():
+        return {}
+    try:
+        concentrated = pd.read_excel(
+            OUTPUT,
+            sheet_name="Concentrado",
+            dtype={"sku": str, "store_id": str, "category_id": str},
+        )
+        summary_df = pd.read_excel(
+            OUTPUT,
+            sheet_name="Resumen",
+            dtype={"category_id": str},
+        )
+    except Exception:
+        return {}
+    if concentrated.empty or summary_df.empty:
+        return {}
+
+    today = datetime.now().astimezone().date().isoformat()
+    dates = set(
+        concentrated["scrape_timestamp"]
+        .dropna()
+        .astype(str)
+        .str.slice(0, 10)
+    )
+    if dates != {today}:
+        return {}
+
+    configured = {item.id for item in categories}
+    results = {}
+    for _, row in summary_df.iterrows():
+        category_id = str(row.get("category_id") or "").strip()
+        if category_id not in configured:
+            continue
+        summary = row.to_dict()
+        if not _summary_is_acceptable(summary):
+            continue
+        frame = concentrated.loc[
+            concentrated["category_id"].astype(str).eq(category_id)
+        ].copy()
+        if len(frame) != int(summary["products"]):
+            continue
+        results[category_id] = (frame, summary)
+    return results
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Fase 2 Soriana usando Chrome abierto manualmente."
@@ -112,9 +181,10 @@ def main() -> int:
     parser.add_argument("--max-pages", type=int, default=100)
     args = parser.parse_args()
 
-    categories = load_categories(
+    configured_categories = load_categories(
         ROOT / "config" / "soriana" / "categories.yaml"
     )
+    categories = list(configured_categories)
     if args.category != "all":
         categories = [item for item in categories if item.id == args.category]
         if not categories:
@@ -127,8 +197,31 @@ def main() -> int:
     )
 
     DIAG.mkdir(parents=True, exist_ok=True)
-    frames: list[pd.DataFrame] = []
-    summaries: list[dict] = []
+    existing = (
+        _load_existing_valid_results(configured_categories)
+        if args.category == "all"
+        else {}
+    )
+    frames: list[pd.DataFrame] = [
+        existing[item.id][0].copy()
+        for item in configured_categories
+        if item.id in existing
+    ]
+    summaries: list[dict] = [
+        dict(existing[item.id][1])
+        for item in configured_categories
+        if item.id in existing
+    ]
+    if existing:
+        print("CATEGORÍAS SORIANA YA VÁLIDAS HOY:")
+        for item in configured_categories:
+            if item.id in existing:
+                print(
+                    f"- {item.id}: REUTILIZADA, NO SE DESCARGA DE NUEVO"
+                )
+        categories = [
+            item for item in categories if item.id not in existing
+        ]
 
     print("=" * 80)
     print("FASE 2 - SORIANA SOBRE CHROME MANUAL")
@@ -208,14 +301,14 @@ def main() -> int:
             else:
                 if products <= 0:
                     notes.append("sin productos")
-                if target is not None and products < int(target):
-                    notes.append(f"cobertura {products}/{target}")
-                if sku_complete < products:
-                    notes.append(f"sku {sku_complete}/{products}")
-                if price_complete < products:
-                    notes.append(f"precio {price_complete}/{products}")
-                if url_complete < products:
-                    notes.append(f"url {url_complete}/{products}")
+                if target is not None and not meets_rate(products, int(target)):
+                    notes.append(f"cobertura {products}/{target} < 90%")
+                if not meets_rate(sku_complete, products):
+                    notes.append(f"sku {sku_complete}/{products} < 90%")
+                if not meets_rate(price_complete, products):
+                    notes.append(f"precio {price_complete}/{products} < 90%")
+                if not meets_rate(url_complete, products):
+                    notes.append(f"url {url_complete}/{products} < 90%")
                 status = "COMPLETE" if not notes else "PARTIAL"
 
             if not frame.empty:
@@ -295,9 +388,17 @@ def main() -> int:
 
     return (
         0
-        if len(summary_df) == len(categories)
+        if len(summary_df)
+        == (
+            len(configured_categories)
+            if args.category == "all"
+            else 1
+        )
         and not summary_df.empty
-        and summary_df["status"].eq("COMPLETE").all()
+        and all(
+            _summary_is_acceptable(row)
+            for row in summary_df.to_dict("records")
+        )
         else 2
     )
 
