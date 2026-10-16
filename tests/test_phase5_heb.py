@@ -159,3 +159,20 @@ def test_heb_runner_surfaces_native_pagination_diagnostics():
     )
     assert '"native_next_clicks"' in source
     assert '"scroll_rounds"' in source
+
+
+def test_heb_prefers_visible_numeric_pagination():
+    source = Path("scraper/retailers/heb.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def _click_numeric_page" in source
+    assert '"method": "numeric_page"' in source
+    assert '"numeric_page_clicks": numeric_page_clicks' in source
+    assert '"pagination_method": (' in source
+
+
+def test_heb_runner_surfaces_numeric_page_clicks():
+    source = Path("scripts/test_heb.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"numeric_page_clicks"' in source
