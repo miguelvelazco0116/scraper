@@ -790,15 +790,9 @@ class HEBScraper:
         try:
             node = page.locator(
                 f'a[href*="page={next_page}"]'
-            ).filter(
-                has=page.locator(
-                    'xpath=ancestor-or-self::a'
-                )
             ).first
             if node.count() == 0 or not node.is_visible():
-                node = page.locator(
-                    f'a[href*="page={next_page}"]'
-                ).first
+                return False
             node.scroll_into_view_if_needed(timeout=3_000)
             node.click(timeout=5_000)
             try:
