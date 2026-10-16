@@ -693,6 +693,68 @@ class HEBScraper:
             == expected.path.rstrip("/").casefold()
         )
 
+    @staticmethod
+    def _click_numeric_page(page, page_number: int) -> bool:
+        """Click a visible numeric paginator control such as 2, 3, 4."""
+        try:
+            candidates = page.locator("a, button").filter(
+                has_text=re.compile(
+                    rf"^\\s*{page_number}\\s*$"
+                )
+            )
+        except Exception:
+            return False
+
+        for index in range(candidates.count()):
+            try:
+                node = candidates.nth(index)
+                if not node.is_visible():
+                    continue
+
+                # Require pagination-like context: the nearby container
+                # must expose at least two visible numeric controls.
+                numeric_siblings = node.evaluate(
+                    r"""
+                    el => {
+                      let parent = el.parentElement;
+                      for (let depth = 0; depth < 5 && parent; depth++) {
+                        const controls = Array.from(
+                          parent.querySelectorAll('a,button')
+                        ).filter(item => {
+                          const text = (item.innerText || '').trim();
+                          const visible = !!(
+                            item.offsetWidth ||
+                            item.offsetHeight ||
+                            item.getClientRects().length
+                          );
+                          return visible && /^\d+$/.test(text);
+                        });
+                        if (controls.length >= 2) return controls.length;
+                        parent = parent.parentElement;
+                      }
+                      return 0;
+                    }
+                    """
+                )
+                if int(numeric_siblings or 0) < 2:
+                    continue
+
+                node.scroll_into_view_if_needed(timeout=3_000)
+                node.click(timeout=5_000)
+                try:
+                    page.wait_for_load_state(
+                        "domcontentloaded",
+                        timeout=15_000,
+                    )
+                except PlaywrightTimeoutError:
+                    pass
+                page.wait_for_timeout(1_500)
+                return True
+            except Exception:
+                continue
+
+        return False
+
     def _click_native_next_page(self, page) -> bool:
         selectors = (
             'a[rel="next"]',
@@ -910,12 +972,23 @@ class HEBScraper:
         )
 
         clicks = 0
+        numeric_page_clicks = 0
         native_next_clicks = 0
         scroll_rounds = 0
         no_growth_rounds = 0
         step = 0
 
-        while step < self.max_show_more_clicks:
+        first_page_size = max(len(first_page_rows), 1)
+        expected_pages = (
+            (target + first_page_size - 1) // first_page_size
+            if target is not None and target > 0
+            else 1
+        )
+
+        # HEB currently renders a numeric paginator (1, 2, 3, 4...).
+        # Prefer those native controls because they preserve the user's
+        # existing Chrome session and match the visible storefront.
+        for page_number in range(2, expected_pages + 1):
             if (
                 target is not None
                 and target > 0
@@ -923,6 +996,63 @@ class HEBScraper:
             ):
                 break
 
+            if not self._click_numeric_page(page, page_number):
+                break
+
+            numeric_page_clicks += 1
+            step += 1
+            self._assert_not_blocked(page)
+
+            body_target = self._target_from_body(page)
+            if body_target is not None and body_target > 0:
+                target = max(target or 0, body_target)
+
+            current_rows = self._rows_from_dom(
+                page,
+                category,
+                location,
+            )
+            before = len(dom_rows_by_key)
+            for row in current_rows:
+                key = (
+                    clean_text(row.get("sku"))
+                    or clean_text(row.get("url"))
+                )
+                if key:
+                    dom_rows_by_key[key] = row
+            after = len(dom_rows_by_key)
+
+            pagination_pages.append(
+                {
+                    "step": step,
+                    "method": "numeric_page",
+                    "page_number": page_number,
+                    "url": page.url,
+                    "rows_on_page": len(current_rows),
+                    "new_rows": after - before,
+                    "cumulative_rows": after,
+                    "target_products": target,
+                }
+            )
+
+            if after == before:
+                no_growth_rounds += 1
+            else:
+                no_growth_rounds = 0
+
+            if no_growth_rounds >= 2:
+                break
+
+        # Generic storefront fallbacks are retained only if the numeric
+        # paginator did not cover the catalogue.
+        while (
+            step < self.max_show_more_clicks
+            and (
+                target is None
+                or target <= 0
+                or len(dom_rows_by_key) < target
+            )
+        ):
             method = None
             if self._click_show_more(page):
                 clicks += 1
@@ -1060,15 +1190,19 @@ class HEBScraper:
                 "structured_responses": len(self._payloads),
                 "dom_rows": len(dom_rows),
                 "pagination_method": (
-                    "show_more"
-                    if clicks > 0
+                    "numeric_page"
+                    if numeric_page_clicks > 0
                     else (
-                        "native_next"
-                        if native_next_clicks > 0
+                        "show_more"
+                        if clicks > 0
                         else (
-                            "scroll_lazy_load"
-                            if scroll_rounds > 0
-                            else "initial_dom"
+                            "native_next"
+                            if native_next_clicks > 0
+                            else (
+                                "scroll_lazy_load"
+                                if scroll_rounds > 0
+                                else "initial_dom"
+                            )
                         )
                     )
                 ),
@@ -1084,6 +1218,7 @@ class HEBScraper:
                     )
                 ),
                 "show_more_clicks": clicks,
+                "numeric_page_clicks": numeric_page_clicks,
                 "native_next_clicks": native_next_clicks,
                 "scroll_rounds": scroll_rounds,
                 "response_errors": len(self._response_errors),
