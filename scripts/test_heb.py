@@ -133,8 +133,7 @@ def find_heb_page(browser):
         return None
 
     expected_path = (
-        "/cuidado-personal-y-belleza/"
-        "higiene-dental/pasta-dental"
+        "/cuidado-personal-y-belleza/higiene-dental"
     )
     for page in candidates:
         if expected_path in (page.url or "").casefold():
@@ -327,7 +326,7 @@ def main() -> int:
         print(f"Pestaña HEB detectada: {page.url}")
         print(
             "HEB fue abierto manualmente; el scraper navegará desde "
-            "esa misma pestaña a Pasta Dental si hace falta."
+            "esa misma pestaña a Higiene Dental si hace falta."
         )
         print("")
 
