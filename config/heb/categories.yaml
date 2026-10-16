@@ -1,7 +1,7 @@
 categories:
-  - id: pasta-dental
+  - id: higiene-dental
     name: Higiene dental
-    subcategory: Pasta dental
+    subcategory: null
     department: Cuidado personal y belleza
-    url: https://www.heb.com.mx/cuidado-personal-y-belleza/higiene-dental/pasta-dental
+    url: https://www.heb.com.mx/cuidado-personal-y-belleza/higiene-dental
     enabled: true
