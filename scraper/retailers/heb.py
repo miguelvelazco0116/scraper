@@ -1092,8 +1092,19 @@ class HEBScraper:
         def canonical_store_name(value) -> str:
             text = clean_text(str(value or "")) or ""
             normalized = text.casefold()
+            for source, target in (
+                ("á", "a"),
+                ("é", "e"),
+                ("í", "i"),
+                ("ó", "o"),
+                ("ú", "u"),
+                ("ü", "u"),
+                ("ñ", "n"),
+            ):
+                normalized = normalized.replace(source, target)
             normalized = re.sub(
-                r"^(?:tienda\s+)?heb(?:\s+plus)?\s*[-:]?\s*",
+                r"^(?:(?:tienda|sucursal)\s+)?"
+                r"heb(?:\s+plus)?\s*[-:]?\s*",
                 "",
                 normalized,
             )
