@@ -1250,7 +1250,7 @@ Gate por categoría:
 
 Higiene Dental quedó validada live el 16 de octubre de 2026 con 272/272 productos, cobertura 100%, SKU/precio/URL/disponibilidad completos, 10 páginas y cero bloqueos. Al agregar Lavandería, ese checkpoint del mismo día se conserva y el runner sólo debe ejecutar la nueva categoría pendiente.
 
-El contexto de tienda/ubicación de HEB sigue pendiente de certificación antes de la integración productiva final.
+La certificación de tienda de HEB se obtiene de la misma sesión Chrome/CDP mediante evidencia explícita del storefront y/o browser storage. El scraper rechaza selectores genéricos y evidencia conflictiva. Para integrar HEB, el 100% de las filas de ambas categorías debe tener `store_context_verified=True`, un método no vacío y una única tienda concreta compartida. Debido a que las muestras 272/272 y 283/283 fueron capturadas antes de este gate, ambas categorías deben ejecutarse una vez más para regenerar las 555 filas con el contexto de tienda certificado.
 
 Test:
 
