@@ -55,8 +55,9 @@ if ([string]::IsNullOrWhiteSpace($CdpUrl)) {
         Write-Host "  2. Activa Allow remote debugging for this browser instance"
         Write-Host "  3. Acepta Allow si Chrome lo solicita"
         Write-Host "  4. Abre https://www.heb.com.mx/ en otra pestana"
-        Write-Host "  5. Verifica manualmente que el catalogo se vea normal"
-        Write-Host "  6. Ejecuta nuevamente este comando"
+        Write-Host "  5. Selecciona manualmente una tienda HEB concreta"
+        Write-Host "  6. Verifica que el catalogo se vea normal"
+        Write-Host "  7. Ejecuta nuevamente este comando"
         Write-Host ""
         Write-Host "El scraper NO abrira ni cerrara otro Chrome."
         exit 11
@@ -82,6 +83,7 @@ Write-Host "Categoria  : $Category"
 Write-Host "Reintentos : $RetryFailedAtEnd"
 Write-Host "Chrome     : SESION EXISTENTE"
 Write-Host "CDP        : $CdpUrl"
+Write-Host "Tienda     : debe haber una tienda HEB concreta seleccionada en esa sesion"
 Write-Host ""
 
 $ArgsList = @(
