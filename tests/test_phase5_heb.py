@@ -305,3 +305,24 @@ def test_heb_integrator_requires_verified_store_context():
     assert '"store_context_method"' in source
     assert '"store_context_complete"' in source
     assert "sin tienda concreta" in source
+
+
+def test_heb_store_context_preflight_stops_before_catalogue_scrape():
+    source = Path("scraper/retailers/heb.py").read_text(
+        encoding="utf-8"
+    )
+    assert "class HEBStoreContextUnavailable" in source
+    assert '"STORE_CONTEXT_REQUIRED"' in source
+    assert "raise HEBStoreContextUnavailable" in source
+    preflight = source.index("raise HEBStoreContextUnavailable")
+    catalogue = source.index("target = self._target_from_body(page)", preflight)
+    assert preflight < catalogue
+
+
+def test_heb_runner_does_not_retry_missing_store_context():
+    source = Path("scripts/test_heb.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"STORE_CONTEXT_REQUIRED"' in source
+    assert "No se harán más reintentos." in source
+    assert "requiere seleccionar una tienda concreta" in source
