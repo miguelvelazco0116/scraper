@@ -707,7 +707,7 @@ class HEBScraper:
             "blocked_detected": False,
             "structured_transport": "productSearchV3",
             "browser_session": "existing_cdp_manual_page",
-            "initial_navigation": "manual_user_opened_page",
+            "initial_navigation": "manual_heb_page_same_tab_navigation",
         }
         self._payloads = []
         self._response_errors = []
@@ -722,13 +722,21 @@ class HEBScraper:
             page.url,
             category.url,
         ):
-            raise ValueError(
-                "La pestaña HEB abierta no corresponde a la categoría "
-                f"esperada: {category.url}"
+            # Igual que Soriana manual: el usuario abre HEB y el scraper
+            # navega dentro de ESA MISMA pestaña/sesión.
+            page.evaluate(
+                "(url) => window.location.assign(url)",
+                category.url,
             )
+            try:
+                page.wait_for_load_state(
+                    "domcontentloaded",
+                    timeout=45_000,
+                )
+            except PlaywrightTimeoutError:
+                pass
+            page.wait_for_timeout(2_500)
 
-        # Igual que Soriana manual: la página inicial la abre el usuario.
-        # El scraper no hace page.goto() ni reemplaza la navegación manual.
         page.wait_for_timeout(self.wait_ms)
         self._assert_not_blocked(page)
         self._accept_cookies(page)
