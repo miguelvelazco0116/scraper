@@ -176,3 +176,33 @@ def test_heb_runner_surfaces_numeric_page_clicks():
         encoding="utf-8"
     )
     assert '"numeric_page_clicks"' in source
+
+
+def test_heb_includes_lavanderia_category():
+    categories = {
+        item.id: item
+        for item in load_categories("config/heb/categories.yaml")
+    }
+    assert set(categories) == {"higiene-dental", "lavanderia"}
+    lavanderia = categories["lavanderia"]
+    assert lavanderia.department == "Lavandería"
+    assert lavanderia.name == "Lavandería"
+    assert lavanderia.subcategory is None
+    assert lavanderia.url == "https://www.heb.com.mx/lavanderia"
+
+
+def test_phase5_counts_two_heb_categories():
+    source = Path("scripts/integrate_validated_phase.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"categories": 4' in source
+    assert '{"higiene-dental", "lavanderia"}' in source
+    assert 'HEB categorías {len(summary)}/2' in source
+
+
+def test_heb_pagination_fallback_is_category_agnostic():
+    source = Path("scraper/retailers/heb.py").read_text(
+        encoding="utf-8"
+    )
+    assert "current.pathname.replace" in source
+    assert "cuidado-personal-y-belleza/higiene-dental" not in source
