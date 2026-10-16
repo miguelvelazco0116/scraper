@@ -200,9 +200,9 @@
           "note": "Validación live del 2026-10-15: 30/30 productos, discovery/SKU/precio/precio regular/URL completos, cero errores y cero bloqueos."
         },
         "HEB": {
-          "status": "PENDING_LIVE_VALIDATION",
+          "status": "EXTRACTION_VALIDATED_STORE_CONTEXT_PENDING",
           "categories": {
-            "higiene-dental": "PENDING_LIVE_VALIDATION"
+            "higiene-dental": "EXTRACTION_VALIDATED_STORE_CONTEXT_PENDING"
           },
           "source_workbook": "output/heb_phase5_test.xlsx",
           "test_command": "& .\\scripts\\test_heb.ps1",
@@ -218,7 +218,25 @@
             "minimum_price_order_valid_rate": 0.9,
             "availability_encoding": "1=available, 0=unavailable"
           },
-          "note": "Alcance actualizado: toda la categoría Higiene Dental. La validación previa 96/96 correspondía sólo a Pasta Dental y ya no aplica al alcance actual. El usuario abre manualmente HEB; el scraper navega en la misma pestaña por CDP y recorre el paginador nativo."
+          "note": "Validación live del catálogo completa: 272/272 productos de Higiene Dental, 100% cobertura y completitud de SKU/precio/URL/disponibilidad, 10 páginas, 9 avances nativos, cero bloqueos. Pendiente verificar el contexto de tienda/ubicación de la sesión antes de integrar HEB a Fase 5; la implementación actual aún no certifica store_context_verified.",
+          "products": 272,
+          "live_validation": {
+            "date": "2026-10-16",
+            "target_products": 272,
+            "products": 272,
+            "coverage": 1,
+            "sku_complete": 272,
+            "price_complete": 272,
+            "url_complete": 272,
+            "availability_complete": 272,
+            "available_1": 272,
+            "unavailable_0": 0,
+            "price_order_errors": 0,
+            "pages_visited": 10,
+            "native_next_clicks": 9,
+            "blocked_detected": false,
+            "catalogue_source": "dom_fallback"
+          }
         }
       },
       "note": "Fase 5 queda COMPLETE sólo cuando Farmacias Similares y HEB estén validados e integrados para la misma fecha. La Comer permanece fuera de Fase 5."
