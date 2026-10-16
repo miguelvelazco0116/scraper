@@ -32,7 +32,7 @@ $ChromeProcesses = Get-Process chrome -ErrorAction SilentlyContinue
 if (-not $ChromeProcesses) {
     Write-Host "ERROR: abre Google Chrome manualmente."
     Write-Host "Abre esta categoria en una pestana:"
-    Write-Host "https://www.heb.com.mx/cuidado-personal-y-belleza/higiene-dental/pasta-dental"
+    Write-Host "https://www.heb.com.mx/cuidado-personal-y-belleza/higiene-dental"
     exit 10
 }
 
@@ -54,7 +54,7 @@ if ([string]::IsNullOrWhiteSpace($CdpUrl)) {
         Write-Host "  1. Abre chrome://inspect/#remote-debugging"
         Write-Host "  2. Activa Allow remote debugging for this browser instance"
         Write-Host "  3. Acepta Allow si Chrome lo solicita"
-        Write-Host "  4. Abre la categoria Pasta Dental de HEB en otra pestana"
+        Write-Host "  4. Abre la categoria Higiene Dental de HEB en otra pestana"
         Write-Host "  5. Verifica manualmente que el catalogo se vea normal"
         Write-Host "  6. Ejecuta nuevamente este comando"
         Write-Host ""
