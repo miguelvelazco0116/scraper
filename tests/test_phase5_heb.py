@@ -116,3 +116,23 @@ def test_heb_existing_session_uses_native_show_more():
     assert "def scrape_category_on_page" in source
     assert '"show_more"' in source
     assert 'text="Mostrar más"' in source
+
+
+def test_heb_manual_mode_does_not_navigate_initial_category():
+    source = Path("scraper/retailers/heb.py").read_text(
+        encoding="utf-8"
+    )
+    manual = source.split("def scrape_category_on_page", 1)[1].split(
+        "def scrape_category(", 1
+    )[0]
+    assert "page.goto(" not in manual
+    assert "manual_user_opened_page" in manual
+    assert "def _same_category_page" in source
+
+
+def test_heb_runner_requires_exact_manually_opened_category_tab():
+    source = Path("scripts/test_heb.py").read_text(
+        encoding="utf-8"
+    )
+    assert "higiene-dental/pasta-dental" in source
+    assert "La navegación inicial fue hecha manualmente" in source
