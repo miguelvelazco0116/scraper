@@ -114,6 +114,10 @@ def _write_output(results: dict[str, dict], category_order: list[str]):
 
 
 def find_heb_page(browser):
+    expected_path = (
+        "/cuidado-personal-y-belleza/"
+        "higiene-dental/pasta-dental"
+    )
     candidates = []
     for context in browser.contexts:
         for page in context.pages:
@@ -125,9 +129,11 @@ def find_heb_page(browser):
         return None
 
     for page in candidates:
-        if "/cuidado-personal-y-belleza/" in (page.url or "").casefold():
+        url = (page.url or "").casefold()
+        if expected_path in url:
             return page
-    return candidates[0]
+
+    return None
 
 
 def run_category(category, location, page):
@@ -295,6 +301,7 @@ def main() -> int:
             return 11
 
         print(f"Pestaña HEB detectada: {page.url}")
+        print("La navegación inicial fue hecha manualmente por el usuario.")
         print("")
 
         failed_ids: list[str] = []
