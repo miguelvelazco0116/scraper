@@ -200,10 +200,10 @@
           "note": "Validación live del 2026-10-15: 30/30 productos, discovery/SKU/precio/precio regular/URL completos, cero errores y cero bloqueos."
         },
         "HEB": {
-          "status": "PARTIAL_CATEGORY_VALIDATION_STORE_CONTEXT_PENDING",
+          "status": "EXTRACTION_VALIDATED_STORE_CONTEXT_PENDING",
           "categories": {
             "higiene-dental": "EXTRACTION_VALIDATED_STORE_CONTEXT_PENDING",
-            "lavanderia": "PENDING_LIVE_VALIDATION"
+            "lavanderia": "EXTRACTION_VALIDATED_STORE_CONTEXT_PENDING"
           },
           "source_workbook": "output/heb_phase5_test.xlsx",
           "test_command": "& .\\scripts\\test_heb.ps1",
@@ -218,24 +218,46 @@
             "minimum_price_order_valid_rate": 0.9,
             "availability_encoding": "1=available, 0=unavailable"
           },
-          "note": "HEB ahora tiene 2 categorías en Fase 5. Higiene Dental conserva su validación live 272/272 del 2026-10-16 sin volver a descargarse hoy; Lavandería queda pendiente de validación live. Ambas usan Chrome manual + CDP + navegación en la misma pestaña + paginación nativa. El contexto de tienda/ubicación sigue pendiente de certificación antes de integrar HEB productivamente.",
-          "products": 272,
+          "note": "Validación live completa del catálogo HEB el 2026-10-16: Higiene Dental 272/272 y Lavandería 283/283; total 555/555, cobertura/SKU/precio/URL/disponibilidad 100%, 20 páginas, 18 avances nativos y cero bloqueos. Pendiente certificar contexto de tienda/ubicación antes de integrar HEB productivamente a Fase 5.",
+          "products": 555,
           "live_validation": {
             "date": "2026-10-16",
-            "target_products": 272,
-            "products": 272,
-            "coverage": 1,
-            "sku_complete": 272,
-            "price_complete": 272,
-            "url_complete": 272,
-            "availability_complete": 272,
-            "available_1": 272,
-            "unavailable_0": 0,
-            "price_order_errors": 0,
-            "pages_visited": 10,
-            "native_next_clicks": 9,
-            "blocked_detected": false,
-            "catalogue_source": "dom_fallback"
+            "total_products": 555,
+            "total_categories": 2,
+            "categories": {
+              "higiene-dental": {
+                "target_products": 272,
+                "products": 272,
+                "coverage": 1,
+                "sku_complete": 272,
+                "price_complete": 272,
+                "url_complete": 272,
+                "availability_complete": 272,
+                "available_1": 272,
+                "unavailable_0": 0,
+                "price_order_errors": 0,
+                "pages_visited": 10,
+                "native_next_clicks": 9,
+                "blocked_detected": false,
+                "catalogue_source": "dom_fallback"
+              },
+              "lavanderia": {
+                "target_products": 283,
+                "products": 283,
+                "coverage": 1,
+                "sku_complete": 283,
+                "price_complete": 283,
+                "url_complete": 283,
+                "availability_complete": 283,
+                "available_1": 283,
+                "unavailable_0": 0,
+                "price_order_errors": 0,
+                "pages_visited": 10,
+                "native_next_clicks": 9,
+                "blocked_detected": false,
+                "catalogue_source": "dom_fallback"
+              }
+            }
           },
           "category_urls": {
             "higiene-dental": "https://www.heb.com.mx/cuidado-personal-y-belleza/higiene-dental",
