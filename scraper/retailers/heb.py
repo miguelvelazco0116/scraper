@@ -28,6 +28,10 @@ class HEBNetworkUnavailable(RuntimeError):
     pass
 
 
+class HEBStoreContextUnavailable(RuntimeError):
+    pass
+
+
 class HEBScraper:
     """HEB México category scraper using storefront VTEX productSearchV3.
 
@@ -1554,6 +1558,32 @@ class HEBScraper:
 
         initial_store_context = self._detect_store_context(page)
         self.run_meta["initial_store_context"] = initial_store_context
+        self.run_meta["store_context_verified"] = bool(
+            initial_store_context.get("verified")
+        )
+        self.run_meta["store_context_method"] = (
+            initial_store_context.get("method")
+        )
+        self.run_meta["store"] = initial_store_context.get("store")
+        self.run_meta["store_id"] = initial_store_context.get("store_id")
+        self.run_meta["postal_code"] = (
+            initial_store_context.get("postal_code")
+        )
+        self.run_meta["store_context_evidence"] = (
+            initial_store_context.get("evidence") or []
+        )
+
+        if not initial_store_context.get("verified"):
+            self.run_meta["status"] = "STORE_CONTEXT_REQUIRED"
+            self._save_diagnostics(
+                page,
+                f"{category.id}_store_context",
+            )
+            raise HEBStoreContextUnavailable(
+                "HEB no expone una tienda concreta y verificable en "
+                "la sesión actual. Selecciona una tienda manualmente "
+                "en esa misma ventana de Chrome y vuelve a ejecutar."
+            )
 
         target = self._target_from_body(page)
         dom_rows_by_key: dict[str, dict] = {}
@@ -1901,5 +1931,6 @@ class HEBScraper:
 __all__ = [
     "HEBBlocked",
     "HEBNetworkUnavailable",
+    "HEBStoreContextUnavailable",
     "HEBScraper",
 ]
