@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-15",
+  "updated_at": "2026-10-16",
   "operating_rule": "A validated phase remains validated and must not be reworked unless a new concrete failure proves necessary. A pending phase is added only after a successful live Windows Server run.",
   "phases": {
     "1": {
@@ -208,7 +208,7 @@
           "test_command": "& .\\scripts\\test_heb.ps1",
           "integration_command": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 5 -Retailer \"HEB\"",
           "category_url": "https://www.heb.com.mx/cuidado-personal-y-belleza/higiene-dental/pasta-dental",
-          "strategy": "VTEX_PRODUCTSEARCHV3_STOREFRONT_CAPTURE_SHOW_MORE",
+          "strategy": "DOM_DIRECT_QUERY_PAGE_WITH_OPTIONAL_PRODUCTSEARCHV3",
           "validation_rules": {
             "minimum_catalog_coverage": 0.9,
             "minimum_sku_completeness": 0.9,
@@ -218,7 +218,7 @@
             "minimum_price_order_valid_rate": 0.9,
             "availability_encoding": "1=available, 0=unavailable"
           },
-          "note": "No integrar ni marcar VALIDATED hasta observar una corrida live satisfactoria."
+          "note": "Pendiente de validación live. El primer test detectó target 97 y 30/30 filas válidas en la primera página; se corrigió la paginación para recorrer ?page=N hasta cubrir >=90% del target."
         }
       },
       "note": "Fase 5 queda COMPLETE sólo cuando Farmacias Similares y HEB estén validados e integrados para la misma fecha. La Comer permanece fuera de Fase 5."
