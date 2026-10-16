@@ -10,6 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import pandas as pd
+from playwright.sync_api import sync_playwright
 
 from main import COLUMNS
 from scraper.config import load_categories, load_locations
@@ -112,7 +113,24 @@ def _write_output(results: dict[str, dict], category_order: list[str]):
     return concentrated, summary_df
 
 
-def run_category(category, location, *, headless: bool):
+def find_heb_page(browser):
+    candidates = []
+    for context in browser.contexts:
+        for page in context.pages:
+            url = (page.url or "").casefold()
+            if "heb.com.mx" in url:
+                candidates.append(page)
+
+    if not candidates:
+        return None
+
+    for page in candidates:
+        if "/cuidado-personal-y-belleza/" in (page.url or "").casefold():
+            return page
+    return candidates[0]
+
+
+def run_category(category, location, page):
     print("")
     print("-" * 72)
     print(f"HEB | {category.id}")
@@ -124,7 +142,7 @@ def run_category(category, location, *, headless: bool):
     print("")
 
     scraper = HEBScraper(
-        headless=headless,
+        headless=False,
         browser_channel="chrome",
         wait_ms=1_100,
         max_show_more_clicks=80,
@@ -134,7 +152,11 @@ def run_category(category, location, *, headless: bool):
     error = None
 
     try:
-        rows = scraper.scrape_category(category, location)
+        rows = scraper.scrape_category_on_page(
+            page,
+            category,
+            location,
+        )
         status = str(scraper.run_meta.get("status") or "SUCCESS")
     except HEBBlocked as exc:
         status = "BLOCKED"
@@ -212,7 +234,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="HEB - Fase 5")
     parser.add_argument("--category", default="all")
     parser.add_argument("--retry-failed-at-end", type=int, default=1)
-    parser.add_argument("--headless", action="store_true")
+    parser.add_argument("--cdp-url", required=True)
     args = parser.parse_args()
 
     configured_categories = load_categories(
@@ -241,7 +263,7 @@ def main() -> int:
     print("=" * 72)
     print("Umbral        : >= 90%")
     print("Disponibilidad: 1 disponible / 0 no disponible")
-    print("Fuente        : VTEX productSearchV3")
+    print("Fuente        : Chrome existente + DOM / VTEX si aparece")
     print("")
 
     if results:
@@ -251,34 +273,106 @@ def main() -> int:
                 print(f"- {category.id}: REUTILIZADA, NO SE DESCARGA DE NUEVO")
         print("")
 
-    failed_ids: list[str] = []
+    print(f"CDP           : {args.cdp_url}")
+    print("Chrome        : SESIÓN EXISTENTE; el script no lo cierra.")
+    print("")
 
-    for category in categories:
-        if category.id in results:
-            continue
-        df, summary = run_category(category, location, headless=args.headless)
-        results[category.id] = {"frame": df, "summary": summary}
-        _write_output(results, category_order)
-        if not _summary_is_acceptable(summary):
-            failed_ids.append(category.id)
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.connect_over_cdp(
+                args.cdp_url
+            )
+        except Exception as exc:
+            print("ERROR: no fue posible conectarse al Chrome abierto.")
+            print(f"{type(exc).__name__}: {exc}")
+            return 10
 
-    for retry_round in range(1, args.retry_failed_at_end + 1):
-        if not failed_ids:
-            break
-        pending = list(failed_ids)
-        failed_ids = []
+        page = find_heb_page(browser)
+        if page is None:
+            print(
+                "ERROR: abre HEB en Chrome antes de ejecutar el test."
+            )
+            return 11
+
+        print(f"Pestaña HEB detectada: {page.url}")
         print("")
-        print("=" * 72)
-        print(f"REINTENTO HEB {retry_round}/{args.retry_failed_at_end}")
-        print("=" * 72)
-        print("Sólo se reintentan: " + ", ".join(pending))
-        for category_id in pending:
-            category = category_by_id[category_id]
-            df, summary = run_category(category, location, headless=args.headless)
-            results[category_id] = {"frame": df, "summary": summary}
+
+        failed_ids: list[str] = []
+
+        for category in categories:
+            if category.id in results:
+                continue
+            df, summary = run_category(
+                category,
+                location,
+                page,
+            )
+            results[category.id] = {
+                "frame": df,
+                "summary": summary,
+            }
             _write_output(results, category_order)
-            if not _summary_is_acceptable(summary):
-                failed_ids.append(category_id)
+
+            if (
+                not _summary_is_acceptable(summary)
+                and str(summary.get("status") or "").upper()
+                != "BLOCKED"
+            ):
+                failed_ids.append(category.id)
+
+            if str(summary.get("status") or "").upper() == "BLOCKED":
+                print(
+                    "HEB reportó bloqueo en la sesión manual. "
+                    "Se detiene sin reintentar."
+                )
+                break
+
+        for retry_round in range(
+            1,
+            args.retry_failed_at_end + 1,
+        ):
+            if not failed_ids:
+                break
+
+            pending = list(failed_ids)
+            failed_ids = []
+            print("")
+            print("=" * 72)
+            print(
+                f"REINTENTO HEB {retry_round}/"
+                f"{args.retry_failed_at_end}"
+            )
+            print("=" * 72)
+            print(
+                "Sólo se reintentan: "
+                + ", ".join(pending)
+            )
+
+            for category_id in pending:
+                category = category_by_id[category_id]
+                df, summary = run_category(
+                    category,
+                    location,
+                    page,
+                )
+                results[category_id] = {
+                    "frame": df,
+                    "summary": summary,
+                }
+                _write_output(results, category_order)
+
+                if str(summary.get("status") or "").upper() == "BLOCKED":
+                    print(
+                        "HEB reportó bloqueo. "
+                        "No se harán más reintentos."
+                    )
+                    failed_ids = []
+                    break
+
+                if not _summary_is_acceptable(summary):
+                    failed_ids.append(category_id)
+
+        # No browser.close(): la sesión pertenece al usuario.
 
     concentrated, summary_df = _write_output(results, category_order)
 
