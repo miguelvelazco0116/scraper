@@ -799,7 +799,7 @@ class HEBScraper:
         # click the lowest page number greater than the current page.
         try:
             candidates = page.locator(
-                'a[href*="higiene-dental/pasta-dental"][href*="page="]'
+                'a[href*="/cuidado-personal-y-belleza/higiene-dental"][href*="page="]'
             ).evaluate_all(
                 r"""
                 els => els.map(el => {
