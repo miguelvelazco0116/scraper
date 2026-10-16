@@ -728,6 +728,14 @@ def _validate_heb_phase(
     summary: pd.DataFrame,
 ) -> list[str]:
     notes: list[str] = []
+    expected_categories = {"higiene-dental", "lavanderia"}
+
+    def as_bool(value) -> bool:
+        if isinstance(value, bool):
+            return value
+        return str(value or "").strip().casefold() in {
+            "1", "true", "yes", "si", "sí",
+        }
 
     if frame.empty:
         notes.append("Concentrado HEB vacío")
@@ -744,6 +752,10 @@ def _validate_heb_phase(
         "price_complete",
         "url_complete",
         "availability_complete",
+        "store_context_complete",
+        "store_context_verified",
+        "store_context_method",
+        "store",
         "price_order_errors",
         "structured_responses",
         "dom_rows",
@@ -761,7 +773,7 @@ def _validate_heb_phase(
     observed_categories = set(
         summary["category_id"].dropna().astype(str)
     )
-    if observed_categories != {"higiene-dental", "lavanderia"}:
+    if observed_categories != expected_categories:
         notes.append(
             f"Categorías HEB inesperadas: {sorted(observed_categories)}"
         )
@@ -769,65 +781,123 @@ def _validate_heb_phase(
     if not summary["status"].astype(str).str.upper().eq("SUCCESS").all():
         notes.append("HEB tiene categoría no SUCCESS")
 
-    row = summary.iloc[0]
-    products = float(pd.to_numeric(
-        pd.Series([row.get("products")]),
-        errors="coerce",
-    ).fillna(0).iloc[0])
-    target = float(pd.to_numeric(
-        pd.Series([row.get("target_products")]),
-        errors="coerce",
-    ).fillna(0).iloc[0])
+    total_reported = 0
+    for category_id in sorted(expected_categories):
+        rows = summary.loc[
+            summary["category_id"].astype(str).eq(category_id)
+        ]
+        if len(rows) != 1:
+            notes.append(
+                f"HEB {category_id} resumen filas={len(rows)}/1"
+            )
+            continue
 
-    if int(products) != len(frame):
-        notes.append(
-            f"HEB products={int(products)} != filas={len(frame)}"
-        )
+        row = rows.iloc[0]
+        category_frame = frame.loc[
+            frame["category_id"].astype(str).eq(category_id)
+        ].copy()
 
-    if target <= 0:
-        notes.append("HEB sin target válido")
-    elif not meets_rate(products, target):
-        notes.append("HEB cobertura < 90%")
+        products = float(pd.to_numeric(
+            pd.Series([row.get("products")]),
+            errors="coerce",
+        ).fillna(0).iloc[0])
+        target = float(pd.to_numeric(
+            pd.Series([row.get("target_products")]),
+            errors="coerce",
+        ).fillna(0).iloc[0])
+        total_reported += int(products)
 
-    if products > 0:
-        for metric in (
-            "sku_complete",
-            "price_complete",
-            "url_complete",
-            "availability_complete",
-        ):
-            complete = float(pd.to_numeric(
-                pd.Series([row.get(metric)]),
+        if int(products) != len(category_frame):
+            notes.append(
+                f"HEB {category_id} products={int(products)} "
+                f"!= filas={len(category_frame)}"
+            )
+
+        if target <= 0:
+            notes.append(f"HEB {category_id} sin target válido")
+        elif not meets_rate(products, target):
+            notes.append(f"HEB {category_id} cobertura < 90%")
+
+        if products > 0:
+            for metric in (
+                "sku_complete",
+                "price_complete",
+                "url_complete",
+                "availability_complete",
+            ):
+                complete = float(pd.to_numeric(
+                    pd.Series([row.get(metric)]),
+                    errors="coerce",
+                ).fillna(0).iloc[0])
+                if not meets_rate(complete, products):
+                    notes.append(
+                        f"HEB {category_id} {metric} < 90%"
+                    )
+
+            store_complete = float(pd.to_numeric(
+                pd.Series([row.get("store_context_complete")]),
                 errors="coerce",
             ).fillna(0).iloc[0])
-            if not meets_rate(complete, products):
-                notes.append(f"HEB {metric} < 90%")
+            if int(store_complete) != int(products):
+                notes.append(
+                    f"HEB {category_id} store_context_complete "
+                    f"{int(store_complete)}/{int(products)}"
+                )
 
-        price_errors = float(pd.to_numeric(
-            pd.Series([row.get("price_order_errors")]),
-            errors="coerce",
-        ).fillna(products).iloc[0])
-        if not valid_after_errors(products, price_errors):
-            notes.append("HEB orden de precios válido < 90%")
+            price_errors = float(pd.to_numeric(
+                pd.Series([row.get("price_order_errors")]),
+                errors="coerce",
+            ).fillna(products).iloc[0])
+            if not valid_after_errors(products, price_errors):
+                notes.append(
+                    f"HEB {category_id} orden de precios válido < 90%"
+                )
 
-    catalogue_source = str(row.get("catalogue_source") or "")
-    if catalogue_source not in {
-        "productSearchV3",
-        "dom_fallback",
-        "productSearchV3+dom_fallback",
-    }:
+        if not as_bool(row.get("store_context_verified")):
+            notes.append(
+                f"HEB {category_id} store_context_verified=False"
+            )
+
+        method = str(row.get("store_context_method") or "").strip()
+        if not method:
+            notes.append(
+                f"HEB {category_id} sin store_context_method"
+            )
+
+        store = str(row.get("store") or "").strip()
+        if not store or store.casefold() in {"heb online", "heb"}:
+            notes.append(
+                f"HEB {category_id} sin tienda concreta"
+            )
+
+        catalogue_source = str(row.get("catalogue_source") or "")
+        if catalogue_source not in {
+            "productSearchV3",
+            "dom_fallback",
+            "productSearchV3+dom_fallback",
+        }:
+            notes.append(
+                f"HEB {category_id} catalogue_source inválido: "
+                f"{catalogue_source!r}"
+            )
+
+        if (
+            int(row.get("structured_responses") or 0) <= 0
+            and int(row.get("dom_rows") or 0) <= 0
+        ):
+            notes.append(
+                f"HEB {category_id} sin evidencia de catálogo"
+            )
+
+        if as_bool(row.get("blocked_detected")):
+            notes.append(
+                f"HEB {category_id} blocked_detected=True"
+            )
+
+    if total_reported != len(frame):
         notes.append(
-            f"HEB catalogue_source inválido: {catalogue_source!r}"
+            f"HEB suma products={total_reported} != filas={len(frame)}"
         )
-
-    if (
-        int(row.get("structured_responses") or 0) <= 0
-        and int(row.get("dom_rows") or 0) <= 0
-    ):
-        notes.append("HEB sin evidencia de catálogo")
-
-    if bool(row.get("blocked_detected")):
-        notes.append("HEB blocked_detected=True")
 
     retailers = set(frame["retailer"].dropna().astype(str))
     if retailers != {"HEB"}:
@@ -843,6 +913,43 @@ def _validate_heb_phase(
         valid_availability = int(availability.isin([0, 1]).sum())
         if not meets_rate(valid_availability, len(frame)):
             notes.append("HEB disponibilidad binaria < 90%")
+
+    if "store_context_verified" not in frame.columns:
+        notes.append("HEB filas sin store_context_verified")
+    elif not frame.empty:
+        verified = frame["store_context_verified"].map(as_bool)
+        if not verified.all():
+            notes.append("HEB filas con contexto de tienda no verificado")
+
+    if "store" not in frame.columns:
+        notes.append("HEB filas sin store")
+    elif not frame.empty:
+        stores = {
+            str(value).strip()
+            for value in frame["store"].dropna()
+            if str(value).strip()
+            and str(value).strip().casefold() not in {"heb online", "heb"}
+        }
+        if len(stores) != 1:
+            notes.append(
+                f"HEB tiendas concretas esperadas=1 observadas={sorted(stores)}"
+            )
+
+    if "store_context_method" not in frame.columns:
+        notes.append("HEB filas sin store_context_method")
+    elif not frame.empty:
+        missing_methods = (
+            frame["store_context_method"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .eq("")
+            .sum()
+        )
+        if int(missing_methods) > 0:
+            notes.append(
+                f"HEB filas sin store_context_method={int(missing_methods)}"
+            )
 
     return notes
 
