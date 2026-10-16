@@ -122,10 +122,6 @@ def list_cdp_pages(browser) -> list[str]:
 
 
 def find_heb_page(browser):
-    expected_path = (
-        "/cuidado-personal-y-belleza/"
-        "higiene-dental/pasta-dental"
-    )
     candidates = []
     for context in browser.contexts:
         for page in context.pages:
@@ -136,12 +132,17 @@ def find_heb_page(browser):
     if not candidates:
         return None
 
+    expected_path = (
+        "/cuidado-personal-y-belleza/"
+        "higiene-dental/pasta-dental"
+    )
     for page in candidates:
-        url = (page.url or "").casefold()
-        if expected_path in url:
+        if expected_path in (page.url or "").casefold():
             return page
 
-    return None
+    # Si el usuario sólo abrió HEB home, usar esa misma pestaña y
+    # navegar desde ahí, igual que Soriana.
+    return candidates[-1]
 
 
 def run_category(category, location, page):
@@ -309,31 +310,21 @@ def main() -> int:
 
         page = find_heb_page(browser)
         if page is None:
-            heb_pages = [
-                url for url in visible_pages
-                if "heb.com.mx" in url.casefold()
-            ]
-            if heb_pages:
-                print(
-                    "ERROR: CDP sí ve HEB, pero no la categoría exacta "
-                    "Pasta Dental."
-                )
-                print("Pestañas HEB detectadas:")
-                for url in heb_pages:
-                    print(f"  - {url}")
-            else:
-                print(
-                    "ERROR: la instancia de Chrome conectada por CDP "
-                    "no expone ninguna pestaña de HEB."
-                )
-                print(
-                    "Abre la categoría HEB en la MISMA ventana/perfil "
-                    "donde habilitaste remote debugging."
-                )
+            print(
+                "ERROR: la instancia de Chrome conectada por CDP "
+                "no expone ninguna pestaña de HEB."
+            )
+            print(
+                "Abre https://www.heb.com.mx/ en la MISMA ventana/perfil "
+                "donde habilitaste remote debugging."
+            )
             return 11
 
         print(f"Pestaña HEB detectada: {page.url}")
-        print("La navegación inicial fue hecha manualmente por el usuario.")
+        print(
+            "HEB fue abierto manualmente; el scraper navegará desde "
+            "esa misma pestaña a Pasta Dental si hace falta."
+        )
         print("")
 
         failed_ids: list[str] = []
