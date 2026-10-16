@@ -650,6 +650,601 @@ class HEBScraper:
         return list(merged.values())
 
     @staticmethod
+    def _store_context_snapshot(page) -> dict:
+        """Collect non-sensitive storefront evidence about the active HEB store."""
+        snapshot = {
+            "visible_candidates": [],
+            "storage_candidates": [],
+        }
+
+        try:
+            snapshot["visible_candidates"] = page.locator("body").evaluate(
+                r"""
+                () => {
+                  const norm = value =>
+                    String(value || '').replace(/\s+/g, ' ').trim();
+                  const visible = el => {
+                    if (!el) return false;
+                    const style = window.getComputedStyle(el);
+                    const rect = el.getBoundingClientRect();
+                    return (
+                      style.display !== 'none' &&
+                      style.visibility !== 'hidden' &&
+                      rect.width > 0 &&
+                      rect.height > 0
+                    );
+                  };
+                  const terms =
+                    /(tienda|sucursal|ubicaci[oó]n|recoger|pickup|store|location|postal|zip|warehouse)/i;
+                  const out = [];
+                  const seen = new Set();
+
+                  const selectors = [
+                    'button',
+                    'a',
+                    '[role="button"]',
+                    '[aria-label]',
+                    '[title]',
+                    '[data-testid]',
+                    '[data-store]',
+                    '[data-store-id]',
+                    '[data-location]',
+                    '[class*="store" i]',
+                    '[class*="location" i]',
+                    '[class*="tienda" i]',
+                    '[class*="sucursal" i]'
+                  ];
+
+                  for (const selector of selectors) {
+                    let nodes = [];
+                    try {
+                      nodes = Array.from(document.querySelectorAll(selector));
+                    } catch (_) {
+                      continue;
+                    }
+                    for (const el of nodes) {
+                      if (!visible(el)) continue;
+                      const item = {
+                        text: norm(el.innerText || el.textContent),
+                        aria: norm(el.getAttribute('aria-label')),
+                        title: norm(el.getAttribute('title')),
+                        testid: norm(el.getAttribute('data-testid')),
+                        store: norm(el.getAttribute('data-store')),
+                        store_id: norm(el.getAttribute('data-store-id')),
+                        location: norm(el.getAttribute('data-location')),
+                        class_name: norm(el.className)
+                      };
+                      const blob = norm(Object.values(item).join(' '));
+                      if (!terms.test(blob)) continue;
+                      if (blob.length < 3 || blob.length > 800) continue;
+                      const key = JSON.stringify(item);
+                      if (seen.has(key)) continue;
+                      seen.add(key);
+                      out.push(item);
+                      if (out.length >= 80) return out;
+                    }
+                  }
+
+                  const bodyText = String(document.body?.innerText || '');
+                  for (const raw of bodyText.split(/\n+/)) {
+                    const line = norm(raw);
+                    if (
+                      line.length >= 4 &&
+                      line.length <= 220 &&
+                      terms.test(line)
+                    ) {
+                      const item = {text: line, source: 'body_line'};
+                      const key = JSON.stringify(item);
+                      if (!seen.has(key)) {
+                        seen.add(key);
+                        out.push(item);
+                      }
+                    }
+                    if (out.length >= 100) break;
+                  }
+                  return out;
+                }
+                """
+            )
+        except Exception:
+            pass
+
+        try:
+            snapshot["storage_candidates"] = page.evaluate(
+                r"""
+                () => {
+                  const terms =
+                    /(tienda|sucursal|pickup|store|location|postal|zip|warehouse)/i;
+                  const out = [];
+                  const scan = (storage, kind) => {
+                    for (let i = 0; i < storage.length; i++) {
+                      const key = storage.key(i);
+                      const value = storage.getItem(key);
+                      const blob = String(key || '') + ' ' + String(value || '');
+                      if (!terms.test(blob)) continue;
+                      out.push({
+                        kind,
+                        key: String(key || '').slice(0, 180),
+                        value: String(value || '').slice(0, 2400)
+                      });
+                      if (out.length >= 60) return;
+                    }
+                  };
+                  try { scan(window.localStorage, 'localStorage'); } catch (_) {}
+                  try { scan(window.sessionStorage, 'sessionStorage'); } catch (_) {}
+                  return out;
+                }
+                """
+            )
+        except Exception:
+            pass
+
+        return snapshot
+
+    @staticmethod
+    def _clean_store_candidate(value) -> str | None:
+        text = clean_text(str(value or ""))
+        if not text:
+            return None
+        text = re.sub(r"\s+", " ", text).strip(" :-|")
+        if len(text) < 3 or len(text) > 180:
+            return None
+
+        normalized = text.casefold()
+        placeholders = (
+            "selecciona tu tienda",
+            "seleccionar tienda",
+            "elige tu tienda",
+            "elige una tienda",
+            "cambiar tienda",
+            "ver tiendas",
+            "encuentra tu tienda",
+            "buscar tienda",
+            "tienda más cercana",
+            "tienda mas cercana",
+            "mi ubicación",
+            "mi ubicacion",
+            "tu ubicación",
+            "tu ubicacion",
+            "recoger en tienda",
+            "pickup en tienda",
+            "heb online",
+        )
+        if any(normalized == value for value in placeholders):
+            return None
+        if (
+            ("seleccion" in normalized or "elige " in normalized)
+            and len(text.split()) <= 8
+        ):
+            return None
+        return text
+
+    @classmethod
+    def _infer_store_context(cls, snapshot: dict) -> dict:
+        """Infer a concrete selected store only from explicit storefront evidence."""
+        candidates: list[dict] = []
+
+        store_terms = (
+            "store",
+            "tienda",
+            "sucursal",
+            "pickup",
+            "warehouse",
+            "location",
+        )
+        name_terms = (
+            "storename",
+            "store_name",
+            "store name",
+            "tienda",
+            "sucursal",
+            "pickupname",
+            "pickup_name",
+            "warehousename",
+            "warehouse_name",
+            "name",
+            "nombre",
+        )
+        id_terms = (
+            "storeid",
+            "store_id",
+            "store id",
+            "sucursalid",
+            "sucursal_id",
+            "pickuppointid",
+            "pickup_point_id",
+            "warehouseid",
+            "warehouse_id",
+        )
+        postal_terms = (
+            "postalcode",
+            "postal_code",
+            "zipcode",
+            "zip_code",
+            "codigo_postal",
+            "codigopostal",
+            "postal",
+            "cp",
+        )
+
+        def norm_key(value) -> str:
+            return re.sub(r"[^a-z0-9_]+", "", str(value or "").casefold())
+
+        def add_candidate(
+            *,
+            store=None,
+            store_id=None,
+            postal_code=None,
+            city=None,
+            state=None,
+            method,
+            score,
+            evidence=None,
+        ):
+            store_value = cls._clean_store_candidate(store)
+            store_id_value = clean_text(str(store_id or ""))
+            postal_value = clean_text(str(postal_code or ""))
+            if postal_value:
+                match = re.search(r"\b(\d{5})\b", postal_value)
+                postal_value = match.group(1) if match else None
+
+            if not store_value and not store_id_value:
+                return
+            if store_value and store_value.casefold() in {
+                "tienda",
+                "sucursal",
+                "store",
+                "location",
+            }:
+                return
+
+            candidates.append(
+                {
+                    "store": store_value,
+                    "store_id": store_id_value or None,
+                    "postal_code": postal_value,
+                    "city": cls._clean_store_candidate(city),
+                    "state": cls._clean_store_candidate(state),
+                    "method": method,
+                    "score": int(score),
+                    "evidence": clean_text(str(evidence or ""))[:300],
+                }
+            )
+
+        def walk(value, path: tuple[str, ...] = ()):
+            if isinstance(value, dict):
+                normalized = {
+                    norm_key(key): item
+                    for key, item in value.items()
+                }
+                path_blob = " ".join(path).casefold()
+                key_blob = " ".join(normalized).casefold()
+                context_blob = f"{path_blob} {key_blob}"
+                context_specific = any(
+                    term in context_blob
+                    for term in store_terms
+                )
+
+                if context_specific:
+                    name = None
+                    store_id = None
+                    postal = None
+                    city = None
+                    state = None
+
+                    for key, item in normalized.items():
+                        key_flat = norm_key(key)
+                        if name is None and any(
+                            norm_key(term) == key_flat
+                            for term in name_terms
+                        ):
+                            name = item
+                        if store_id is None and any(
+                            norm_key(term) == key_flat
+                            for term in id_terms
+                        ):
+                            store_id = item
+                        if postal is None and any(
+                            norm_key(term) == key_flat
+                            for term in postal_terms
+                        ):
+                            postal = item
+                        if city is None and key_flat in {
+                            "city", "ciudad", "municipio"
+                        }:
+                            city = item
+                        if state is None and key_flat in {
+                            "state", "estado"
+                        }:
+                            state = item
+
+                    if name is not None or store_id is not None:
+                        score = 10 if name is not None and store_id is not None else 8
+                        if postal is not None:
+                            score += 1
+                        add_candidate(
+                            store=name,
+                            store_id=store_id,
+                            postal_code=postal,
+                            city=city,
+                            state=state,
+                            method="browser_storage_structured",
+                            score=score,
+                            evidence="/".join(path),
+                        )
+
+                for key, item in value.items():
+                    walk(item, path + (str(key),))
+                return
+
+            if isinstance(value, list):
+                for index, item in enumerate(value[:100]):
+                    walk(item, path + (str(index),))
+
+        for item in snapshot.get("storage_candidates") or []:
+            key = clean_text(str(item.get("key") or ""))
+            raw = str(item.get("value") or "")
+            try:
+                parsed = json.loads(raw)
+            except Exception:
+                parsed = None
+
+            if parsed is not None:
+                walk(parsed, (key or "storage",))
+            else:
+                key_normalized = (key or "").casefold()
+                if any(term in key_normalized for term in store_terms):
+                    specific = cls._clean_store_candidate(raw)
+                    if specific:
+                        add_candidate(
+                            store=specific,
+                            method="browser_storage_text",
+                            score=6,
+                            evidence=key,
+                        )
+
+        explicit_patterns = (
+            r"(?:tu|mi)?\s*(?:tienda|sucursal)\s*[:\-]?\s*(.+)$",
+            r"(?:recoger|recoge|pickup)\s+(?:en|at)\s*[:\-]?\s*(.+)$",
+        )
+
+        for item in snapshot.get("visible_candidates") or []:
+            text = clean_text(str(item.get("text") or ""))
+            aria = clean_text(str(item.get("aria") or ""))
+            title = clean_text(str(item.get("title") or ""))
+            store_attr = clean_text(str(item.get("store") or ""))
+            store_id_attr = clean_text(str(item.get("store_id") or ""))
+            location_attr = clean_text(str(item.get("location") or ""))
+            metadata = " ".join(
+                filter(
+                    None,
+                    [
+                        aria,
+                        title,
+                        clean_text(str(item.get("testid") or "")),
+                        clean_text(str(item.get("class_name") or "")),
+                    ],
+                )
+            )
+            blob = " ".join(filter(None, [text, aria, title, metadata]))
+
+            if store_attr or store_id_attr:
+                add_candidate(
+                    store=store_attr or text or location_attr,
+                    store_id=store_id_attr,
+                    method="dom_store_attributes",
+                    score=11 if store_id_attr else 9,
+                    evidence=blob,
+                )
+
+            for source in (text, aria, title):
+                if not source:
+                    continue
+                for pattern in explicit_patterns:
+                    match = re.search(pattern, source, flags=re.I)
+                    if match:
+                        candidate = cls._clean_store_candidate(
+                            match.group(1)
+                        )
+                        if candidate:
+                            add_candidate(
+                                store=candidate,
+                                method="dom_explicit_store_label",
+                                score=9,
+                                evidence=source,
+                            )
+
+            metadata_norm = metadata.casefold()
+            if (
+                text
+                and any(term in metadata_norm for term in store_terms)
+                and cls._clean_store_candidate(text)
+            ):
+                add_candidate(
+                    store=text,
+                    method="dom_store_control",
+                    score=8,
+                    evidence=metadata,
+                )
+
+        if not candidates:
+            return {
+                "verified": False,
+                "method": "not_detected",
+                "store": None,
+                "store_id": None,
+                "postal_code": None,
+                "city": None,
+                "state": None,
+                "evidence": [],
+            }
+
+        def identity(item: dict) -> tuple[str, str]:
+            return (
+                (item.get("store") or "").casefold(),
+                (item.get("store_id") or "").casefold(),
+            )
+
+        candidates.sort(
+            key=lambda item: (
+                int(item.get("score") or 0),
+                bool(item.get("store_id")),
+                bool(item.get("postal_code")),
+                len(item.get("store") or ""),
+            ),
+            reverse=True,
+        )
+
+        best = candidates[0]
+        best_score = int(best.get("score") or 0)
+        strong = [
+            item
+            for item in candidates
+            if int(item.get("score") or 0) >= max(8, best_score - 1)
+        ]
+
+        named = {
+            identity(item)
+            for item in strong
+            if item.get("store") or item.get("store_id")
+        }
+        stores = {
+            value[0]
+            for value in named
+            if value[0]
+        }
+        ids = {
+            value[1]
+            for value in named
+            if value[1]
+        }
+        conflict = len(stores) > 1 and len(ids) > 1
+
+        verified = bool(
+            not conflict
+            and best_score >= 8
+            and (
+                best.get("store")
+                or best.get("store_id")
+            )
+        )
+
+        return {
+            "verified": verified,
+            "method": (
+                best.get("method")
+                if verified
+                else "conflicting_store_context"
+            ),
+            "store": best.get("store") if verified else None,
+            "store_id": best.get("store_id") if verified else None,
+            "postal_code": (
+                best.get("postal_code") if verified else None
+            ),
+            "city": best.get("city") if verified else None,
+            "state": best.get("state") if verified else None,
+            "evidence": [
+                {
+                    "store": item.get("store"),
+                    "store_id": item.get("store_id"),
+                    "postal_code": item.get("postal_code"),
+                    "method": item.get("method"),
+                    "score": item.get("score"),
+                    "evidence": item.get("evidence"),
+                }
+                for item in candidates[:12]
+            ],
+        }
+
+    @classmethod
+    def _detect_store_context(cls, page) -> dict:
+        snapshot = cls._store_context_snapshot(page)
+        return cls._infer_store_context(snapshot)
+
+    @staticmethod
+    def _same_store_context(first: dict, second: dict) -> bool:
+        if not first.get("verified") or not second.get("verified"):
+            return True
+        first_id = clean_text(str(first.get("store_id") or ""))
+        second_id = clean_text(str(second.get("store_id") or ""))
+        if first_id and second_id:
+            return first_id.casefold() == second_id.casefold()
+        first_store = clean_text(str(first.get("store") or ""))
+        second_store = clean_text(str(second.get("store") or ""))
+        if first_store and second_store:
+            return first_store.casefold() == second_store.casefold()
+        return True
+
+    @classmethod
+    def _reconcile_store_context(
+        cls,
+        initial: dict,
+        final: dict,
+    ) -> dict:
+        if (
+            initial.get("verified")
+            and final.get("verified")
+            and not cls._same_store_context(initial, final)
+        ):
+            return {
+                "verified": False,
+                "method": "store_context_changed_during_scrape",
+                "store": None,
+                "store_id": None,
+                "postal_code": None,
+                "city": None,
+                "state": None,
+                "evidence": (
+                    (initial.get("evidence") or [])[:6]
+                    + (final.get("evidence") or [])[:6]
+                ),
+            }
+
+        if final.get("verified"):
+            return final
+        if initial.get("verified"):
+            return initial
+
+        return {
+            "verified": False,
+            "method": "store_context_not_verified",
+            "store": None,
+            "store_id": None,
+            "postal_code": None,
+            "city": None,
+            "state": None,
+            "evidence": (
+                (initial.get("evidence") or [])[:6]
+                + (final.get("evidence") or [])[:6]
+            ),
+        }
+
+    @staticmethod
+    def _apply_store_context(
+        rows: list[dict],
+        context: dict,
+    ) -> None:
+        verified = bool(context.get("verified"))
+        method = clean_text(str(context.get("method") or "")) or (
+            "heb_store_context_not_verified"
+        )
+        for row in rows:
+            row["store_context_verified"] = verified
+            row["store_context_method"] = method
+            if not verified:
+                continue
+            if context.get("store"):
+                row["store"] = context["store"]
+            if context.get("store_id"):
+                row["store_id"] = context["store_id"]
+            if context.get("postal_code"):
+                row["postal_code"] = context["postal_code"]
+            if context.get("city"):
+                row["city"] = context["city"]
+            if context.get("state"):
+                row["state"] = context["state"]
+
+    @staticmethod
     def _accept_cookies(page) -> None:
         for label in (
             "Aceptar todo",
@@ -951,6 +1546,9 @@ class HEBScraper:
         self._accept_cookies(page)
         page.wait_for_timeout(1_200)
 
+        initial_store_context = self._detect_store_context(page)
+        self.run_meta["initial_store_context"] = initial_store_context
+
         target = self._target_from_body(page)
         dom_rows_by_key: dict[str, dict] = {}
         pagination_pages: list[dict] = []
@@ -1127,6 +1725,14 @@ class HEBScraper:
             structured_rows,
             dom_rows,
         )
+
+        final_store_context = self._detect_store_context(page)
+        store_context = self._reconcile_store_context(
+            initial_store_context,
+            final_store_context,
+        )
+        self._apply_store_context(rows, store_context)
+
         target_candidates = [
             value
             for value in (target, structured_target)
@@ -1149,6 +1755,10 @@ class HEBScraper:
         )
         availability_complete = sum(
             row.get("is_available") in (0, 1)
+            for row in rows
+        )
+        store_context_complete = sum(
+            bool(row.get("store_context_verified"))
             for row in rows
         )
         price_order_errors = sum(
@@ -1176,6 +1786,7 @@ class HEBScraper:
             or (price_complete / products) < 0.90
             or (url_complete / products) < 0.90
             or (availability_complete / products) < 0.90
+            or (store_context_complete / products) < 1.0
             or (
                 (products - price_order_errors)
                 / products
@@ -1194,6 +1805,16 @@ class HEBScraper:
                 "price_complete": price_complete,
                 "url_complete": url_complete,
                 "availability_complete": availability_complete,
+                "store_context_complete": store_context_complete,
+                "store_context_verified": bool(
+                    rows
+                    and store_context_complete == products
+                ),
+                "store_context_method": store_context.get("method"),
+                "store": store_context.get("store"),
+                "store_id": store_context.get("store_id"),
+                "postal_code": store_context.get("postal_code"),
+                "store_context_evidence": store_context.get("evidence") or [],
                 "price_order_errors": price_order_errors,
                 "structured_responses": len(self._payloads),
                 "dom_rows": len(dom_rows),
