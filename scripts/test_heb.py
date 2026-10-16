@@ -113,6 +113,14 @@ def _write_output(results: dict[str, dict], category_order: list[str]):
     return concentrated, summary_df
 
 
+def list_cdp_pages(browser) -> list[str]:
+    urls: list[str] = []
+    for context in browser.contexts:
+        for page in context.pages:
+            urls.append(page.url or "about:blank")
+    return urls
+
+
 def find_heb_page(browser):
     expected_path = (
         "/cuidado-personal-y-belleza/"
@@ -293,11 +301,35 @@ def main() -> int:
             print(f"{type(exc).__name__}: {exc}")
             return 10
 
+        visible_pages = list_cdp_pages(browser)
+        print("Pestañas visibles por CDP:")
+        for index, url in enumerate(visible_pages, start=1):
+            print(f"  [{index}] {url}")
+        print("")
+
         page = find_heb_page(browser)
         if page is None:
-            print(
-                "ERROR: abre HEB en Chrome antes de ejecutar el test."
-            )
+            heb_pages = [
+                url for url in visible_pages
+                if "heb.com.mx" in url.casefold()
+            ]
+            if heb_pages:
+                print(
+                    "ERROR: CDP sí ve HEB, pero no la categoría exacta "
+                    "Pasta Dental."
+                )
+                print("Pestañas HEB detectadas:")
+                for url in heb_pages:
+                    print(f"  - {url}")
+            else:
+                print(
+                    "ERROR: la instancia de Chrome conectada por CDP "
+                    "no expone ninguna pestaña de HEB."
+                )
+                print(
+                    "Abre la categoría HEB en la MISMA ventana/perfil "
+                    "donde habilitaste remote debugging."
+                )
             return 11
 
         print(f"Pestaña HEB detectada: {page.url}")
