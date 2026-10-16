@@ -1112,54 +1112,68 @@ class HEBScraper:
 
         best = candidates[0]
         best_score = int(best.get("score") or 0)
-        strong = [
+
+        # Only evidence at the exact highest confidence level may create
+        # a hard conflict. Lower-confidence DOM controls are often aliases,
+        # breadcrumbs, delivery widgets or stale secondary labels.
+        top = [
             item
             for item in candidates
-            if int(item.get("score") or 0) >= max(8, best_score - 1)
+            if int(item.get("score") or 0) == best_score
+        ]
+        supplemental = [
+            item
+            for item in candidates
+            if int(item.get("score") or 0) >= 8
         ]
 
-        stores = {
+        top_stores = {
             canonical_store_name(item.get("store"))
-            for item in strong
+            for item in top
             if canonical_store_name(item.get("store"))
         }
-        ids = {
+        top_ids = {
             str(item.get("store_id") or "").strip().casefold()
-            for item in strong
+            for item in top
             if str(item.get("store_id") or "").strip()
         }
-        conflict = len(stores) > 1 or len(ids) > 1
+        conflict = len(top_stores) > 1 or len(top_ids) > 1
 
         resolved_store = best.get("store")
         if not resolved_store:
-            resolved_store = next(
-                (
-                    item.get("store")
-                    for item in strong
-                    if item.get("store")
-                ),
-                None,
-            )
+            supplemental_names = {}
+            for item in supplemental:
+                canonical = canonical_store_name(item.get("store"))
+                if not canonical:
+                    continue
+                supplemental_names.setdefault(
+                    canonical,
+                    item.get("store"),
+                )
+            if len(supplemental_names) == 1:
+                resolved_store = next(iter(supplemental_names.values()))
+            elif len(supplemental_names) > 1:
+                conflict = True
+
         resolved_id = best.get("store_id")
         if not resolved_id:
-            resolved_id = next(
-                (
-                    item.get("store_id")
-                    for item in strong
-                    if item.get("store_id")
-                ),
-                None,
-            )
+            supplemental_ids = {
+                str(item.get("store_id") or "").strip()
+                for item in supplemental
+                if str(item.get("store_id") or "").strip()
+            }
+            if len(supplemental_ids) == 1:
+                resolved_id = next(iter(supplemental_ids))
+
         resolved_postal = best.get("postal_code")
         if not resolved_postal:
-            resolved_postal = next(
-                (
-                    item.get("postal_code")
-                    for item in strong
-                    if item.get("postal_code")
-                ),
-                None,
-            )
+            supplemental_postals = {
+                str(item.get("postal_code") or "").strip()
+                for item in supplemental
+                if str(item.get("postal_code") or "").strip()
+            }
+            if len(supplemental_postals) == 1:
+                resolved_postal = next(iter(supplemental_postals))
 
         verified = bool(
             not conflict
@@ -1168,7 +1182,7 @@ class HEBScraper:
         )
         methods = {
             str(item.get("method") or "")
-            for item in strong
+            for item in top
             if item.get("method")
         }
         resolved_method = (
