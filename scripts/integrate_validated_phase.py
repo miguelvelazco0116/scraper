@@ -761,7 +761,7 @@ def _validate_heb_phase(
     observed_categories = set(
         summary["category_id"].dropna().astype(str)
     )
-    if observed_categories != {"pasta-dental"}:
+    if observed_categories != {"higiene-dental"}:
         notes.append(
             f"Categorías HEB inesperadas: {sorted(observed_categories)}"
         )
