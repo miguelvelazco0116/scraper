@@ -182,7 +182,7 @@
     "5": {
       "name": "Fase 5",
       "status": "PARTIAL_VALIDATED",
-      "categories": 3,
+      "categories": 4,
       "retailers": [
         "Farmacias Similares",
         "HEB"
@@ -200,14 +200,14 @@
           "note": "Validación live del 2026-10-15: 30/30 productos, discovery/SKU/precio/precio regular/URL completos, cero errores y cero bloqueos."
         },
         "HEB": {
-          "status": "EXTRACTION_VALIDATED_STORE_CONTEXT_PENDING",
+          "status": "PARTIAL_CATEGORY_VALIDATION_STORE_CONTEXT_PENDING",
           "categories": {
-            "higiene-dental": "EXTRACTION_VALIDATED_STORE_CONTEXT_PENDING"
+            "higiene-dental": "EXTRACTION_VALIDATED_STORE_CONTEXT_PENDING",
+            "lavanderia": "PENDING_LIVE_VALIDATION"
           },
           "source_workbook": "output/heb_phase5_test.xlsx",
           "test_command": "& .\\scripts\\test_heb.ps1",
           "integration_command": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 5 -Retailer \"HEB\"",
-          "category_url": "https://www.heb.com.mx/cuidado-personal-y-belleza/higiene-dental",
           "strategy": "MANUAL_HEB_HOME_EXISTING_CHROME_CDP_SAME_TAB_NAVIGATION_NATIVE_PAGINATION",
           "validation_rules": {
             "minimum_catalog_coverage": 0.9,
@@ -218,7 +218,7 @@
             "minimum_price_order_valid_rate": 0.9,
             "availability_encoding": "1=available, 0=unavailable"
           },
-          "note": "Validación live del catálogo completa: 272/272 productos de Higiene Dental, 100% cobertura y completitud de SKU/precio/URL/disponibilidad, 10 páginas, 9 avances nativos, cero bloqueos. Pendiente verificar el contexto de tienda/ubicación de la sesión antes de integrar HEB a Fase 5; la implementación actual aún no certifica store_context_verified.",
+          "note": "HEB ahora tiene 2 categorías en Fase 5. Higiene Dental conserva su validación live 272/272 del 2026-10-16 sin volver a descargarse hoy; Lavandería queda pendiente de validación live. Ambas usan Chrome manual + CDP + navegación en la misma pestaña + paginación nativa. El contexto de tienda/ubicación sigue pendiente de certificación antes de integrar HEB productivamente.",
           "products": 272,
           "live_validation": {
             "date": "2026-10-16",
@@ -236,10 +236,14 @@
             "native_next_clicks": 9,
             "blocked_detected": false,
             "catalogue_source": "dom_fallback"
+          },
+          "category_urls": {
+            "higiene-dental": "https://www.heb.com.mx/cuidado-personal-y-belleza/higiene-dental",
+            "lavanderia": "https://www.heb.com.mx/lavanderia"
           }
         }
       },
-      "note": "Fase 5 queda COMPLETE sólo cuando Farmacias Similares y HEB estén validados e integrados para la misma fecha. La Comer permanece fuera de Fase 5."
+      "note": "Fase 5 contiene 4 retailer-categorías: Farmacias Similares 2 + HEB 2. Queda COMPLETE sólo cuando ambos retailers estén validados e integrados para la misma fecha. La Comer permanece fuera de Fase 5."
     }
   }
 }
