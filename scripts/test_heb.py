@@ -39,6 +39,9 @@ def _summary_is_acceptable(summary: dict) -> bool:
         and meets_rate(summary.get("availability_complete") or 0, products)
         and int(summary.get("store_context_complete") or 0) == products
         and bool(summary.get("store_context_verified"))
+        and str(summary.get("store_context_method") or "").strip() != ""
+        and str(summary.get("store") or "").strip().casefold()
+        not in {"", "heb", "heb online"}
         and valid_after_errors(products, summary.get("price_order_errors") or 0)
         and str(summary.get("catalogue_source") or "") in {
             "productSearchV3",
