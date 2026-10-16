@@ -43,7 +43,7 @@ def test_phase5_integrator_uses_similares_and_heb_only():
     assert '"Farmacias Similares"' in phase5
     assert '"HEB"' in phase5
     assert '"La Comer"' not in phase5
-    assert '"categories": 3' in phase5
+    assert '"categories": 4' in phase5
     assert "def _validate_similares_phase" in source
     assert "def _validate_heb_phase" in source
 
