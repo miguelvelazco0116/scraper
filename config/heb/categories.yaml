@@ -5,3 +5,10 @@ categories:
     department: Cuidado personal y belleza
     url: https://www.heb.com.mx/cuidado-personal-y-belleza/higiene-dental
     enabled: true
+
+  - id: lavanderia
+    name: Lavandería
+    subcategory: null
+    department: Lavandería
+    url: https://www.heb.com.mx/lavanderia
+    enabled: true
