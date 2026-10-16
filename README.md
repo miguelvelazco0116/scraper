@@ -23,7 +23,7 @@ No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadi
 | Ibarra Mayoreo | 4 | 572 | 100% | SKU informativo; gates unitarios completos | Validado / Fase 1 |
 | Bodega Aurrera | 2 | 1,883 | 100% | 100% | Método validado / muestra diaria válida |
 | Farmacias Similares | 2 | 30 | 100% | 100% | Validado / Fase 5 |
-| HEB | 1 | Pendiente | Pendiente | Pendiente | En validación / Fase 5 |
+| HEB | 2 | 272 validados + Lavandería pendiente | 100% en Higiene Dental | 100% en Higiene Dental | En validación / Fase 5 |
 | La Comer | 2 | Pendiente | Pendiente | Pendiente | Implementado, no activo |
 | Walmart | 3 | Pendiente de validación Fase 3 | — | — | En validación / Fase 3 |
 | Farmacias Guadalajara | 4 | 870 | 100% | 100% | Validado / Fase 2 |
@@ -669,7 +669,7 @@ Implementación por fase:
 - **Fase 2:** `farmacias_guadalajara_phase2_test.xlsx` y `soriana_manual_phase2_test.xlsx` conservan categorías exitosas del día; el runner productivo ya no borra estos checkpoints.
 - **Fase 3:** Bodega Aurrera y Walmart reutilizan categorías válidas del día; el runner productivo ya no elimina sus workbooks antes de ejecutarse.
 - **Fase 4:** San Pablo y Benavides conservan categorías válidas del día y sólo ejecutan las pendientes.
-- **Fase 5:** Farmacias Similares y HEB se integran de forma incremental por retailer. Ambos conservan categorías válidas del día, reintentan sólo las pendientes y usan el umbral >=90%. HEB usa la categoría completa `higiene-dental` y queda pendiente de validación live para este alcance ampliado. La Comer permanece fuera de Fase 5.
+- **Fase 5:** Farmacias Similares y HEB se integran de forma incremental por retailer. Ambos conservan categorías válidas del día, reintentan sólo las pendientes y usan el umbral >=90%. HEB tiene dos categorías activas: `higiene-dental` y `lavanderia`. Higiene Dental conserva su muestra live 272/272 del día y Lavandería queda pendiente de validación live. La Comer permanece fuera de Fase 5.
 
 El umbral común está centralizado en:
 
@@ -1222,24 +1222,23 @@ Test dedicado:
 
 ## HEB
 
-Estado: **IMPLEMENTADO / PENDIENTE DE VALIDACIÓN LIVE / FASE 5**
+Estado: **IMPLEMENTADO / VALIDACIÓN LIVE PARCIAL / FASE 5**
 
-Categoría activa:
+Categorías activas:
 
 ```text
 higiene-dental
 Cuidado personal y belleza > Higiene dental
-```
-
-URL:
-
-```text
 https://www.heb.com.mx/cuidado-personal-y-belleza/higiene-dental
+
+lavanderia
+Lavandería
+https://www.heb.com.mx/lavanderia
 ```
 
-El usuario abre HEB manualmente en Chrome y habilita remote debugging. El scraper se conecta por CDP a esa misma sesión, navega en la misma pestaña hacia Higiene Dental y recorre el paginador nativo del storefront. La fuente principal validada es el DOM del catálogo; si aparece `productSearchV3`, se usa como enriquecimiento adicional. La disponibilidad se conserva en formato binario `1` disponible / `0` no disponible.
+El usuario abre HEB manualmente en Chrome y habilita remote debugging. El scraper se conecta por CDP a esa misma sesión, navega cada categoría en la misma pestaña y recorre el paginador nativo del storefront. La fuente principal validada es el DOM del catálogo; si aparece `productSearchV3`, se usa como enriquecimiento adicional. La disponibilidad se conserva en formato binario `1` disponible / `0` no disponible.
 
-Gate:
+Gate por categoría:
 - cobertura de catálogo >= 90%;
 - SKU >= 90%;
 - precio actual >= 90%;
@@ -1249,7 +1248,9 @@ Gate:
 - evidencia de catálogo por DOM o `productSearchV3`;
 - sin bloqueo.
 
-La validación anterior de 96/96 productos correspondía únicamente a Pasta Dental y no se considera válida para el nuevo alcance completo de Higiene Dental.
+Higiene Dental quedó validada live el 16 de octubre de 2026 con 272/272 productos, cobertura 100%, SKU/precio/URL/disponibilidad completos, 10 páginas y cero bloqueos. Al agregar Lavandería, ese checkpoint del mismo día se conserva y el runner sólo debe ejecutar la nueva categoría pendiente.
+
+El contexto de tienda/ubicación de HEB sigue pendiente de certificación antes de la integración productiva final.
 
 Test:
 
