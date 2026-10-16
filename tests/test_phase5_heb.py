@@ -85,3 +85,33 @@ def test_heb_dom_fallback_uses_direct_page_pagination():
     assert 'query["page"] = str(page_number)' in source
     assert '"pagination_method": "query_page"' in source
     assert '"pages_visited": len(pagination_pages)' in source
+
+
+def test_heb_phase5_uses_existing_chrome_cdp():
+    runner = Path("scripts/test_heb.py").read_text(
+        encoding="utf-8"
+    )
+    wrapper = Path("scripts/test_heb.ps1").read_text(
+        encoding="utf-8"
+    )
+    assert "connect_over_cdp" in runner
+    assert "--cdp-url" in runner
+    assert "DevToolsActivePort" in wrapper
+    assert "SESION EXISTENTE" in wrapper
+
+
+def test_heb_blocked_session_is_not_automatically_retried():
+    runner = Path("scripts/test_heb.py").read_text(
+        encoding="utf-8"
+    )
+    assert '!= "BLOCKED"' in runner
+    assert "No se harán más reintentos." in runner
+
+
+def test_heb_existing_session_uses_native_show_more():
+    source = Path("scraper/retailers/heb.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def scrape_category_on_page" in source
+    assert '"show_more"' in source
+    assert 'text="Mostrar más"' in source
