@@ -200,10 +200,10 @@
           "note": "Validación live del 2026-10-15: 30/30 productos, discovery/SKU/precio/precio regular/URL completos, cero errores y cero bloqueos."
         },
         "HEB": {
-          "status": "EXTRACTION_VALIDATED_STORE_CONTEXT_PENDING",
+          "status": "STORE_CONTEXT_CERTIFICATION_IMPLEMENTED_PENDING_LIVE",
           "categories": {
-            "higiene-dental": "EXTRACTION_VALIDATED_STORE_CONTEXT_PENDING",
-            "lavanderia": "EXTRACTION_VALIDATED_STORE_CONTEXT_PENDING"
+            "higiene-dental": "REVALIDATION_REQUIRED_FOR_STORE_CONTEXT",
+            "lavanderia": "REVALIDATION_REQUIRED_FOR_STORE_CONTEXT"
           },
           "source_workbook": "output/heb_phase5_test.xlsx",
           "test_command": "& .\\scripts\\test_heb.ps1",
@@ -218,7 +218,7 @@
             "minimum_price_order_valid_rate": 0.9,
             "availability_encoding": "1=available, 0=unavailable"
           },
-          "note": "Validación live completa del catálogo HEB el 2026-10-16: Higiene Dental 272/272 y Lavandería 283/283; total 555/555, cobertura/SKU/precio/URL/disponibilidad 100%, 20 páginas, 18 avances nativos y cero bloqueos. Pendiente certificar contexto de tienda/ubicación antes de integrar HEB productivamente a Fase 5.",
+          "note": "Extracción de catálogo validada previamente en 555/555 filas (272 Higiene Dental + 283 Lavandería). Se implementó certificación conservadora del contexto de tienda sobre la misma sesión Chrome/CDP. Las 555 filas deben regenerarse una vez para asociar y validar la tienda real; el integrador rechaza HEB mientras el contexto no esté certificado.",
           "products": 555,
           "live_validation": {
             "date": "2026-10-16",
@@ -262,6 +262,11 @@
           "category_urls": {
             "higiene-dental": "https://www.heb.com.mx/cuidado-personal-y-belleza/higiene-dental",
             "lavanderia": "https://www.heb.com.mx/lavanderia"
+          },
+          "store_context": {
+            "implementation": "EXISTING_CDP_SESSION_DOM_AND_BROWSER_STORAGE_EVIDENCE",
+            "rule": "Only mark verified when a concrete selected HEB store is deterministically exposed by the existing browser session. Generic selectors such as 'Selecciona tu tienda' are rejected; conflicting store evidence is rejected.",
+            "integration_gate": "100% of HEB rows must have store_context_verified=true, a non-empty method, and one concrete store shared across both categories."
           }
         }
       },
