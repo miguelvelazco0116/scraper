@@ -73,7 +73,7 @@ PHASES = {
             "Farmacias Similares",
             "HEB",
         },
-        "categories": 3,
+        "categories": 4,
         "require_fg_names": False,
     },
 } 
@@ -108,7 +108,7 @@ PHASE5_RETAILER_SOURCES = {
     },
     "HEB": {
         "source": ROOT / "output" / "heb_phase5_test.xlsx",
-        "categories": 1,
+        "categories": 2,
     },
 }
 
@@ -731,8 +731,8 @@ def _validate_heb_phase(
 
     if frame.empty:
         notes.append("Concentrado HEB vacío")
-    if len(summary) != 1:
-        notes.append(f"HEB categorías {len(summary)}/1")
+    if len(summary) != 2:
+        notes.append(f"HEB categorías {len(summary)}/2")
         return notes
 
     required = {
@@ -761,7 +761,7 @@ def _validate_heb_phase(
     observed_categories = set(
         summary["category_id"].dropna().astype(str)
     )
-    if observed_categories != {"higiene-dental"}:
+    if observed_categories != {"higiene-dental", "lavanderia"}:
         notes.append(
             f"Categorías HEB inesperadas: {sorted(observed_categories)}"
         )
