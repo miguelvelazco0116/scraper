@@ -75,3 +75,13 @@ def test_heb_runner_accepts_dom_or_structured_transport():
     )
     assert '"dom_fallback"' in source
     assert '"productSearchV3+dom_fallback"' in source
+
+
+def test_heb_dom_fallback_uses_direct_page_pagination():
+    source = Path("scraper/retailers/heb.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def _page_url" in source
+    assert 'query["page"] = str(page_number)' in source
+    assert '"pagination_method": "query_page"' in source
+    assert '"pages_visited": len(pagination_pages)' in source
