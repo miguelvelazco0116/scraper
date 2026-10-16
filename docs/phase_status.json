@@ -208,7 +208,7 @@
           "test_command": "& .\\scripts\\test_heb.ps1",
           "integration_command": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 5 -Retailer \"HEB\"",
           "category_url": "https://www.heb.com.mx/cuidado-personal-y-belleza/higiene-dental/pasta-dental",
-          "strategy": "MANUAL_CATEGORY_TAB_EXISTING_CHROME_CDP_NATIVE_SHOW_MORE",
+          "strategy": "MANUAL_HEB_HOME_EXISTING_CHROME_CDP_SAME_TAB_NAVIGATION_NATIVE_SHOW_MORE",
           "validation_rules": {
             "minimum_catalog_coverage": 0.9,
             "minimum_sku_completeness": 0.9,
@@ -218,7 +218,7 @@
             "minimum_price_order_valid_rate": 0.9,
             "availability_encoding": "1=available, 0=unavailable"
           },
-          "note": "Pendiente de validación live. Estrategia oficial: el usuario abre manualmente Pasta Dental en HEB, habilita remote debugging y el scraper se conecta por CDP a esa pestaña exacta. No realiza navegación inicial, no abre otro Chrome y no cierra la sesión."
+          "note": "Pendiente de validación live. Flujo oficial: el usuario abre manualmente https://www.heb.com.mx/ en Chrome con remote debugging; el scraper se conecta por CDP, navega desde esa misma pestaña a Pasta Dental mediante window.location.assign y continúa el scraping sin abrir ni cerrar otro Chrome."
         }
       },
       "note": "Fase 5 queda COMPLETE sólo cuando Farmacias Similares y HEB estén validados e integrados para la misma fecha. La Comer permanece fuera de Fase 5."
