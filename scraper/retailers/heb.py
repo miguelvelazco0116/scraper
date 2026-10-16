@@ -1089,11 +1089,16 @@ class HEBScraper:
                 "evidence": [],
             }
 
-        def identity(item: dict) -> tuple[str, str]:
-            return (
-                (item.get("store") or "").casefold(),
-                (item.get("store_id") or "").casefold(),
+        def canonical_store_name(value) -> str:
+            text = clean_text(str(value or "")) or ""
+            normalized = text.casefold()
+            normalized = re.sub(
+                r"^(?:tienda\s+)?heb(?:\s+plus)?\s*[-:]?\s*",
+                "",
+                normalized,
             )
+            normalized = re.sub(r"[^a-z0-9]+", "", normalized)
+            return normalized
 
         candidates.sort(
             key=lambda item: (
@@ -1113,44 +1118,75 @@ class HEBScraper:
             if int(item.get("score") or 0) >= max(8, best_score - 1)
         ]
 
-        named = {
-            identity(item)
-            for item in strong
-            if item.get("store") or item.get("store_id")
-        }
         stores = {
-            value[0]
-            for value in named
-            if value[0]
+            canonical_store_name(item.get("store"))
+            for item in strong
+            if canonical_store_name(item.get("store"))
         }
         ids = {
-            value[1]
-            for value in named
-            if value[1]
+            str(item.get("store_id") or "").strip().casefold()
+            for item in strong
+            if str(item.get("store_id") or "").strip()
         }
         conflict = len(stores) > 1 or len(ids) > 1
+
+        resolved_store = best.get("store")
+        if not resolved_store:
+            resolved_store = next(
+                (
+                    item.get("store")
+                    for item in strong
+                    if item.get("store")
+                ),
+                None,
+            )
+        resolved_id = best.get("store_id")
+        if not resolved_id:
+            resolved_id = next(
+                (
+                    item.get("store_id")
+                    for item in strong
+                    if item.get("store_id")
+                ),
+                None,
+            )
+        resolved_postal = best.get("postal_code")
+        if not resolved_postal:
+            resolved_postal = next(
+                (
+                    item.get("postal_code")
+                    for item in strong
+                    if item.get("postal_code")
+                ),
+                None,
+            )
 
         verified = bool(
             not conflict
             and best_score >= 8
-            and (
-                best.get("store")
-                or best.get("store_id")
-            )
+            and cls._clean_store_candidate(resolved_store)
+        )
+        methods = {
+            str(item.get("method") or "")
+            for item in strong
+            if item.get("method")
+        }
+        resolved_method = (
+            best.get("method")
+            if len(methods) <= 1
+            else "cross_source_store_context"
         )
 
         return {
             "verified": verified,
             "method": (
-                best.get("method")
+                resolved_method
                 if verified
                 else "conflicting_store_context"
             ),
-            "store": best.get("store") if verified else None,
-            "store_id": best.get("store_id") if verified else None,
-            "postal_code": (
-                best.get("postal_code") if verified else None
-            ),
+            "store": resolved_store if verified else None,
+            "store_id": resolved_id if verified else None,
+            "postal_code": resolved_postal if verified else None,
             "city": best.get("city") if verified else None,
             "state": best.get("state") if verified else None,
             "evidence": [
