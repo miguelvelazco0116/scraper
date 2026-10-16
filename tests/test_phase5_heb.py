@@ -139,3 +139,23 @@ def test_heb_runner_accepts_manual_homepage_and_navigates_same_tab():
     )
     assert "return candidates[-1]" in source
     assert "el scraper navegará desde" in source
+
+
+def test_heb_manual_pagination_supports_native_next_and_scroll():
+    source = Path("scraper/retailers/heb.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def _click_native_next_page" in source
+    assert "def _scroll_for_more_products" in source
+    assert '"native_next"' in source
+    assert '"scroll_lazy_load"' in source
+    assert '"native_next_clicks": native_next_clicks' in source
+    assert '"scroll_rounds": scroll_rounds' in source
+
+
+def test_heb_runner_surfaces_native_pagination_diagnostics():
+    source = Path("scripts/test_heb.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"native_next_clicks"' in source
+    assert '"scroll_rounds"' in source
