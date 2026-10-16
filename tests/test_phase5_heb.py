@@ -4,18 +4,18 @@ from scraper.config import load_categories
 from scraper.quality_rules import meets_rate
 
 
-def test_heb_category_is_pasta_dental():
+def test_heb_category_is_full_higiene_dental():
     categories = {
         item.id: item
         for item in load_categories("config/heb/categories.yaml")
     }
-    category = categories["pasta-dental"]
+    category = categories["higiene-dental"]
     assert category.department == "Cuidado personal y belleza"
     assert category.name == "Higiene dental"
-    assert category.subcategory == "Pasta dental"
+    assert category.subcategory is None
     assert category.url == (
         "https://www.heb.com.mx/"
-        "cuidado-personal-y-belleza/higiene-dental/pasta-dental"
+        "cuidado-personal-y-belleza/higiene-dental"
     )
 
 
