@@ -47,10 +47,15 @@ class HEBScraper:
 
     SHOW_MORE_SELECTORS = (
         ".vtex-search-result-3-x-buttonShowMore button",
+        ".vtex-search-result-3-x-buttonShowMore",
         'button:has-text("Mostrar más")',
         'button:has-text("Mostrar mas")',
         'button:has-text("Ver más")',
         'button:has-text("Ver mas")',
+        'text="Mostrar más"',
+        'text="Mostrar mas"',
+        'text="Ver más"',
+        'text="Ver mas"',
     )
 
     def __init__(
@@ -734,28 +739,21 @@ class HEBScraper:
             if key:
                 dom_rows_by_key[key] = row
 
-        first_page_size = len(first_page_rows)
-        if target is not None and target > 0 and first_page_size > 0:
-            expected_pages = (
-                target + first_page_size - 1
-            ) // first_page_size
-            max_pages = min(max(expected_pages + 1, 2), 50)
-        else:
-            max_pages = 10
-
         pagination_pages.append(
             {
-                "page": 1,
+                "step": 0,
+                "method": "initial_dom",
                 "url": page.url,
-                "rows_on_page": first_page_size,
+                "rows_on_page": len(first_page_rows),
                 "cumulative_rows": len(dom_rows_by_key),
                 "target_products": target,
             }
         )
 
-        empty_pages = 0
+        clicks = 0
+        no_growth_rounds = 0
 
-        for page_number in range(2, max_pages + 1):
+        while clicks < self.max_show_more_clicks:
             if (
                 target is not None
                 and target > 0
@@ -763,41 +761,24 @@ class HEBScraper:
             ):
                 break
 
-            page_url = self._page_url(
-                category.url,
-                page_number,
-            )
-            try:
-                page_response = page.goto(
-                    page_url,
-                    wait_until="domcontentloaded",
-                    timeout=90_000,
-                )
-            except PlaywrightError as exc:
-                raise HEBNetworkUnavailable(str(exc)) from exc
+            if not self._click_show_more(page):
+                break
 
-            page_status = (
-                page_response.status
-                if page_response
-                else None
-            )
-            page.wait_for_timeout(self.wait_ms)
-            self._assert_not_blocked(
-                page,
-                page_status,
-            )
+            clicks += 1
+            page.wait_for_timeout(1_500)
+            self._assert_not_blocked(page)
 
             body_target = self._target_from_body(page)
             if body_target is not None and body_target > 0:
                 target = max(target or 0, body_target)
 
-            page_rows = self._rows_from_dom(
+            current_rows = self._rows_from_dom(
                 page,
                 category,
                 location,
             )
             before = len(dom_rows_by_key)
-            for row in page_rows:
+            for row in current_rows:
                 key = (
                     clean_text(row.get("sku"))
                     or clean_text(row.get("url"))
@@ -808,26 +789,23 @@ class HEBScraper:
 
             pagination_pages.append(
                 {
-                    "page": page_number,
+                    "step": clicks,
+                    "method": "show_more",
                     "url": page.url,
-                    "rows_on_page": len(page_rows),
+                    "rows_on_page": len(current_rows),
                     "new_rows": after - before,
                     "cumulative_rows": after,
                     "target_products": target,
                 }
             )
 
-            if not page_rows or after == before:
-                empty_pages += 1
+            if after == before:
+                no_growth_rounds += 1
             else:
-                empty_pages = 0
+                no_growth_rounds = 0
 
-            if empty_pages >= 2:
+            if no_growth_rounds >= 2:
                 break
-
-            # Keep the cadence deliberately conservative on the user's
-            # normal browser session.
-            page.wait_for_timeout(1_500)
 
         structured_rows, structured_target = self._rows_from_payloads(
             self._payloads,
@@ -909,7 +887,11 @@ class HEBScraper:
                 "price_order_errors": price_order_errors,
                 "structured_responses": len(self._payloads),
                 "dom_rows": len(dom_rows),
-                "pagination_method": "query_page",
+                "pagination_method": (
+                    "show_more"
+                    if clicks > 0
+                    else "initial_dom"
+                ),
                 "pages_visited": len(pagination_pages),
                 "pagination_pages": pagination_pages,
                 "catalogue_source": (
@@ -921,7 +903,7 @@ class HEBScraper:
                         else "dom_fallback"
                     )
                 ),
-                "show_more_clicks": 0,
+                "show_more_clicks": clicks,
                 "response_errors": len(self._response_errors),
                 "final_url": page.url,
             }
