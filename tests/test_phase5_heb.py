@@ -2,6 +2,7 @@ from pathlib import Path
 
 from scraper.config import load_categories
 from scraper.quality_rules import meets_rate
+from scraper.retailers.heb import HEBScraper
 
 
 def test_heb_category_is_full_higiene_dental():
@@ -206,3 +207,101 @@ def test_heb_pagination_fallback_is_category_agnostic():
     )
     assert "current.pathname.replace" in source
     assert "cuidado-personal-y-belleza/higiene-dental" not in source
+
+
+def test_heb_store_context_from_structured_browser_storage():
+    snapshot = {
+        "visible_candidates": [],
+        "storage_candidates": [
+            {
+                "kind": "localStorage",
+                "key": "selectedStore",
+                "value": (
+                    '{"storeId":"123","storeName":"HEB Gonzalitos",'
+                    '"postalCode":"64000"}'
+                ),
+            }
+        ],
+    }
+    context = HEBScraper._infer_store_context(snapshot)
+    assert context["verified"] is True
+    assert context["store"] == "HEB Gonzalitos"
+    assert context["store_id"] == "123"
+    assert context["postal_code"] == "64000"
+    assert context["method"] == "browser_storage_structured"
+
+
+def test_heb_store_context_from_visible_selected_store_control():
+    snapshot = {
+        "visible_candidates": [
+            {
+                "text": "HEB Gonzalitos",
+                "aria": "Cambiar tienda",
+                "title": "",
+                "testid": "store-selector",
+                "class_name": "store-selector",
+            }
+        ],
+        "storage_candidates": [],
+    }
+    context = HEBScraper._infer_store_context(snapshot)
+    assert context["verified"] is True
+    assert context["store"] == "HEB Gonzalitos"
+    assert context["method"] == "dom_store_control"
+
+
+def test_heb_store_context_rejects_generic_selector():
+    snapshot = {
+        "visible_candidates": [
+            {
+                "text": "Selecciona tu tienda",
+                "aria": "Selecciona tu tienda",
+                "title": "",
+                "testid": "store-selector",
+                "class_name": "store-selector",
+            }
+        ],
+        "storage_candidates": [],
+    }
+    context = HEBScraper._infer_store_context(snapshot)
+    assert context["verified"] is False
+    assert context["store"] is None
+
+
+def test_heb_store_context_rejects_conflicting_store_evidence():
+    snapshot = {
+        "visible_candidates": [
+            {
+                "text": "HEB Gonzalitos",
+                "aria": "Cambiar tienda",
+                "testid": "store-selector",
+            },
+            {
+                "text": "HEB San Nicolas",
+                "aria": "Cambiar tienda",
+                "testid": "store-selector",
+            },
+        ],
+        "storage_candidates": [],
+    }
+    context = HEBScraper._infer_store_context(snapshot)
+    assert context["verified"] is False
+    assert context["method"] == "conflicting_store_context"
+
+
+def test_heb_runner_requires_store_context_for_same_day_reuse():
+    source = Path("scripts/test_heb.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"store_context_complete"' in source
+    assert 'bool(summary.get("store_context_verified"))' in source
+
+
+def test_heb_integrator_requires_verified_store_context():
+    source = Path("scripts/integrate_validated_phase.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"store_context_verified"' in source
+    assert '"store_context_method"' in source
+    assert '"store_context_complete"' in source
+    assert "sin tienda concreta" in source
