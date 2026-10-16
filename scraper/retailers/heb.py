@@ -4,7 +4,7 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -406,6 +406,24 @@ class HEBScraper:
         return list(rows_by_key.values()), target
 
     @staticmethod
+    def _page_url(base_url: str, page_number: int) -> str:
+        parts = urlsplit(base_url)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        if page_number <= 1:
+            query.pop("page", None)
+        else:
+            query["page"] = str(page_number)
+        return urlunsplit(
+            (
+                parts.scheme,
+                parts.netloc,
+                parts.path,
+                urlencode(query),
+                parts.fragment,
+            )
+        )
+
+    @staticmethod
     def _target_from_body(page) -> int | None:
         try:
             body = page.locator("body").inner_text(timeout=8_000)
@@ -706,101 +724,129 @@ class HEBScraper:
                 page.wait_for_timeout(1_200)
 
                 clicks = 0
-                stale_rounds = 0
-                previous_products = -1
                 target = self._target_from_body(page)
+                dom_rows_by_key: dict[str, dict] = {}
+                pagination_pages: list[dict] = []
 
-                for _ in range(self.max_show_more_clicks + 1):
-                    structured_rows, structured_target = self._rows_from_payloads(
-                        self._payloads,
-                        category,
-                        location,
+                first_page_rows = self._rows_from_dom(
+                    page,
+                    category,
+                    location,
+                )
+                for row in first_page_rows:
+                    key = (
+                        clean_text(row.get("sku"))
+                        or clean_text(row.get("url"))
                     )
-                    dom_rows = self._rows_from_dom(
+                    if key:
+                        dom_rows_by_key[key] = row
+
+                first_page_size = len(first_page_rows)
+                if target is not None and target > 0 and first_page_size > 0:
+                    expected_pages = (
+                        target + first_page_size - 1
+                    ) // first_page_size
+                    max_pages = min(max(expected_pages + 1, 2), 50)
+                else:
+                    max_pages = 10
+
+                pagination_pages.append(
+                    {
+                        "page": 1,
+                        "url": page.url,
+                        "rows_on_page": first_page_size,
+                        "cumulative_rows": len(dom_rows_by_key),
+                        "target_products": target,
+                    }
+                )
+
+                empty_pages = 0
+
+                for page_number in range(2, max_pages + 1):
+                    if (
+                        target is not None
+                        and target > 0
+                        and len(dom_rows_by_key) >= target
+                    ):
+                        break
+
+                    page_url = self._page_url(
+                        category.url,
+                        page_number,
+                    )
+                    try:
+                        page_response = page.goto(
+                            page_url,
+                            wait_until="domcontentloaded",
+                            timeout=90_000,
+                        )
+                    except PlaywrightError as exc:
+                        raise HEBNetworkUnavailable(str(exc)) from exc
+
+                    page_status = (
+                        page_response.status
+                        if page_response
+                        else None
+                    )
+                    page.wait_for_timeout(self.wait_ms)
+                    self._assert_not_blocked(
+                        page,
+                        page_status,
+                    )
+
+                    body_target = self._target_from_body(page)
+                    if body_target is not None and body_target > 0:
+                        target = max(target or 0, body_target)
+
+                    page_rows = self._rows_from_dom(
                         page,
                         category,
                         location,
                     )
-                    rows = self._merge_rows(
-                        structured_rows,
-                        dom_rows,
-                    )
-
-                    body_target = self._target_from_body(page)
-                    target_candidates = [
-                        value
-                        for value in (target, structured_target, body_target)
-                        if value is not None and int(value) > 0
-                    ]
-                    target = max(target_candidates) if target_candidates else None
-                    current_products = len(rows)
-
-                    if (
-                        target is not None
-                        and target > 0
-                        and current_products >= target
-                    ):
-                        break
-
-                    stale_rounds = (
-                        stale_rounds + 1
-                        if current_products == previous_products
-                        else 0
-                    )
-                    previous_products = current_products
-
-                    clicked = self._click_show_more(page)
-                    if clicked:
-                        clicks += 1
-                        page.wait_for_timeout(1_100)
-                        self._assert_not_blocked(page)
-                        continue
-
-                    try:
-                        page.evaluate(
-                            """
-                            () => window.scrollBy(
-                              0,
-                              Math.max(800, Math.floor(window.innerHeight * 0.9))
-                            )
-                            """
+                    before = len(dom_rows_by_key)
+                    for row in page_rows:
+                        key = (
+                            clean_text(row.get("sku"))
+                            or clean_text(row.get("url"))
                         )
-                    except Exception:
-                        pass
-                    page.wait_for_timeout(800)
+                        if key:
+                            dom_rows_by_key[key] = row
+                    after = len(dom_rows_by_key)
 
-                    if stale_rounds >= 3:
-                        try:
-                            page.evaluate(
-                                "window.scrollTo(0, document.body.scrollHeight)"
-                            )
-                        except Exception:
-                            pass
-                        page.wait_for_timeout(900)
+                    pagination_pages.append(
+                        {
+                            "page": page_number,
+                            "url": page.url,
+                            "rows_on_page": len(page_rows),
+                            "new_rows": after - before,
+                            "cumulative_rows": after,
+                            "target_products": target,
+                        }
+                    )
 
-                    if stale_rounds >= 6:
+                    if not page_rows or after == before:
+                        empty_pages += 1
+                    else:
+                        empty_pages = 0
+
+                    if empty_pages >= 2:
                         break
 
-                page.wait_for_timeout(800)
+                page.wait_for_timeout(500)
 
                 structured_rows, structured_target = self._rows_from_payloads(
                     self._payloads,
                     category,
                     location,
                 )
-                dom_rows = self._rows_from_dom(
-                    page,
-                    category,
-                    location,
-                )
+                dom_rows = list(dom_rows_by_key.values())
                 rows = self._merge_rows(
                     structured_rows,
                     dom_rows,
                 )
-                body_target = self._target_from_body(page)
                 target_candidates = [
                     value
-                    for value in (target, structured_target, body_target)
+                    for value in (target, structured_target)
                     if value is not None and int(value) > 0
                 ]
                 target = max(target_candidates) if target_candidates else None
@@ -868,6 +914,9 @@ class HEBScraper:
                         "price_order_errors": price_order_errors,
                         "structured_responses": len(self._payloads),
                         "dom_rows": len(dom_rows),
+                        "pagination_method": "query_page",
+                        "pages_visited": len(pagination_pages),
+                        "pagination_pages": pagination_pages,
                         "catalogue_source": (
                             "productSearchV3+dom_fallback"
                             if self._payloads and dom_rows
