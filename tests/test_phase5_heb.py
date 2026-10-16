@@ -328,3 +328,51 @@ def test_heb_runner_does_not_retry_missing_store_context():
     assert '"STORE_CONTEXT_REQUIRED"' in source
     assert "No se harán más reintentos." in source
     assert "requiere seleccionar una tienda concreta" in source
+
+
+def test_heb_store_context_accepts_equivalent_top_store_aliases():
+    snapshot = {
+        "visible_candidates": [
+            {
+                "text": "HEB Gonzalitos",
+                "aria": "Mi tienda: HEB Gonzalitos",
+                "testid": "store-selector",
+                "class_name": "store-selector",
+            },
+            {
+                "text": "Sucursal HEB Gonzalitos",
+                "aria": "Tienda: Sucursal HEB Gonzalitos",
+                "testid": "store-location",
+                "class_name": "store-location",
+            },
+        ],
+        "storage_candidates": [],
+    }
+    context = HEBScraper._infer_store_context(snapshot)
+    assert context["verified"] is True
+    assert "Gonzalitos" in context["store"]
+
+
+def test_heb_store_context_ignores_lower_confidence_conflict():
+    snapshot = {
+        "visible_candidates": [
+            {
+                "text": "HEB Gonzalitos",
+                "store": "HEB Gonzalitos",
+                "store_id": "123",
+                "testid": "selected-store",
+                "class_name": "store-selector",
+            },
+            {
+                "text": "HEB San Nicolas",
+                "aria": "Otra tienda disponible",
+                "testid": "store-selector",
+                "class_name": "store-selector",
+            },
+        ],
+        "storage_candidates": [],
+    }
+    context = HEBScraper._infer_store_context(snapshot)
+    assert context["verified"] is True
+    assert context["store"] == "HEB Gonzalitos"
+    assert context["store_id"] == "123"
