@@ -683,6 +683,16 @@ class HEBScraper:
                 continue
         return False
 
+    @staticmethod
+    def _same_category_page(current_url: str, expected_url: str) -> bool:
+        current = urlsplit(current_url or "")
+        expected = urlsplit(expected_url or "")
+        return bool(
+            current.netloc.casefold() == expected.netloc.casefold()
+            and current.path.rstrip("/").casefold()
+            == expected.path.rstrip("/").casefold()
+        )
+
     def scrape_category_on_page(
         self,
         page,
@@ -696,7 +706,8 @@ class HEBScraper:
             "category_url": category.url,
             "blocked_detected": False,
             "structured_transport": "productSearchV3",
-            "browser_session": "existing_cdp",
+            "browser_session": "existing_cdp_manual_page",
+            "initial_navigation": "manual_user_opened_page",
         }
         self._payloads = []
         self._response_errors = []
@@ -707,18 +718,19 @@ class HEBScraper:
         except Exception:
             pass
 
-        try:
-            response = page.goto(
-                category.url,
-                wait_until="domcontentloaded",
-                timeout=90_000,
+        if not self._same_category_page(
+            page.url,
+            category.url,
+        ):
+            raise ValueError(
+                "La pestaña HEB abierta no corresponde a la categoría "
+                f"esperada: {category.url}"
             )
-        except PlaywrightError as exc:
-            raise HEBNetworkUnavailable(str(exc)) from exc
 
-        status = response.status if response else None
+        # Igual que Soriana manual: la página inicial la abre el usuario.
+        # El scraper no hace page.goto() ni reemplaza la navegación manual.
         page.wait_for_timeout(self.wait_ms)
-        self._assert_not_blocked(page, status)
+        self._assert_not_blocked(page)
         self._accept_cookies(page)
         page.wait_for_timeout(1_200)
 
