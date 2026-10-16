@@ -693,6 +693,151 @@ class HEBScraper:
             == expected.path.rstrip("/").casefold()
         )
 
+    def _click_native_next_page(self, page) -> bool:
+        selectors = (
+            'a[rel="next"]',
+            'button[aria-label*="Siguiente" i]',
+            'a[aria-label*="Siguiente" i]',
+            'button[title*="Siguiente" i]',
+            'a[title*="Siguiente" i]',
+            'button:has-text("Siguiente")',
+            'a:has-text("Siguiente")',
+            'button:has-text("Next")',
+            'a:has-text("Next")',
+        )
+
+        for selector in selectors:
+            try:
+                node = page.locator(selector).first
+                if node.count() == 0 or not node.is_visible():
+                    continue
+                if node.evaluate(
+                    """el => (
+                      el.disabled === true ||
+                      el.getAttribute('aria-disabled') === 'true'
+                    )"""
+                ):
+                    continue
+                node.scroll_into_view_if_needed(timeout=3_000)
+                before = page.url
+                node.click(timeout=5_000)
+                try:
+                    page.wait_for_load_state(
+                        "domcontentloaded",
+                        timeout=20_000,
+                    )
+                except PlaywrightTimeoutError:
+                    pass
+                page.wait_for_timeout(1_500)
+                return page.url != before or True
+            except Exception:
+                continue
+
+        # Fallback: inspect same-category links carrying a page query and
+        # click the lowest page number greater than the current page.
+        try:
+            candidates = page.locator(
+                'a[href*="higiene-dental/pasta-dental"][href*="page="]'
+            ).evaluate_all(
+                r"""
+                els => els.map(el => {
+                  try {
+                    const url = new URL(el.href, location.href);
+                    const pageNo = Number(url.searchParams.get('page'));
+                    return {
+                      href: url.href,
+                      page: Number.isFinite(pageNo) ? pageNo : null,
+                      text: (el.innerText || '').trim(),
+                      visible: !!(
+                        el.offsetWidth ||
+                        el.offsetHeight ||
+                        el.getClientRects().length
+                      )
+                    };
+                  } catch (_) {
+                    return null;
+                  }
+                }).filter(Boolean)
+                """
+            )
+        except Exception:
+            candidates = []
+
+        current_page = 1
+        try:
+            current_parts = urlsplit(page.url)
+            current_query = dict(
+                parse_qsl(
+                    current_parts.query,
+                    keep_blank_values=True,
+                )
+            )
+            current_page = int(current_query.get("page") or 1)
+        except Exception:
+            current_page = 1
+
+        valid = [
+            item
+            for item in candidates
+            if item.get("visible")
+            and isinstance(item.get("page"), (int, float))
+            and int(item["page"]) > current_page
+        ]
+        if not valid:
+            return False
+
+        next_page = min(int(item["page"]) for item in valid)
+        try:
+            node = page.locator(
+                f'a[href*="page={next_page}"]'
+            ).filter(
+                has=page.locator(
+                    'xpath=ancestor-or-self::a'
+                )
+            ).first
+            if node.count() == 0 or not node.is_visible():
+                node = page.locator(
+                    f'a[href*="page={next_page}"]'
+                ).first
+            node.scroll_into_view_if_needed(timeout=3_000)
+            node.click(timeout=5_000)
+            try:
+                page.wait_for_load_state(
+                    "domcontentloaded",
+                    timeout=20_000,
+                )
+            except PlaywrightTimeoutError:
+                pass
+            page.wait_for_timeout(1_500)
+            return True
+        except Exception:
+            return False
+
+    def _scroll_for_more_products(self, page) -> bool:
+        try:
+            before = len(self._dom_product_cards(page))
+        except Exception:
+            before = 0
+
+        try:
+            page.evaluate(
+                """
+                () => window.scrollTo(
+                  0,
+                  document.documentElement.scrollHeight
+                )
+                """
+            )
+            page.wait_for_timeout(1_500)
+        except Exception:
+            return False
+
+        try:
+            after = len(self._dom_product_cards(page))
+        except Exception:
+            after = before
+        return after > before
+
     def scrape_category_on_page(
         self,
         page,
@@ -771,9 +916,12 @@ class HEBScraper:
         )
 
         clicks = 0
+        native_next_clicks = 0
+        scroll_rounds = 0
         no_growth_rounds = 0
+        step = 0
 
-        while clicks < self.max_show_more_clicks:
+        while step < self.max_show_more_clicks:
             if (
                 target is not None
                 and target > 0
@@ -781,11 +929,21 @@ class HEBScraper:
             ):
                 break
 
-            if not self._click_show_more(page):
+            method = None
+            if self._click_show_more(page):
+                clicks += 1
+                method = "show_more"
+            elif self._click_native_next_page(page):
+                native_next_clicks += 1
+                method = "native_next"
+            elif self._scroll_for_more_products(page):
+                scroll_rounds += 1
+                method = "scroll_lazy_load"
+            else:
                 break
 
-            clicks += 1
-            page.wait_for_timeout(1_500)
+            step += 1
+            page.wait_for_timeout(1_200)
             self._assert_not_blocked(page)
 
             body_target = self._target_from_body(page)
@@ -809,8 +967,8 @@ class HEBScraper:
 
             pagination_pages.append(
                 {
-                    "step": clicks,
-                    "method": "show_more",
+                    "step": step,
+                    "method": method,
                     "url": page.url,
                     "rows_on_page": len(current_rows),
                     "new_rows": after - before,
@@ -910,7 +1068,15 @@ class HEBScraper:
                 "pagination_method": (
                     "show_more"
                     if clicks > 0
-                    else "initial_dom"
+                    else (
+                        "native_next"
+                        if native_next_clicks > 0
+                        else (
+                            "scroll_lazy_load"
+                            if scroll_rounds > 0
+                            else "initial_dom"
+                        )
+                    )
                 ),
                 "pages_visited": len(pagination_pages),
                 "pagination_pages": pagination_pages,
@@ -924,6 +1090,8 @@ class HEBScraper:
                     )
                 ),
                 "show_more_clicks": clicks,
+                "native_next_clicks": native_next_clicks,
+                "scroll_rounds": scroll_rounds,
                 "response_errors": len(self._response_errors),
                 "final_url": page.url,
             }
