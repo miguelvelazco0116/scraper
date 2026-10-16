@@ -799,13 +799,21 @@ class HEBScraper:
         # click the lowest page number greater than the current page.
         try:
             candidates = page.locator(
-                'a[href*="/cuidado-personal-y-belleza/higiene-dental"][href*="page="]'
+                'a[href*="page="]'
             ).evaluate_all(
                 r"""
                 els => els.map(el => {
                   try {
                     const url = new URL(el.href, location.href);
+                    const current = new URL(location.href);
                     const pageNo = Number(url.searchParams.get('page'));
+                    if (
+                      url.origin !== current.origin ||
+                      url.pathname.replace(/\/+$/, '') !==
+                        current.pathname.replace(/\/+$/, '')
+                    ) {
+                      return null;
+                    }
                     return {
                       href: url.href,
                       page: Number.isFinite(pageNo) ? pageNo : null,
