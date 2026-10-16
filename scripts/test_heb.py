@@ -272,6 +272,24 @@ def run_category(category, location, page):
     if error:
         print(f"{'error':29}: {error}")
 
+    if status == "STORE_CONTEXT_REQUIRED":
+        evidence = list(meta.get("store_context_evidence") or [])
+        print("")
+        print("EVIDENCIA DE CONTEXTO HEB")
+        if not evidence:
+            print("  Sin candidatos concretos detectados.")
+        else:
+            for index, item in enumerate(evidence[:12], start=1):
+                print(
+                    f"  [{index}] "
+                    f"score={item.get('score')} "
+                    f"method={item.get('method')} "
+                    f"store={item.get('store')!r} "
+                    f"store_id={item.get('store_id')!r} "
+                    f"postal_code={item.get('postal_code')!r} "
+                    f"evidence={item.get('evidence')!r}"
+                )
+
     return df, summary
 
 
