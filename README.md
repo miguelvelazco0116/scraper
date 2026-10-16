@@ -669,7 +669,7 @@ Implementación por fase:
 - **Fase 2:** `farmacias_guadalajara_phase2_test.xlsx` y `soriana_manual_phase2_test.xlsx` conservan categorías exitosas del día; el runner productivo ya no borra estos checkpoints.
 - **Fase 3:** Bodega Aurrera y Walmart reutilizan categorías válidas del día; el runner productivo ya no elimina sus workbooks antes de ejecutarse.
 - **Fase 4:** San Pablo y Benavides conservan categorías válidas del día y sólo ejecutan las pendientes.
-- **Fase 5:** Farmacias Similares y HEB se integran de forma incremental por retailer. Ambos conservan categorías válidas del día, reintentan sólo las pendientes y usan el umbral >=90%. HEB inicia con la categoría `pasta-dental` y queda pendiente de validación live. La Comer permanece fuera de Fase 5.
+- **Fase 5:** Farmacias Similares y HEB se integran de forma incremental por retailer. Ambos conservan categorías válidas del día, reintentan sólo las pendientes y usan el umbral >=90%. HEB usa la categoría completa `higiene-dental` y queda pendiente de validación live para este alcance ampliado. La Comer permanece fuera de Fase 5.
 
 El umbral común está centralizado en:
 
@@ -1224,30 +1224,32 @@ Test dedicado:
 
 Estado: **IMPLEMENTADO / PENDIENTE DE VALIDACIÓN LIVE / FASE 5**
 
-Categoría inicial:
+Categoría activa:
 
 ```text
-pasta-dental
-Cuidado personal y belleza > Higiene dental > Pasta dental
+higiene-dental
+Cuidado personal y belleza > Higiene dental
 ```
 
 URL:
 
 ```text
-https://www.heb.com.mx/cuidado-personal-y-belleza/higiene-dental/pasta-dental
+https://www.heb.com.mx/cuidado-personal-y-belleza/higiene-dental
 ```
 
-El scraper captura las respuestas estructuradas VTEX `productSearchV3` generadas por el storefront de HEB y usa el botón nativo de mostrar más para completar el catálogo. La disponibilidad se registra como `1` cuando `AvailableQuantity > 0` y `0` cuando `AvailableQuantity <= 0`.
+El usuario abre HEB manualmente en Chrome y habilita remote debugging. El scraper se conecta por CDP a esa misma sesión, navega en la misma pestaña hacia Higiene Dental y recorre el paginador nativo del storefront. La fuente principal validada es el DOM del catálogo; si aparece `productSearchV3`, se usa como enriquecimiento adicional. La disponibilidad se conserva en formato binario `1` disponible / `0` no disponible.
 
-Gate inicial:
+Gate:
 - cobertura de catálogo >= 90%;
 - SKU >= 90%;
 - precio actual >= 90%;
 - URL >= 90%;
 - disponibilidad binaria >= 90%;
 - orden de precios válido >= 90%;
-- al menos una respuesta estructurada `productSearchV3`;
+- evidencia de catálogo por DOM o `productSearchV3`;
 - sin bloqueo.
+
+La validación anterior de 96/96 productos correspondía únicamente a Pasta Dental y no se considera válida para el nuevo alcance completo de Higiene Dental.
 
 Test:
 
