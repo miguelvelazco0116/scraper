@@ -809,6 +809,7 @@ class HEBScraper:
             "recoger en tienda",
             "pickup en tienda",
             "heb online",
+            "heb",
         )
         if any(normalized == value for value in placeholders):
             return None
@@ -959,9 +960,14 @@ class HEBScraper:
                             state = item
 
                     if name is not None or store_id is not None:
-                        score = 10 if name is not None and store_id is not None else 8
-                        if postal is not None:
-                            score += 1
+                        if name is not None and store_id is not None:
+                            score = 10
+                        elif store_id is not None:
+                            score = 9
+                        elif name is not None and postal is not None:
+                            score = 9
+                        else:
+                            score = 7
                         add_candidate(
                             store=name,
                             store_id=store_id,
@@ -1118,7 +1124,7 @@ class HEBScraper:
             for value in named
             if value[1]
         }
-        conflict = len(stores) > 1 and len(ids) > 1
+        conflict = len(stores) > 1 or len(ids) > 1
 
         verified = bool(
             not conflict
