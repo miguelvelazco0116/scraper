@@ -32,6 +32,8 @@ def _summary_is_acceptable(summary: dict) -> bool:
         and meets_rate(summary.get("price_complete") or 0, products)
         and meets_rate(summary.get("url_complete") or 0, products)
         and meets_rate(summary.get("availability_complete") or 0, products)
+        and int(summary.get("store_context_complete") or 0) == products
+        and bool(summary.get("store_context_verified"))
         and valid_after_errors(products, summary.get("price_order_errors") or 0)
         and str(summary.get("catalogue_source") or "") in {
             "productSearchV3",
@@ -209,6 +211,12 @@ def run_category(category, location, page):
         "price_complete": int(current.notna().sum()),
         "url_complete": int(df["url"].fillna("").astype(str).str.strip().ne("").sum()) if not df.empty else 0,
         "availability_complete": int(availability.isin([0, 1]).sum()),
+        "store_context_complete": int(
+            df["store_context_verified"]
+            .fillna(False)
+            .map(bool)
+            .sum()
+        ) if not df.empty else 0,
         "available_1": int(availability.eq(1).sum()),
         "unavailable_0": int(availability.eq(0).sum()),
         "price_order_errors": int((current > regular).fillna(False).sum()),
@@ -226,6 +234,12 @@ def run_category(category, location, page):
         "store_context_verified": bool(
             df["store_context_verified"].fillna(False).map(bool).all()
         ) if not df.empty else False,
+        "store_context_method": str(
+            meta.get("store_context_method") or ""
+        ),
+        "store": str(meta.get("store") or ""),
+        "store_id": str(meta.get("store_id") or ""),
+        "postal_code": str(meta.get("postal_code") or ""),
         "error": error,
     }
 
@@ -233,13 +247,15 @@ def run_category(category, location, page):
     for key in (
         "status", "target_products", "products", "coverage",
         "sku_complete", "price_complete", "url_complete",
-        "availability_complete", "available_1", "unavailable_0",
+        "availability_complete", "store_context_complete",
+        "available_1", "unavailable_0",
         "price_order_errors", "structured_responses",
         "dom_rows", "catalogue_source",
         "pagination_method", "pages_visited",
         "show_more_clicks", "numeric_page_clicks",
         "native_next_clicks", "scroll_rounds", "response_errors",
         "blocked_detected", "store_context_verified",
+        "store_context_method", "store", "store_id", "postal_code",
     ):
         print(f"{key:29}: {summary[key]}")
     if error:
@@ -428,6 +444,10 @@ def main() -> int:
                     "numeric_page_clicks", "native_next_clicks",
                     "scroll_rounds",
                     "blocked_detected",
+                    "store_context_complete",
+                    "store_context_verified",
+                    "store_context_method",
+                    "store", "store_id", "postal_code",
                 ]
             ].to_string(index=False)
         )
