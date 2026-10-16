@@ -15,7 +15,12 @@ from playwright.sync_api import sync_playwright
 from main import COLUMNS
 from scraper.config import load_categories, load_locations
 from scraper.quality_rules import meets_rate, valid_after_errors
-from scraper.retailers.heb import HEBBlocked, HEBNetworkUnavailable, HEBScraper
+from scraper.retailers.heb import (
+    HEBBlocked,
+    HEBNetworkUnavailable,
+    HEBStoreContextUnavailable,
+    HEBScraper,
+)
 
 OUTPUT_PATH = ROOT / "output" / "heb_phase5_test.xlsx"
 
@@ -179,6 +184,9 @@ def run_category(category, location, page):
         error = str(exc)
     except HEBNetworkUnavailable as exc:
         status = "NETWORK_UNAVAILABLE"
+        error = str(exc)
+    except HEBStoreContextUnavailable as exc:
+        status = "STORE_CONTEXT_REQUIRED"
         error = str(exc)
     except Exception as exc:
         status = "ERROR"
@@ -362,14 +370,24 @@ def main() -> int:
             }
             _write_output(results, category_order)
 
+            current_status = str(
+                summary.get("status") or ""
+            ).upper()
             if (
                 not _summary_is_acceptable(summary)
-                and str(summary.get("status") or "").upper()
-                != "BLOCKED"
+                and current_status
+                not in {"BLOCKED", "STORE_CONTEXT_REQUIRED"}
             ):
                 failed_ids.append(category.id)
 
-            if str(summary.get("status") or "").upper() == "BLOCKED":
+            if current_status == "STORE_CONTEXT_REQUIRED":
+                print(
+                    "HEB requiere seleccionar una tienda concreta "
+                    "manualmente. Se detiene antes de continuar."
+                )
+                break
+
+            if current_status == "BLOCKED":
                 print(
                     "HEB reportó bloqueo en la sesión manual. "
                     "Se detiene sin reintentar."
@@ -410,7 +428,18 @@ def main() -> int:
                 }
                 _write_output(results, category_order)
 
-                if str(summary.get("status") or "").upper() == "BLOCKED":
+                retry_status = str(
+                    summary.get("status") or ""
+                ).upper()
+                if retry_status == "STORE_CONTEXT_REQUIRED":
+                    print(
+                        "HEB requiere selección manual de tienda. "
+                        "No se harán más reintentos."
+                    )
+                    failed_ids = []
+                    break
+
+                if retry_status == "BLOCKED":
                     print(
                         "HEB reportó bloqueo. "
                         "No se harán más reintentos."
