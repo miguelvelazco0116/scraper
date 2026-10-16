@@ -1,0 +1,58 @@
+name: preservativos-20261016
+on:
+  push:
+    branches:
+      - chatgpt/preservativos-2026-10-16
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct canonical extraction package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p runner
+          cat tmp_preservativos_20261016/part_* > /tmp/runner.b64
+          base64 -d /tmp/runner.b64 > /tmp/runner.tgz
+          tar -xzf /tmp/runner.tgz -C runner
+          echo "Payload reconstructed"
+          find runner -maxdepth 2 -type f -printf '%p %s bytes\n' | sort
+      - name: Run 16 October capture
+        id: scraper
+        working-directory: runner
+        continue-on-error: true
+        env:
+          SCRAPER_CAPTURE_DATE: "2026-10-16"
+          SCRAPER_PROJECT_DIR: ${{ github.workspace }}/runner
+          SCRAPER_OUTPUT_DIR: ${{ github.workspace }}/runner/outputs
+        shell: bash
+        run: |
+          set -o pipefail
+          node --version
+          node --max-old-space-size=4096 scrape_full_catalog.mjs 2>&1 | tee scrape_2026-10-16.log
+          echo ${PIPESTATUS[0]} > scraper_exit_code.txt
+          exit $(cat scraper_exit_code.txt)
+      - name: Show generated state
+        if: always()
+        working-directory: runner
+        shell: bash
+        run: |
+          echo "=== exit code ==="
+          cat scraper_exit_code.txt 2>/dev/null || true
+          echo "=== generated files ==="
+          find data -maxdepth 1 -type f -name '*2026-10-16*' -printf '%f %s bytes\n' | sort || true
+          echo "=== state ==="
+          cat data/estado_cobertura_2026-10-16.json 2>/dev/null || true
+      - name: Upload capture artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preservativos-2026-10-16
+          if-no-files-found: warn
+          retention-days: 2
+          path: |
+            runner/data/*2026-10-16*
+            runner/scrape_2026-10-16.log
+            runner/scraper_exit_code.txt
