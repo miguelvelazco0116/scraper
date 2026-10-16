@@ -106,7 +106,9 @@ def test_heb_blocked_session_is_not_automatically_retried():
     runner = Path("scripts/test_heb.py").read_text(
         encoding="utf-8"
     )
-    assert '!= "BLOCKED"' in runner
+    assert 'not in {"BLOCKED", "STORE_CONTEXT_REQUIRED"}' in runner
+    assert 'if current_status == "BLOCKED":' in runner
+    assert 'if retry_status == "BLOCKED":' in runner
     assert "No se harán más reintentos." in runner
 
 
