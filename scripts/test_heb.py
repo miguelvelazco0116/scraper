@@ -326,7 +326,7 @@ def main() -> int:
         print(f"Pestaña HEB detectada: {page.url}")
         print(
             "HEB fue abierto manualmente; el scraper navegará desde "
-            "esa misma pestaña a Higiene Dental si hace falta."
+            "esa misma pestaña a cada categoría pendiente si hace falta."
         )
         print("")
 
