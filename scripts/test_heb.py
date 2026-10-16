@@ -219,6 +219,8 @@ def run_category(category, location, page):
         "pagination_method": str(meta.get("pagination_method") or ""),
         "pages_visited": int(meta.get("pages_visited") or 0),
         "show_more_clicks": int(meta.get("show_more_clicks") or 0),
+        "native_next_clicks": int(meta.get("native_next_clicks") or 0),
+        "scroll_rounds": int(meta.get("scroll_rounds") or 0),
         "response_errors": int(meta.get("response_errors") or 0),
         "blocked_detected": bool(meta.get("blocked_detected")),
         "store_context_verified": bool(
@@ -235,7 +237,8 @@ def run_category(category, location, page):
         "price_order_errors", "structured_responses",
         "dom_rows", "catalogue_source",
         "pagination_method", "pages_visited",
-        "show_more_clicks", "response_errors",
+        "show_more_clicks", "native_next_clicks",
+        "scroll_rounds", "response_errors",
         "blocked_detected", "store_context_verified",
     ):
         print(f"{key:29}: {summary[key]}")
@@ -421,7 +424,9 @@ def main() -> int:
                     "unavailable_0", "price_order_errors",
                     "structured_responses", "dom_rows",
                     "catalogue_source", "pagination_method",
-                    "pages_visited", "blocked_detected",
+                    "pages_visited", "show_more_clicks",
+                    "native_next_clicks", "scroll_rounds",
+                    "blocked_detected",
                 ]
             ].to_string(index=False)
         )
