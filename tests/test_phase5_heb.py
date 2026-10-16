@@ -125,7 +125,12 @@ def test_heb_manual_mode_does_not_navigate_initial_category():
     manual = source.split("def scrape_category_on_page", 1)[1].split(
         "def scrape_category(", 1
     )[0]
-    assert "page.goto(" not in manual
+    executable_lines = [
+        line.split("#", 1)[0]
+        for line in manual.splitlines()
+    ]
+    executable = "\n".join(executable_lines)
+    assert "page.goto(" not in executable
     assert "manual_user_opened_page" in manual
     assert "def _same_category_page" in source
 
