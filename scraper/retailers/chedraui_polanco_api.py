@@ -211,6 +211,22 @@ class ChedrauiScraper(PolancoUIScraper):
         ]
         pool = response_candidates or candidates
 
+        # Live catalogue size is stronger evidence than textual affinity.
+        # This protects against auxiliary queries that happen to mention the
+        # category name but clearly represent a tiny recommendation widget.
+        if displayed_total is not None and int(displayed_total) > 0:
+            consistent = [
+                item
+                for item in pool
+                if item.get("records_filtered") is not None
+                and self._records_filtered_consistent(
+                    item.get("records_filtered"),
+                    displayed_total,
+                )
+            ]
+            if consistent:
+                pool = consistent
+
         max_affinity = max(
             int(item.get("affinity") or 0)
             for item in pool
@@ -222,19 +238,6 @@ class ChedrauiScraper(PolancoUIScraper):
             ]
         else:
             affinity_pool = pool
-
-        if displayed_total is not None and int(displayed_total) > 0:
-            consistent = [
-                item
-                for item in affinity_pool
-                if item.get("records_filtered") is not None
-                and self._records_filtered_consistent(
-                    item.get("records_filtered"),
-                    displayed_total,
-                )
-            ]
-            if consistent:
-                affinity_pool = consistent
 
         def rank(item: dict) -> tuple:
             records = item.get("records_filtered")
