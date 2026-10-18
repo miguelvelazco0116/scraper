@@ -144,6 +144,7 @@ class ChedrauiScraper(PolancoUIScraper):
 
         self._product_search_candidates.append(
             {
+                "url": url,
                 "source": source,
                 "affinity": affinity,
                 "records_filtered": records_filtered,
@@ -167,6 +168,163 @@ class ChedrauiScraper(PolancoUIScraper):
                 "span": span,
                 "score": list(score),
             }
+
+    @staticmethod
+    def _records_filtered_consistent(
+        records_filtered: int | None,
+        displayed_total: int | None,
+    ) -> bool:
+        """Reject only material catalogue contradictions, not small drift."""
+        if records_filtered is None or displayed_total is None:
+            return True
+        try:
+            records = int(records_filtered)
+            displayed = int(displayed_total)
+        except (TypeError, ValueError):
+            return True
+
+        if displayed <= 0:
+            return records <= 0
+        if records <= 0:
+            return False
+
+        # The storefront counter and productSearchV3 can differ slightly
+        # because of listability/availability. A catastrophic mismatch such
+        # as 1 vs 300 is never a valid template for that category.
+        lower = max(1, int(displayed * 0.70))
+        upper = max(displayed + 5, int(displayed * 1.40))
+        return lower <= records <= upper
+
+    def _select_best_product_search_template(
+        self,
+        displayed_total: int | None = None,
+    ) -> str | None:
+        """Re-rank captured candidates using live catalogue evidence."""
+        if not self._product_search_candidates:
+            return self._product_search_template_url
+
+        candidates = list(self._product_search_candidates)
+        response_candidates = [
+            item for item in candidates
+            if item.get("source") == "response"
+            and item.get("records_filtered") is not None
+        ]
+        pool = response_candidates or candidates
+
+        max_affinity = max(
+            int(item.get("affinity") or 0)
+            for item in pool
+        )
+        if max_affinity > 0:
+            affinity_pool = [
+                item for item in pool
+                if int(item.get("affinity") or 0) == max_affinity
+            ]
+        else:
+            affinity_pool = pool
+
+        if displayed_total is not None and int(displayed_total) > 0:
+            consistent = [
+                item
+                for item in affinity_pool
+                if item.get("records_filtered") is not None
+                and self._records_filtered_consistent(
+                    item.get("records_filtered"),
+                    displayed_total,
+                )
+            ]
+            if consistent:
+                affinity_pool = consistent
+
+        def rank(item: dict) -> tuple:
+            records = item.get("records_filtered")
+            if displayed_total is not None and records is not None:
+                distance = abs(int(records) - int(displayed_total))
+            else:
+                distance = 10**9
+
+            return (
+                int(item.get("affinity") or 0),
+                1 if item.get("source") == "response" else 0,
+                1
+                if self._records_filtered_consistent(
+                    item.get("records_filtered"),
+                    displayed_total,
+                )
+                else 0,
+                -distance,
+                int(item.get("product_count") or -1),
+                int(item.get("span") or 0),
+            )
+
+        best = max(affinity_pool, key=rank)
+        url = best.get("url")
+        if url:
+            self._product_search_template_url = str(url)
+            self._product_search_template_score = tuple(
+                int(value)
+                for value in best.get("score") or (-1, -1, -1, -1)
+            )
+            self.run_meta["product_search_template"] = {
+                key: value
+                for key, value in best.items()
+                if key != "url"
+            }
+            self.run_meta["product_search_template_selection"] = {
+                "displayed_total": displayed_total,
+                "candidates": len(candidates),
+                "response_candidates": len(response_candidates),
+                "max_affinity": max_affinity,
+            }
+        return self._product_search_template_url
+
+    def _refresh_product_search_template(
+        self,
+        page,
+        category: Category,
+        displayed_total: int | None,
+    ) -> bool:
+        """Reload the live category once and recapture its native VTEX search."""
+        before = self._product_search_template_url
+        try:
+            response = page.reload(
+                wait_until="domcontentloaded",
+                timeout=90_000,
+            )
+            self._assert_not_blocked(
+                page,
+                response.status if response else None,
+            )
+            self._wait_for_catalog_ready(
+                page,
+                selector_timeout=35_000,
+                settle_ms=max(self.wait_ms, 2_500),
+            )
+            page.wait_for_timeout(1_200)
+        except Exception as exc:
+            self.run_meta.setdefault(
+                "product_search_template_refresh_errors",
+                [],
+            ).append(
+                f"{type(exc).__name__}: {exc}"
+            )
+            return False
+
+        selected = self._select_best_product_search_template(
+            displayed_total,
+        )
+        self.run_meta.setdefault(
+            "product_search_template_refreshes",
+            [],
+        ).append(
+            {
+                "category_id": category.id,
+                "displayed_total": displayed_total,
+                "changed": bool(selected and selected != before),
+                "candidate_count": len(self._product_search_candidates),
+            }
+        )
+        return bool(selected)
 
     def _capture_product_search_request(self, request) -> None:
         self._consider_product_search_template(
@@ -224,9 +382,17 @@ class ChedrauiScraper(PolancoUIScraper):
         page.on("request", self._capture_product_search_request)
         page.on("response", self._capture_product_search_response)
         rows = super()._collect_pages(page, category, location)
-        self.run_meta["product_search_candidates"] = (
-            self._product_search_candidates[-50:]
+        self._select_best_product_search_template(
+            self.run_meta.get("displayed_category_products")
         )
+        self.run_meta["product_search_candidates"] = [
+            {
+                key: value
+                for key, value in item.items()
+                if key != "url"
+            }
+            for item in self._product_search_candidates[-50:]
+        ]
         return rows
 
     @staticmethod
@@ -466,6 +632,22 @@ class ChedrauiScraper(PolancoUIScraper):
                     detail["rows"] = len(rows)
                     detail["records_filtered"] = records_filtered
 
+                    displayed_total = self.run_meta.get(
+                        "displayed_category_products"
+                    )
+                    if not self._records_filtered_consistent(
+                        records_filtered,
+                        displayed_total,
+                    ):
+                        last_reason = (
+                            "template_records_mismatch:"
+                            f"{records_filtered}/{displayed_total}"
+                        )
+                        detail["reason"] = last_reason
+                        detail["template_drift"] = True
+                        attempts.append(detail)
+                        break
+
                     if len(rows) > len(best_rows):
                         best_rows = rows
                         best_records_filtered = records_filtered
@@ -551,14 +733,31 @@ class ChedrauiScraper(PolancoUIScraper):
             normalized = normalized.replace(source, target)
         return "promocionsi (" in normalized or "promocion si (" in normalized
 
-    def _load_page_rows(self, page, category, location, page_number: int, target_rows: int | None):
+    def _load_page_rows(
+        self,
+        page,
+        category,
+        location,
+        page_number: int,
+        target_rows: int | None,
+    ):
         url, html_rows, attempts = super()._load_page_rows(
-            page, category, location, page_number, target_rows
+            page,
+            category,
+            location,
+            page_number,
+            target_rows,
         )
 
-        # Always request the same range from VTEX productSearchV3 after the
-        # storefront has loaded. This keeps the verified store/session context
-        # while making structured Price/ListPrice the authoritative source.
+        displayed_total = self._store_specific_total(page)
+        if displayed_total is not None:
+            self.run_meta["displayed_category_products"] = displayed_total
+
+        # Select from all native productSearchV3 traffic observed while the
+        # real storefront page was loading. This is deterministic and does not
+        # depend on request ordering.
+        self._select_best_product_search_template(displayed_total)
+
         api_rows, api_info = self._recover_page_from_product_search(
             page,
             category,
@@ -568,37 +767,78 @@ class ChedrauiScraper(PolancoUIScraper):
         )
         attempts.append(api_info)
 
+        drift_reason = str(api_info.get("reason") or "")
+        needs_refresh = (
+            not api_rows
+            and (
+                drift_reason.startswith("template_records_mismatch:")
+                or drift_reason == "template_not_captured"
+            )
+        )
+
+        if needs_refresh:
+            refreshed = self._refresh_product_search_template(
+                page,
+                category,
+                displayed_total,
+            )
+            if refreshed:
+                retry_rows, retry_info = (
+                    self._recover_page_from_product_search(
+                        page,
+                        category,
+                        location,
+                        page_number,
+                        target_rows=target_rows,
+                    )
+                )
+                retry_info["after_template_refresh"] = True
+                attempts.append(retry_info)
+                if retry_rows:
+                    api_rows = retry_rows
+                    api_info = retry_info
+
         if api_rows:
-            self.run_meta.setdefault("api_price_pages", []).append(page_number)
+            self.run_meta.setdefault(
+                "api_price_pages",
+                [],
+            ).append(page_number)
             return url, api_rows, attempts
 
-        # Once a structured productSearchV3 request has been captured, do not
-        # silently fall back to HTML prices. The storefront HTML can contain
-        # category-level facets such as "Promoción Sí (111)" alongside unrelated
-        # price text, which caused false values such as 17 / 1299. Prefer an
-        # incomplete but trustworthy page over corrupted price records.
+        # Once a structured productSearchV3 request has been captured, never
+        # replace it with ambiguous HTML prices. A failed structured page stays
+        # visible as an explicit quality failure instead of silently corrupting
+        # the output.
         if self._product_search_template_url:
-            self.run_meta.setdefault("structured_price_missing_pages", []).append(
+            self.run_meta.setdefault(
+                "structured_price_missing_pages",
+                [],
+            ).append(
                 {
                     "page": page_number,
                     "html_rows_rejected": len(html_rows),
                     "api_reason": api_info.get("reason"),
                     "api_status": api_info.get("status"),
                     "api_rows": api_info.get("rows"),
-                    "api_attempts": len(api_info.get("attempts") or []),
+                    "api_attempts": len(
+                        api_info.get("attempts") or []
+                    ),
+                    "template_refresh_attempted": needs_refresh,
                 }
             )
             return url, [], attempts
 
-        # Legacy fallback only when no productSearchV3 template was captured at
-        # all. Even then, reject the known category-facet contamination pattern.
         safe_html_rows = [
-            row for row in html_rows
+            row
+            for row in html_rows
             if not self._html_row_has_category_facet_contamination(row)
         ]
         rejected = len(html_rows) - len(safe_html_rows)
         if rejected:
-            self.run_meta.setdefault("html_facet_rows_rejected", []).append(
+            self.run_meta.setdefault(
+                "html_facet_rows_rejected",
+                [],
+            ).append(
                 {"page": page_number, "rows": rejected}
             )
         return url, safe_html_rows, attempts
