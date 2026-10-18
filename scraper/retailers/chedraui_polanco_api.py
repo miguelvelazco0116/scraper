@@ -26,15 +26,208 @@ class ChedrauiScraper(PolancoUIScraper):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._product_search_template_url: str | None = None
+        self._product_search_template_score: tuple[int, int, int, int] = (
+            -1,
+            -1,
+            -1,
+            -1,
+        )
+        self._product_search_category: Category | None = None
+        self._product_search_candidates: list[dict] = []
+
+    @staticmethod
+    def _product_search_variables(url: str) -> dict:
+        try:
+            parts = urlsplit(url)
+            qs = parse_qs(parts.query, keep_blank_values=True)
+            extensions = json.loads(qs["extensions"][0])
+            encoded = extensions.get("variables")
+            if not encoded:
+                return {}
+            payload = base64.b64decode(encoded).decode("utf-8")
+            variables = json.loads(payload)
+            return variables if isinstance(variables, dict) else {}
+        except Exception:
+            return {}
+
+    @classmethod
+    def _category_affinity(
+        cls,
+        url: str,
+        category: Category | None,
+    ) -> int:
+        if category is None:
+            return 0
+
+        variables = cls._product_search_variables(url)
+        if not variables:
+            return 0
+
+        blob = json.dumps(
+            variables,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).casefold()
+
+        def normalized(value: str) -> str:
+            return "".join(
+                character
+                for character in value.casefold()
+                if character.isalnum()
+            )
+
+        normalized_blob = normalized(blob)
+        path_segments = [
+            value
+            for value in urlsplit(category.url).path.split("/")
+            if value
+        ]
+        normalized_segments = [
+            normalized(value)
+            for value in path_segments
+            if normalized(value)
+        ]
+        if not normalized_segments:
+            return 0
+
+        matches = sum(
+            segment in normalized_blob
+            for segment in normalized_segments
+        )
+        # The leaf category is the strongest signal. Parent category names
+        # can legitimately appear in unrelated storefront searches.
+        leaf_match = normalized_segments[-1] in normalized_blob
+        return matches + (10 if leaf_match else 0)
+
+    @classmethod
+    def _product_search_span(cls, url: str) -> int:
+        variables = cls._product_search_variables(url)
+        try:
+            start = int(variables.get("from"))
+            end = int(variables.get("to"))
+        except (TypeError, ValueError):
+            return 0
+        return max(end - start + 1, 0)
+
+    def _consider_product_search_template(
+        self,
+        url: str,
+        *,
+        records_filtered: int | None = None,
+        product_count: int | None = None,
+        source: str,
+    ) -> None:
+        if "operationName=productSearchV3" not in url:
+            return
+
+        affinity = self._category_affinity(
+            url,
+            self._product_search_category,
+        )
+        records_score = (
+            int(records_filtered)
+            if records_filtered is not None
+            else -1
+        )
+        products_score = (
+            int(product_count)
+            if product_count is not None
+            else -1
+        )
+        span = self._product_search_span(url)
+        score = (
+            affinity,
+            records_score,
+            products_score,
+            span,
+        )
+
+        self._product_search_candidates.append(
+            {
+                "source": source,
+                "affinity": affinity,
+                "records_filtered": records_filtered,
+                "product_count": product_count,
+                "span": span,
+                "score": list(score),
+            }
+        )
+        self._product_search_candidates = (
+            self._product_search_candidates[-50:]
+        )
+
+        if score > self._product_search_template_score:
+            self._product_search_template_score = score
+            self._product_search_template_url = url
+            self.run_meta["product_search_template"] = {
+                "source": source,
+                "affinity": affinity,
+                "records_filtered": records_filtered,
+                "product_count": product_count,
+                "span": span,
+                "score": list(score),
+            }
 
     def _capture_product_search_request(self, request) -> None:
-        url = request.url
-        if "operationName=productSearchV3" in url:
-            self._product_search_template_url = url
+        self._consider_product_search_template(
+            request.url,
+            source="request",
+        )
+
+    def _capture_product_search_response(self, response) -> None:
+        url = response.url
+        if "operationName=productSearchV3" not in url:
+            return
+
+        try:
+            if response.status != 200:
+                return
+            payload = response.json()
+        except Exception:
+            return
+
+        search = (
+            (payload.get("data") or {}).get("productSearch")
+            if isinstance(payload, dict)
+            else None
+        )
+        if not isinstance(search, dict):
+            return
+
+        products = search.get("products") or []
+        records_filtered = search.get("recordsFiltered")
+        try:
+            parsed_records = (
+                int(records_filtered)
+                if records_filtered is not None
+                else None
+            )
+        except (TypeError, ValueError):
+            parsed_records = None
+
+        self._consider_product_search_template(
+            url,
+            records_filtered=parsed_records,
+            product_count=(
+                len(products)
+                if isinstance(products, list)
+                else None
+            ),
+            source="response",
+        )
 
     def _collect_pages(self, page, category: Category, location: Location):
+        self._product_search_template_url = None
+        self._product_search_template_score = (-1, -1, -1, -1)
+        self._product_search_category = category
+        self._product_search_candidates = []
         page.on("request", self._capture_product_search_request)
-        return super()._collect_pages(page, category, location)
+        page.on("response", self._capture_product_search_response)
+        rows = super()._collect_pages(page, category, location)
+        self.run_meta["product_search_candidates"] = (
+            self._product_search_candidates[-50:]
+        )
+        return rows
 
     @staticmethod
     def _rewrite_product_search_range(url: str, start: int, end: int) -> str:
