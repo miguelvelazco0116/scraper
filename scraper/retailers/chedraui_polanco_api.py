@@ -282,6 +282,7 @@ class ChedrauiScraper(PolancoUIScraper):
         self,
         page,
         category: Category,
+        location: Location,
         displayed_total: int | None,
     ) -> bool:
         """Reload the live category once and recapture its native VTEX search."""
@@ -301,6 +302,22 @@ class ChedrauiScraper(PolancoUIScraper):
                 settle_ms=max(self.wait_ms, 2_500),
             )
             page.wait_for_timeout(1_200)
+
+            verified, method = self._verify_store_context(
+                page,
+                location,
+            )
+            if not verified:
+                self.run_meta.setdefault(
+                    "product_search_template_refresh_errors",
+                    [],
+                ).append(
+                    "store_context_lost_after_reload"
+                )
+                return False
+            if method:
+                self._active_store_context_method = method
+                self.run_meta["store_context_method"] = method
         except Exception as exc:
             self.run_meta.setdefault(
                 "product_search_template_refresh_errors",
@@ -633,8 +650,12 @@ class ChedrauiScraper(PolancoUIScraper):
                     detail["records_filtered"] = records_filtered
 
                     displayed_total = self.run_meta.get(
-                        "displayed_category_products"
+                        "structured_catalogue_reference"
                     )
+                    if displayed_total is None:
+                        displayed_total = self.run_meta.get(
+                            "displayed_category_products"
+                        )
                     if not self._records_filtered_consistent(
                         records_filtered,
                         displayed_total,
@@ -753,10 +774,29 @@ class ChedrauiScraper(PolancoUIScraper):
         if displayed_total is not None:
             self.run_meta["displayed_category_products"] = displayed_total
 
+        dom_floor = len(html_rows) if len(html_rows) >= 5 else None
+        catalogue_reference = (
+            displayed_total
+            if displayed_total is not None and displayed_total > 0
+            else dom_floor
+        )
+        self.run_meta["structured_catalogue_reference"] = (
+            catalogue_reference
+        )
+        self.run_meta["structured_catalogue_reference_source"] = (
+            "displayed_total"
+            if displayed_total is not None and displayed_total > 0
+            else (
+                "dom_page_floor"
+                if dom_floor is not None
+                else "unavailable"
+            )
+        )
+
         # Select from all native productSearchV3 traffic observed while the
         # real storefront page was loading. This is deterministic and does not
         # depend on request ordering.
-        self._select_best_product_search_template(displayed_total)
+        self._select_best_product_search_template(catalogue_reference)
 
         api_rows, api_info = self._recover_page_from_product_search(
             page,
@@ -780,7 +820,8 @@ class ChedrauiScraper(PolancoUIScraper):
             refreshed = self._refresh_product_search_template(
                 page,
                 category,
-                displayed_total,
+                location,
+                catalogue_reference,
             )
             if refreshed:
                 retry_rows, retry_info = (
