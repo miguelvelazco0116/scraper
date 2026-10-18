@@ -294,3 +294,52 @@ def test_chedraui_load_page_self_heals_template_drift():
     assert "template_records_mismatch:" in source
     assert "_refresh_product_search_template" in load_page
     assert "structured_catalogue_reference_source" in load_page
+
+
+def test_live_catalogue_consistency_beats_misleading_high_affinity_candidate():
+    scraper = ChedrauiScraper(require_store_context=False)
+    scraper._product_search_category = _category()
+
+    misleading_url = _product_search_url(
+        {
+            "from": 0,
+            "to": 0,
+            "selectedFacets": [
+                {
+                    "key": "c",
+                    "value": "desodorantes-y-antitranspirantes",
+                }
+            ],
+        }
+    )
+    consistent_url = _product_search_url(
+        {
+            "from": 0,
+            "to": 19,
+            "selectedFacets": [
+                {
+                    "key": "c",
+                    "value": "category-opaque-id",
+                }
+            ],
+        }
+    )
+
+    scraper._consider_product_search_template(
+        misleading_url,
+        records_filtered=1,
+        product_count=1,
+        source="response",
+    )
+    scraper._consider_product_search_template(
+        consistent_url,
+        records_filtered=376,
+        product_count=20,
+        source="response",
+    )
+
+    selected = scraper._select_best_product_search_template(378)
+    assert selected == consistent_url
+    assert scraper.run_meta["product_search_template"][
+        "records_filtered"
+    ] == 376
