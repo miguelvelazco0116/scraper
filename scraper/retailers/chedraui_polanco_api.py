@@ -415,23 +415,65 @@ class ChedrauiScraper(PolancoUIScraper):
         ]
         return rows
 
+    @classmethod
+    def _product_search_filter_snapshot(cls, url: str) -> dict:
+        variables = cls._product_search_variables(url)
+        return {
+            "hideUnavailableItems": variables.get("hideUnavailableItems"),
+            "skusFilter": variables.get("skusFilter"),
+            "simulationBehavior": variables.get("simulationBehavior"),
+            "from": variables.get("from"),
+            "to": variables.get("to"),
+            "selectedFacets": variables.get("selectedFacets"),
+            "fullText": variables.get("fullText"),
+        }
+
     @staticmethod
-    def _rewrite_product_search_range(url: str, start: int, end: int) -> str:
+    def _rewrite_product_search_range(
+        url: str,
+        start: int,
+        end: int,
+    ) -> str:
         parts = urlsplit(url)
         qs = parse_qs(parts.query, keep_blank_values=True)
         extensions = json.loads(qs["extensions"][0])
         encoded = extensions.get("variables")
         if not encoded:
-            raise ValueError("productSearchV3 no contiene variables persistidas")
-        variables = json.loads(base64.b64decode(encoded).decode("utf-8"))
+            raise ValueError(
+                "productSearchV3 no contiene variables persistidas"
+            )
+        variables = json.loads(
+            base64.b64decode(encoded).decode("utf-8")
+        )
         variables["from"] = start
         variables["to"] = end
+        variables["hideUnavailableItems"] = False
+        variables["skusFilter"] = "ALL"
+
         extensions["variables"] = base64.b64encode(
-            json.dumps(variables, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+            json.dumps(
+                variables,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
         ).decode("ascii")
-        flat = {key: values[-1] for key, values in qs.items()}
-        flat["extensions"] = json.dumps(extensions, separators=(",", ":"))
-        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(flat), parts.fragment))
+        flat = {
+            key: values[-1]
+            for key, values in qs.items()
+        }
+        flat["extensions"] = json.dumps(
+            extensions,
+            separators=(",", ":"),
+        )
+        return urlunsplit(
+            (
+                parts.scheme,
+                parts.netloc,
+                parts.path,
+                urlencode(flat),
+                parts.fragment,
+            )
+        )
 
     @staticmethod
     def _best_offer(product: dict) -> tuple[float | None, float | None, int | None, list[str]]:
@@ -613,7 +655,26 @@ class ChedrauiScraper(PolancoUIScraper):
 
         start = (page_number - 1) * 20
         end = start + 19
-        url = self._rewrite_product_search_range(template, start, end)
+
+        original_filters = self._product_search_filter_snapshot(
+            template
+        )
+        url = self._rewrite_product_search_range(
+            template,
+            start,
+            end,
+        )
+        rewritten_filters = self._product_search_filter_snapshot(
+            url
+        )
+        info["original_filters"] = original_filters
+        info["rewritten_filters"] = rewritten_filters
+        self.run_meta["product_search_original_filters"] = (
+            original_filters
+        )
+        self.run_meta["product_search_production_filters"] = (
+            rewritten_filters
+        )
 
         attempts: list[dict] = []
         best_rows: list[dict] = []
