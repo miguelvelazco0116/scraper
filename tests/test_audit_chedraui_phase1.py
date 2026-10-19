@@ -74,6 +74,20 @@ class ChedrauiPhase1AuditTests(unittest.TestCase):
         self.summary.loc[0, "pagination_gaps"] = 1
         self.assertIn("pagination_gaps", self.evaluate()["problemas"])
 
+    def test_isolated_test_summary_without_retailer_column(self):
+        isolated_summary = self.summary.drop(
+            columns=["retailer", "store_id"]
+        )
+        result = _case(
+            self.frame, isolated_summary,
+            store_id="232", category_id="lavanderia",
+            day=self.day, source="TEST_AISLADO",
+            require_store_in_summary=False,
+        )
+        self.assertIsNotNone(result)
+        self.assertTrue(result["valido"])
+        self.assertEqual(result["filas"], 1)
+
     def test_reports_all_20_cases_without_master(self):
         with tempfile.TemporaryDirectory() as temp:
             view, _ = audit(Path(temp), self.day)
