@@ -67,6 +67,21 @@ def audit(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     sku_ok = frame["sku"].fillna("").astype(str).str.strip().ne("")
     url_ok = frame["url"].fillna("").astype(str).str.strip().ne("")
     captured_status = set(summary["status"].dropna().astype(str).str.upper())
+    pagination_fields = {
+        "pagination_verified", "independent_match",
+        "terminal_page_limit50", "terminal_page_limit250",
+    }
+    if pagination_fields.issubset(summary.columns):
+        terminal50 = pd.to_numeric(summary["terminal_page_limit50"], errors="coerce")
+        terminal250 = pd.to_numeric(summary["terminal_page_limit250"], errors="coerce")
+        audited_pagination = bool(
+            summary["pagination_verified"].eq(True).all()
+            and summary["independent_match"].eq(True).all()
+            and terminal50.ge(2).all()
+            and terminal250.ge(2).all()
+        )
+    else:
+        audited_pagination = False
 
     subset = frame.loc[unknown, [
         "category_id", "sku", "product", "package_type",
@@ -109,7 +124,9 @@ def audit(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
         "positive_price_complete": int(price_ok.sum()),
         "url_complete": int(url_ok.sum()),
         "store_context_verified": int(store_verified.sum()),
+        "dual_pagination_verified": audited_pagination,
         "integration_ready": bool(
+            audited_pagination
             captured_status == {"SUCCESS"}
             and len(summary) == 6
             and int(missing_box.sum()) == 0
@@ -119,6 +136,7 @@ def audit(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
         ),
         "integration_blockers": [
             name for name, condition in [
+                ("PAGINACION_INDEPENDIENTE_NO_VERIFICADA", not audited_pagination),
                 ("CONTEXTO_DE_TIENDA_NO_VERIFICADO", not store_verified.all()),
                 ("CAJAS_SIN_UNIDADES", missing_box.any()),
                 ("PRECIO_UNITARIO_FALTANTE", invalid_unit_price.any()),
@@ -159,6 +177,7 @@ def main() -> int:
     print(f"Unidades inciertas: {outcome['unit_count_unknown']}")
     print(f"Cajas sin conteo: {outcome['boxes_without_unit_count']}")
     print(f"Contexto tienda : {outcome['store_context_verified']}/{outcome['variants']}")
+    print(f"Paginación 50/250: {outcome['dual_pagination_verified']}")
     print(f"Integrable      : {outcome['integration_ready']}")
     print("Bloqueos        : " + (", ".join(outcome["integration_blockers"]) or "ninguno"))
     print("Pendientes CSV  : " + str(base.with_suffix(".csv")))
