@@ -152,19 +152,124 @@ class ChedrauiScraper(BaseChedrauiScraper):
         self.run_meta["location_locator_final_url"] = getattr(page, "url", None)
         return bool(opened)
 
-    def _click_enabled_pickup_button(self, page) -> bool:
-        try:
-            labels = page.get_by_text("Recoger en esta tienda", exact=False)
-            for i in range(min(labels.count(), 30)):
-                label = labels.nth(i)
-                if not label.is_visible():
-                    continue
-                button = label.locator("xpath=ancestor::button[1]")
-                if button.count() and button.is_enabled():
-                    button.click(timeout=5_000)
-                    return True
-        except Exception:
-            pass
+    def _click_enabled_pickup_button(self, page, location: Location) -> bool:
+        """Confirm exact selected VTEX store using the visible pickup CTA.
+
+        React may show the radio as checked before it enables the confirmation
+        button. Poll only the exact CTA; never click a generic 'Seleccionar'
+        or 'Continuar' button that might act on a different UI.
+        """
+        expected = self._expected_pickup_value(location)
+        observations: list[dict] = []
+        self.run_meta["pickup_confirmation_expected_radio"] = expected
+
+        for attempt in range(12):
+            observation: dict = {
+                "attempt": attempt + 1,
+                "expected_radio_checked": False,
+                "visible_buttons": 0,
+                "enabled_buttons": 0,
+                "errors": [],
+            }
+            try:
+                radios = page.locator(
+                    'input[name="pickup-point-list"][type="radio"]'
+                    f'[value="{expected}"]'
+                )
+                observation["matching_radios"] = radios.count()
+                for index in range(min(radios.count(), 20)):
+                    try:
+                        if radios.nth(index).is_checked():
+                            observation["expected_radio_checked"] = True
+                            break
+                    except Exception:
+                        continue
+            except Exception as exc:
+                observation["errors"].append(
+                    f"radio: {type(exc).__name__}: {str(exc)[:140]}"
+                )
+
+            # The exact store must still be selected at click time. The
+            # previous successful radio click is not sufficient evidence.
+            if observation["expected_radio_checked"]:
+                try:
+                    nodes = page.get_by_role(
+                        "button",
+                        name=re.compile(r"^\\s*recoger en esta tienda\\s*$", re.I),
+                    )
+                    observation["role_matches"] = nodes.count()
+                    for index in range(min(nodes.count(), 30)):
+                        button = nodes.nth(index)
+                        try:
+                            if not button.is_visible():
+                                continue
+                            observation["visible_buttons"] += 1
+                            if not button.is_enabled():
+                                continue
+                            observation["enabled_buttons"] += 1
+                            button.click(timeout=4_000)
+                            observation["clicked"] = True
+                            self.run_meta["pickup_confirmation_method"] = (
+                                "exact_visible_button_role"
+                            )
+                            observations.append(observation)
+                            self.run_meta["pickup_confirmation_observations"] = (
+                                observations
+                            )
+                            return True
+                        except Exception as exc:
+                            observation["errors"].append(
+                                f"role_button_{index}: "
+                                f"{type(exc).__name__}: {str(exc)[:140]}"
+                            )
+                except Exception as exc:
+                    observation["errors"].append(
+                        f"role_query: {type(exc).__name__}: {str(exc)[:140]}"
+                    )
+
+                # Some VTEX headers embed this CTA in a child span rather
+                # than naming the button accessibly. Resolve its ancestor.
+                try:
+                    labels = page.get_by_text("Recoger en esta tienda", exact=True)
+                    observation["text_matches"] = labels.count()
+                    for index in range(min(labels.count(), 30)):
+                        label = labels.nth(index)
+                        try:
+                            if not label.is_visible():
+                                continue
+                            button = label.locator("xpath=ancestor::button[1]")
+                            if not button.count() or not button.is_visible():
+                                continue
+                            observation["visible_buttons"] += 1
+                            if not button.is_enabled():
+                                continue
+                            observation["enabled_buttons"] += 1
+                            button.click(timeout=4_000)
+                            observation["clicked"] = True
+                            self.run_meta["pickup_confirmation_method"] = (
+                                "exact_visible_text_button_ancestor"
+                            )
+                            observations.append(observation)
+                            self.run_meta["pickup_confirmation_observations"] = (
+                                observations
+                            )
+                            return True
+                        except Exception as exc:
+                            observation["errors"].append(
+                                f"text_button_{index}: "
+                                f"{type(exc).__name__}: {str(exc)[:140]}"
+                            )
+                except Exception as exc:
+                    observation["errors"].append(
+                        f"text_query: {type(exc).__name__}: {str(exc)[:140]}"
+                    )
+
+            observations.append(observation)
+            if attempt < 11:
+                page.wait_for_timeout(750)
+
+        self.run_meta["pickup_confirmation_observations"] = observations
+        self.run_meta["pickup_confirmation_method"] = None
         return False
 
     def _click_polanco(self, page) -> bool:
@@ -819,26 +924,17 @@ class ChedrauiScraper(BaseChedrauiScraper):
         self._trace_directory_step(page, location, "06_tienda_seleccionada")
 
         confirmed = (
-            self._click_enabled_pickup_button(page)
+            self._click_enabled_pickup_button(page, location)
             if store_clicked
             else False
         )
-        if not confirmed and store_clicked:
-            confirmed = self._click_text(
-                page,
-                (
-                    "Seleccionar",
-                    "Elegir",
-                    "Recoger en esta tienda",
-                    "Confirmar",
-                    "Guardar",
-                    "Continuar",
-                ),
-                timeout=4_000,
-            )
         self.run_meta["pickup_confirmed"] = confirmed
         page.wait_for_timeout(1_500)
-        self._trace_directory_step(page, location, "07_tienda_confirmada")
+        self._trace_directory_step(
+            page, location,
+            "07_tienda_confirmada" if confirmed
+            else "07_confirmacion_no_lograda",
+        )
 
         if not store_clicked:
             self.run_meta["directory_selection_failure"] = (
