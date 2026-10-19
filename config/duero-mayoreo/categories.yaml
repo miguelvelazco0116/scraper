@@ -1,0 +1,32 @@
+retailer: duero-mayoreo
+categories:
+  - id: cuidado-bucal
+    department: Perfumería
+    name: Cuidado Bucal
+    url: https://dueromayoreo.mayoreoenlinea.mx/collections/cuidado-bucal
+    enabled: true
+  - id: desodorantes-y-antitranspirantes
+    department: Perfumería
+    name: Desodorantes y Antitranspirantes
+    url: https://dueromayoreo.mayoreoenlinea.mx/collections/desodorantes-y-antitranspirantes
+    enabled: true
+  - id: cuidado-facial-y-corporal
+    department: Perfumería
+    name: Cuidado Facial y Corporal
+    url: https://dueromayoreo.mayoreoenlinea.mx/collections/cuidado-facial-y-corporal
+    enabled: true
+  - id: farmacia
+    department: Farmacia
+    name: Farmacia
+    url: https://dueromayoreo.mayoreoenlinea.mx/collections/farmacia
+    enabled: true
+  - id: detergentes
+    department: No Comestibles
+    name: Detergentes
+    url: https://dueromayoreo.mayoreoenlinea.mx/collections/detergentes
+    enabled: true
+  - id: cloros-y-blanqueadores
+    department: No Comestibles
+    name: Cloros y Blanqueadores
+    url: https://dueromayoreo.mayoreoenlinea.mx/collections/cloros-y-blanqueadores
+    enabled: true
