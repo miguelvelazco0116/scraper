@@ -28,6 +28,7 @@ from scraper.retailers.chedraui import (
     STORE_CONTEXT_CONTRACT_VERSION,
 )
 from scraper.retailers.chedraui_polanco_api import ChedrauiScraper
+from chedraui_case_cache import load_valid_snapshots
 from scraper.retailers.farmacias_del_ahorro import (
     FarmaciasDelAhorroBlocked,
     FarmaciasDelAhorroNetworkUnavailable,
@@ -153,10 +154,33 @@ def _read_phase1_snapshot(
 
 def _load_existing_valid_results(
 ) -> dict[tuple[str, str, str], tuple[pd.DataFrame, dict[str, Any]]]:
+    # Preserve validated Phase-1 progress first. Fill genuinely missing
+    # Chedraui store/category cases with strict, same-day isolated snapshots.
+    # This never replaces a production COMPLETE case with an isolated test.
     progress = _read_phase1_snapshot(PROGRESS_PATH)
-    if progress:
-        return progress
-    return _read_phase1_snapshot(OUTPUT_PATH)
+    if not progress:
+        progress = _read_phase1_snapshot(OUTPUT_PATH)
+    date = datetime.now().astimezone().date().isoformat()
+    isolated = load_valid_snapshots(ROOT, day=date)
+    imported = 0
+    for key, item in isolated.items():
+        if key in progress:
+            continue
+        frame, row = item
+        summary = dict(row)
+        summary["retailer"] = "Chedraui"
+        summary["store_id"] = key[2]
+        summary["price_complete"] = int(
+            pd.to_numeric(frame["price_current"], errors="coerce").notna().sum()
+        )
+        progress[key] = (frame.copy(), summary)
+        imported += 1
+    if imported:
+        print(
+            f"Chedraui: {imported} casos aislados COMPLETE del día "
+            "recuperados para la Fase 1."
+        )
+    return progress
 
 
 def _write_progress(
