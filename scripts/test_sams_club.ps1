@@ -67,26 +67,11 @@ $code = $LASTEXITCODE
 
 Write-Host "Salida: $ProjectDir\output\sams_club_phase5_test.xlsx"
 
-if ($code -eq 0 -and [string]::IsNullOrWhiteSpace($Category)) {
-    Write-Host ""
-    Write-Host "Sam's Club completa y valida."
-    Write-Host "Agregando la particion validada al concentrado diario..."
-
-    & ".\scripts\integrate_validated_phase.ps1" `
-        -Phase 5 `
-        -Retailer "Sam's Club" `
-        -ProjectDir $ProjectDir `
-        -PythonExe $PythonExe
-
-    $integrationCode = $LASTEXITCODE
-    if ($integrationCode -ne 0) {
-        Write-Warning "Sam's Club fue valida, pero NO pudo integrarse al concentrado diario."
-        $code = $integrationCode
-    } else {
-        Write-Host "SAM'S CLUB VALIDADA E INTEGRADA AL CONCENTRADO."
-    }
-} elseif ($code -ne 0) {
-    Write-Warning "El test termino con observaciones (exit_code=$code)."
+if ($code -eq 0) {
+    Write-Host "Sam's Club: prueba completada. Revisar Resumen, Fuentes y ValidacionPrecios."
+    Write-Host "INTEGRACION OMITIDA: requiere aprobacion explicita tras validacion live."
+} else {
+    Write-Warning "Sam's Club: test con observaciones (exit_code=$code). No se integra."
 }
 
 exit $code
