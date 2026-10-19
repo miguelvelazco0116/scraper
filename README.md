@@ -222,6 +222,31 @@ No volver a ejecutar todas las 20 combinaciones solo para recuperar
 una categoría con `COMPLETE`; ejecutar las pendientes y luego
 la corrida productiva de Fase 1 para integrar con controles.
 
+### Integración parcial de Chedraui por sucursal (2026-10-19)
+
+Los cinco checkpoints COMPLETE de Polanco (232) suman 1,271 filas.
+El doble checkpoint de desodorantes se deduplica por tienda/categoría;
+no se cuentan seis categorías. Los archivos de otras tiendas no se modifican.
+
+Para integrar una sola sucursal se exige: exactamente cinco categorías
+activas; captures de la fecha del master; contrato de tienda y control
+visible verificado; disponibilidad AVAILABLE=1/UNAVAILABLE=0; SKU,
+URL, precios y total publicados completos; sin errores de paginación.
+El master debe existir y apuntar al archivo activo de la fecha.
+
+```powershell
+cd C:\Proyectos\scraper
+git pull --ff-only origin main
+python -m unittest discover -s tests -p "test_integrate_chedraui_store.py" -v
+& .\scripts\integrate_chedraui_store.ps1 -Store chedraui-polanco
+# Solo después de un preview favorable:
+& .\scripts\integrate_chedraui_store.ps1 -Store chedraui-polanco -Commit
+```
+
+La publicación crea copia del master y del puntero antes de sobrescribir,
+y checkpoint posterior. Conserva todos los demás retailers y sucursales.
+La Fase 1 sigue PARTIAL_VALIDATED hasta tener las 20 combinaciones.
+La siguiente sucursal es Tepeyac (173) con cinco categorías aisladas.
 ## Chedraui: diagnóstico de navegación visible y cierre Fase 1
 
 ### Fallo intermitente `location_button_opened=False` (2026-10-19)
