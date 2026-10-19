@@ -548,6 +548,142 @@ class ChedrauiScraper(BaseChedrauiScraper):
         )
         return False
 
+    @staticmethod
+    def _directory_selects_visible(page) -> bool:
+        """Only real, visible State/City dropdowns prove the directory opened."""
+        try:
+            nodes = page.locator(
+                "select.chedrauimx-locator-2-x-selectOption"
+            )
+            return any(
+                nodes.nth(index).is_visible()
+                for index in range(min(nodes.count(), 5))
+            )
+        except Exception:
+            return False
+
+    def _open_pickup_directory(self, page) -> tuple[bool, bool]:
+        """Choose pickup and open directory, waiting for asynchronously drawn UI.
+
+        Do not click the header's broad 'Recoger en: <store>' text again:
+        it can toggle/close the locator instead of opening the pickup tab.
+        Never fabricate a successful step without a visible directory.
+        """
+        observations: list[dict] = []
+        pickup_clicked = False
+        directory_clicked = False
+        directory_method: str | None = None
+        pickup_labels = (
+            "Recoger en una tienda",
+            "Recoger en tienda",
+            "Recoger en",
+        )
+
+        for attempt in range(12):
+            observation: dict = {
+                "attempt": attempt + 1,
+                "directory_selects_visible": (
+                    self._directory_selects_visible(page)
+                ),
+                "directory_text_matches": 0,
+                "directory_text_visible": 0,
+                "pickup_visible_labels": [],
+                "errors": [],
+            }
+
+            if observation["directory_selects_visible"]:
+                directory_clicked = True
+                directory_method = (
+                    directory_method or "visible_directory_controls"
+                )
+                observations.append(observation)
+                break
+
+            # Prefer an explicit directory action over a generic pickup text.
+            # The directory may already be shown after opening the locator.
+            try:
+                nodes = page.get_by_text("Directorio de tiendas", exact=False)
+                observation["directory_text_matches"] = nodes.count()
+                for index in range(min(nodes.count(), 25)):
+                    item = nodes.nth(index)
+                    if not item.is_visible():
+                        continue
+                    label = self._normalize(
+                        item.inner_text(timeout=1_000)
+                    )
+                    if "directorio de tiendas" not in label:
+                        continue
+                    observation["directory_text_visible"] += 1
+                    try:
+                        item.click(timeout=3_000)
+                        directory_clicked = True
+                        directory_method = "visible_directory_text"
+                        observation["directory_clicked"] = True
+                        page.wait_for_timeout(700)
+                        break
+                    except Exception as exc:
+                        observation["errors"].append(
+                            "directory_click:"
+                            + type(exc).__name__ + ": " + str(exc)[:100]
+                        )
+            except Exception as exc:
+                observation["errors"].append(
+                    "directory_find:" + type(exc).__name__
+                )
+
+            if directory_clicked and self._directory_selects_visible(page):
+                observation["directory_selects_visible"] = True
+                observations.append(observation)
+                break
+
+            # A compact, exact pickup tab/action is safer than the prior broad
+            # get_by_text('Recoger en', exact=False), which may match the
+            # selected-store address header and close the drawer.
+            if not pickup_clicked and attempt in (1, 4, 8):
+                for label in pickup_labels:
+                    try:
+                        nodes = page.get_by_text(label, exact=True)
+                        for index in range(min(nodes.count(), 15)):
+                            node = nodes.nth(index)
+                            if not node.is_visible():
+                                continue
+                            observation["pickup_visible_labels"].append(label)
+                            try:
+                                node.click(timeout=3_000)
+                                pickup_clicked = True
+                                observation["pickup_clicked_label"] = label
+                                page.wait_for_timeout(700)
+                                break
+                            except Exception as exc:
+                                observation["errors"].append(
+                                    "pickup_click:" + type(exc).__name__
+                                    + ": " + str(exc)[:100]
+                                )
+                        if pickup_clicked:
+                            break
+                    except Exception as exc:
+                        observation["errors"].append(
+                            "pickup_find:" + type(exc).__name__
+                        )
+
+            observations.append(observation)
+            if attempt < 11:
+                page.wait_for_timeout(750)
+
+        final_visible = self._directory_selects_visible(page)
+        self.run_meta["pickup_clicked"] = pickup_clicked
+        self.run_meta["directory_clicked"] = (
+            bool(directory_clicked) and bool(final_visible)
+        )
+        self.run_meta["directory_open_method"] = directory_method
+        self.run_meta["directory_final_selects_visible"] = final_visible
+        self.run_meta["directory_open_observations"] = observations
+        if not final_visible:
+            self.run_meta["directory_selection_failure"] = (
+                "directory_controls_not_visible"
+            )
+        return pickup_clicked, bool(directory_clicked and final_visible)
+
     def _try_select_store_directory_generic(
         self,
         page,
@@ -562,19 +698,10 @@ class ChedrauiScraper(BaseChedrauiScraper):
             self._save_diagnostics(page, "store_location_button_not_found")
             return False, None
 
-        pickup_clicked = self._click_text(
-            page,
-            ("Recoger en una tienda", "Recoger en tienda", "Recoger en"),
+        pickup_clicked, directory_clicked = (
+            self._open_pickup_directory(page)
         )
-        self.run_meta["pickup_clicked"] = pickup_clicked
-        page.wait_for_timeout(500)
         self._trace_directory_step(page, location, "02_opcion_recoger")
-
-        directory_clicked = self._click_text(
-            page,
-            ("Directorio de tiendas",),
-        )
-        self.run_meta["directory_clicked"] = directory_clicked
         self._trace_directory_step(page, location, "03_directorio")
         if not directory_clicked:
             self._save_diagnostics(page, "store_directory_not_found")
