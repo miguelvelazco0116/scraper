@@ -323,6 +323,29 @@ class ChedrauiScraper(BaseChedrauiScraper):
         self.run_meta["configured_directory_area"] = location.directory_area
         self.run_meta["pickup_candidate_names"] = pickup_names[:10]
 
+        # Production contract: the directory route must explicitly resolve
+        # State -> City/Zone before a store can be selected. Never skip these
+        # steps based on stale browser/session state.
+        if not state_selected:
+            self.run_meta["directory_selection_failure"] = (
+                "state_not_selected"
+            )
+            self._save_diagnostics(
+                page,
+                "store_directory_state_not_selected",
+            )
+            return False, None
+
+        if not city_selected:
+            self.run_meta["directory_selection_failure"] = (
+                "city_not_selected"
+            )
+            self._save_diagnostics(
+                page,
+                "store_directory_city_not_selected",
+            )
+            return False, None
+
         store_clicked = self._click_configured_store(
             page,
             location,
@@ -351,6 +374,26 @@ class ChedrauiScraper(BaseChedrauiScraper):
             )
         self.run_meta["pickup_confirmed"] = confirmed
         page.wait_for_timeout(1_500)
+
+        if not store_clicked:
+            self.run_meta["directory_selection_failure"] = (
+                "configured_store_not_clicked"
+            )
+            self._save_diagnostics(
+                page,
+                "store_directory_store_not_clicked",
+            )
+            return False, None
+
+        if not confirmed:
+            self.run_meta["directory_selection_failure"] = (
+                "pickup_not_confirmed"
+            )
+            self._save_diagnostics(
+                page,
+                "store_directory_pickup_not_confirmed",
+            )
+            return False, None
 
         verified, method = self._verify_store_context(page, location)
         if verified:
