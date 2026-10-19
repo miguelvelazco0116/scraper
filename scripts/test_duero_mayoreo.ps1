@@ -2,7 +2,10 @@ param(
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = "",
     [string]$Category = "all",
-    [int]$MaxPages = 30
+    [ValidateRange(2, 100)]
+    [int]$MaxPages = 30,
+    [ValidateRange(0, 15)]
+    [double]$DelaySeconds = 0.7
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,8 +26,11 @@ Write-Host "MAYORISTA DUERO - PRUEBA AISLADA FASE 5"
 Write-Host "============================================================"
 Write-Host "Python: $PythonExe"
 Write-Host "Categoria: $Category"
-Write-Host "Paginacion maxima: $MaxPages"
-& $PythonExe ".\scripts\test_duero_mayoreo.py" "--category" $Category "--max-pages" "$MaxPages"
+Write-Host "Paginacion maxima por recorrido: $MaxPages"
+Write-Host "Auditoria : dos recorridos API independientes, limit=50 y limit=250"
+Write-Host "Gate      : requiere confirmar página terminal vacía y variantes idénticas"
+Write-Host "Pausa API : $DelaySeconds segundos"
+& $PythonExe ".\scripts\test_duero_mayoreo.py" "--category" $Category "--max-pages" "$MaxPages" "--delay-seconds" "$DelaySeconds"
 $code = $LASTEXITCODE
 Write-Host "Salida: $ProjectDir\output\duero_mayoreo_phase5_test.xlsx"
 Write-Host "INTEGRACION AL MASTER: OMITIDA (validacion live pendiente)"
