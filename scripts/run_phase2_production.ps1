@@ -1,7 +1,8 @@
 param(
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = "",
-    [string]$CdpUrl = ""
+    [string]$CdpUrl = "",
+    [switch]$SkipIntegration
 )
 
 $ErrorActionPreference = "Stop"
@@ -106,19 +107,25 @@ if ($code -eq 0) {
     Write-Host "Baseline: $ProjectDir\output\fase2_muestra_inicial_valida.xlsx"
     Write-Host "Log     : $LogPath"
     Write-Host ""
-    Write-Host "Fase 2 valida. Integrando automaticamente al concentrado diario..."
-
-    & ".\scripts\integrate_validated_phase.ps1" `
-        -Phase 2 `
-        -ProjectDir $ProjectDir `
-        -PythonExe $PythonExe
-
-    $integrationCode = $LASTEXITCODE
-    if ($integrationCode -ne 0) {
-        Write-Warning "Fase 2 fue publicada, pero NO pudo integrarse al concentrado diario."
-        $code = $integrationCode
+    if ($SkipIntegration) {
+        Write-Host "Fase 2 valida y publicada."
+        Write-Host "Integracion al concentrado: OMITIDA por -SkipIntegration."
+        Write-Host "La salida queda disponible para integrar cuando las fases previas esten completas."
     } else {
-        Write-Host "FASE 2 VALIDADA E INTEGRADA AL CONCENTRADO."
+        Write-Host "Fase 2 valida. Integrando automaticamente al concentrado diario..."
+
+        & ".\scripts\integrate_validated_phase.ps1" `
+            -Phase 2 `
+            -ProjectDir $ProjectDir `
+            -PythonExe $PythonExe
+
+        $integrationCode = $LASTEXITCODE
+        if ($integrationCode -ne 0) {
+            Write-Warning "Fase 2 fue publicada, pero NO pudo integrarse al concentrado diario."
+            $code = $integrationCode
+        } else {
+            Write-Host "FASE 2 VALIDADA E INTEGRADA AL CONCENTRADO."
+        }
     }
 } else {
     Write-Warning "La Fase 2 NO fue publicada. El master productivo anterior se conserva."
