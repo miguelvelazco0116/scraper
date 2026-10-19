@@ -1,7 +1,8 @@
 param(
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = "",
-    [string]$CdpUrl = ""
+    [string]$CdpUrl = "",
+    [switch]$SkipIntegration
 )
 
 $ErrorActionPreference = "Stop"
@@ -121,6 +122,22 @@ if ($code -eq 0) {
     Write-Host "El master productivo anterior se conserva."
     Write-Host "Diagnostico: $ProjectDir\diagnostics\phase3_production\last_run.json"
     Write-Host "Log        : $LogPath"
+}
+
+if (-not $SkipIntegration) {
+    Write-Host ""
+    Write-Host "INTEGRACION POR RETAILER: solo COMPLETE; PARTIAL queda pendiente."
+    & ".\scripts\integrate_complete_retailers.ps1" `
+        -Phase 3 `
+        -ProjectDir $ProjectDir `
+        -PythonExe $PythonExe
+    $integrationCode = $LASTEXITCODE
+    if ($integrationCode -ne 0) {
+        Write-Warning "No fue posible integrar retailers completos de Fase 3."
+        if ($code -eq 0) { $code = $integrationCode }
+    }
+} else {
+    Write-Host "Integracion omitida por -SkipIntegration."
 }
 
 try { Stop-Transcript | Out-Null } catch {}
