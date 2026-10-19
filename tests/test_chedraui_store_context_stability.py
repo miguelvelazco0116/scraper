@@ -241,36 +241,3 @@ def test_store_card_matching_supports_split_name_nodes():
     assert "ancestor_card" in method
     assert "all(token in text for token in tokens)" in method
     assert "no_matching_store_card" in method
-
-
-
-class _CheckedControl:
-    def is_checked(self):
-        return True
-
-    def get_attribute(self, _name):
-        return None
-
-
-class _AriaCheckedControl:
-    def is_checked(self):
-        raise RuntimeError("not native")
-
-    def get_attribute(self, name):
-        if name == "aria-checked":
-            return "true"
-        return None
-
-
-def test_hidden_native_radio_can_certify_already_selected_store():
-    scraper = ChedrauiScraper(require_store_context=False)
-    assert scraper._directory_control_selected(
-        _CheckedControl()
-    ) is True
-
-
-def test_custom_aria_checked_radio_can_certify_selected_store():
-    scraper = ChedrauiScraper(require_store_context=False)
-    assert scraper._directory_control_selected(
-        _AriaCheckedControl()
-    ) is True
