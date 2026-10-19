@@ -427,6 +427,10 @@ def _load_existing_valid_results(categories) -> dict[str, tuple]:
             if "category_id" in sources_df.columns
             else []
         )
+        expected = set(next(x.source_urls for x in categories if x.id == category_id))
+        actual = {str(x.get("source_url") or "") for x in sources}
+        if expected != actual:
+            continue
         extraction = (
             extraction_df.loc[
                 extraction_df["category_id"].astype(str).eq(category_id)
@@ -609,7 +613,7 @@ def main() -> int:
     )
     if results:
         print("")
-        print("CATEGORÍAS BODEGA YA VÁLIDAS HOY:")
+        print("CATEGORÍAS SAM'S CLUB YA VÁLIDAS HOY:")
         for category_id in category_order:
             if category_id in results:
                 print(
