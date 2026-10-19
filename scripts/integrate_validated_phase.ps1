@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidateSet(1, 2, 3, 4, 5)]
     [int]$Phase,
-    [ValidateSet("", "Bodega Aurrera", "Walmart", "Farmacias San Pablo", "Farmacias Benavides", "Farmacias Similares", "HEB", "Sam's Club")]
+    [ValidateSet("", "Bodega Aurrera", "Walmart", "Farmacias San Pablo", "Farmacias Benavides", "Farmacias Similares", "HEB", "Sam's Club", "Mayorista Duero")]
     [string]$Retailer = "",
     [switch]$AllowPartialPrevious,
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
