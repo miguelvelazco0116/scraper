@@ -185,6 +185,120 @@ class ChedrauiScraper(BaseChedrauiScraper):
 
         return False, last_options, last_selected
 
+    @staticmethod
+    def _expected_pickup_value(location: Location) -> str | None:
+        """Build VTEX pickup-point value from the configured Chedraui store id."""
+        if not location.store_id:
+            return None
+        raw = str(location.store_id).strip()
+        if not raw.isdigit():
+            return None
+        numeric = int(raw)
+        return (
+            f"chedrauimx{numeric:04d}_PP{numeric:04d}"
+        )
+
+    def _click_store_radio_by_id(
+        self,
+        page,
+        location: Location,
+    ) -> bool:
+        """Click the visible label for the exact VTEX pickup radio by store id."""
+        expected = self._expected_pickup_value(location)
+        self.run_meta["directory_store_expected_pickup_value"] = expected
+        if not expected:
+            return False
+
+        try:
+            radios = page.locator(
+                'input[name="pickup-point-list"]'
+                '[type="radio"]'
+                f'[value="{expected}"]'
+            )
+            count = radios.count()
+        except Exception:
+            count = 0
+
+        self.run_meta["directory_store_radio_matches"] = count
+        tokens = self._location_store_tokens(location)
+
+        for index in range(min(count, 20)):
+            radio = radios.nth(index)
+            try:
+                radio_id = radio.get_attribute("id")
+            except Exception:
+                radio_id = None
+            if not radio_id:
+                continue
+
+            try:
+                labels = page.locator(
+                    f'label[for="{radio_id}"]'
+                )
+            except Exception:
+                continue
+
+            for label_index in range(min(labels.count(), 8)):
+                label = labels.nth(label_index)
+                try:
+                    if not label.is_visible():
+                        continue
+                    label_text = self._normalize(
+                        label.inner_text(timeout=1_500)
+                    )
+                except Exception:
+                    continue
+
+                # Guard against a duplicated VTEX radio accidentally pointing
+                # to another rendered card.
+                if tokens and not all(
+                    token in label_text for token in tokens
+                ):
+                    continue
+
+                try:
+                    label.click(timeout=5_000)
+                    page.wait_for_timeout(700)
+                except Exception:
+                    continue
+
+                verified = False
+                try:
+                    refreshed = page.locator(
+                        'input[name="pickup-point-list"]'
+                        '[type="radio"]'
+                        f'[value="{expected}"]'
+                    )
+                    for selected_index in range(
+                        min(refreshed.count(), 20)
+                    ):
+                        try:
+                            if refreshed.nth(
+                                selected_index
+                            ).is_checked():
+                                verified = True
+                                break
+                        except Exception:
+                            continue
+                except Exception:
+                    verified = False
+
+                self.run_meta["directory_store_radio_id"] = radio_id
+                self.run_meta["directory_store_radio_label"] = (
+                    label_text[:1_000]
+                )
+                self.run_meta[
+                    "directory_store_radio_verified"
+                ] = verified
+
+                if verified:
+                    self.run_meta[
+                        "directory_store_match_method"
+                    ] = "exact_store_id_radio"
+                    return True
+
+        return False
+
     def _click_configured_store(
         self,
         page,
@@ -206,6 +320,13 @@ class ChedrauiScraper(BaseChedrauiScraper):
         )
         self.run_meta["directory_store_labels"] = list(labels)
         self.run_meta["directory_store_tokens"] = list(tokens)
+
+        # Primary production path: Chedraui exposes the store id in the VTEX
+        # radio value (for example store 255 -> chedrauimx0255_PP0255).
+        # Click the visible label associated with that exact radio and verify
+        # the native input became checked. Text/card matching remains fallback.
+        if self._click_store_radio_by_id(page, location):
+            return True
 
         # First prefer an exact/full-name text node when the storefront exposes
         # one. This is the cheapest and least ambiguous path.
