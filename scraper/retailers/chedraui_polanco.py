@@ -689,11 +689,43 @@ class ChedrauiScraper(BaseChedrauiScraper):
             )
             return False, None
 
+        # The site's selected-store header can update asynchronously after
+        # the confirmation drawer closes. Poll the *visible* header briefly;
+        # never interpret having clicked a store card as proof of selection.
+        header_observations: list[dict] = []
+        header_matched = False
+        for attempt in range(12):
+            visible = self._visible_store_control_text(page)
+            matched = self._store_control_matches_location(visible, location)
+            header_observations.append({
+                "attempt": attempt + 1,
+                "visible_store_control_text": visible[:400],
+                "matches_configured_store": bool(matched),
+            })
+            if matched:
+                header_matched = True
+                break
+            if attempt < 11:
+                page.wait_for_timeout(750)
+        self.run_meta["directory_header_observations"] = header_observations
+        self.run_meta["directory_header_matched_after_confirmation"] = (
+            header_matched
+        )
+
+        # Keep the normal independent verification. Even a matching visible
+        # label will be cross-checked by the Phase-1 directory UI contract.
         verified, method = self._verify_store_context(page, location)
-        self._trace_directory_step(page, location, "08_contexto_verificado" if verified else "08_contexto_no_verificado")
+        self.run_meta["directory_final_verification_method"] = method
+        self._trace_directory_step(
+            page, location,
+            "08_contexto_verificado" if verified else "08_contexto_no_verificado",
+        )
         if verified:
             return True, f"{method}_after_directory_ui"
 
+        self.run_meta["directory_selection_failure"] = (
+            "store_not_proven_after_confirmation"
+        )
         self.run_meta["store_modal_text"] = self._body_text(page)[:14_000]
         self._save_diagnostics(page, "store_directory_selection_unverified")
         return False, None
