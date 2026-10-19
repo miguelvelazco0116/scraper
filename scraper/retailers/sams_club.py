@@ -238,15 +238,47 @@ class SamsClubScraper:
               const out = [];
               const seen = new Set();
 
+              // A Sam's Club category can show a "Patrocinado por Colgate"
+              // banner BEFORE its real catalogue title, e.g.
+              // "Pasta Dental y Enjuague Bucal (11)". Use the title's
+              // position as a boundary when that title is published.
+              const catalogueHeading = Array.from(
+                document.querySelectorAll(
+                  'h1,h2,h3,h4,h5,h6,[role="heading"]'
+                )
+              ).find(el => {
+                const text = normalize(el.innerText || el.textContent);
+                return /\(\s*\d{1,6}\s*\)/.test(text)
+                  && /[a-záéíóúñ]{4,}/i.test(text)
+                  && text.length <= 160;
+              });
+
               for (const a of Array.from(
                 document.querySelectorAll('a[href*="/ip/"]')
               )) {
                 const href = a.href || '';
                 if (!href || seen.has(href)) continue;
 
-                // Sponsored brand banners can contain real /ip/ links, prices,
-                // and a generic "Ver más" CTA. They are not catalogue cards
-                // and must never be counted as category coverage.
+                // Tracking /wapcrs/track URLs may embed /ip/ as a parameter.
+                // Only actual product detail page links can become products.
+                let productUrl;
+                try {
+                  productUrl = new URL(href, document.baseURI);
+                } catch (error) {
+                  continue;
+                }
+                if (!/^\/ip\//i.test(productUrl.pathname)) continue;
+
+                if (
+                  catalogueHeading &&
+                  a.getBoundingClientRect().top <
+                    catalogueHeading.getBoundingClientRect().bottom - 4
+                ) continue;
+
+                // Do not walk all the way to the shared page container:
+                // it contains BOTH "Patrocinado por" and organic items.
+                // Sponsored evidence must be local to a compact banner
+                // section (at most four product links), not a whole grid.
                 let sponsored = false;
                 let sponsorProbe = a;
                 for (
@@ -254,6 +286,14 @@ class SamsClubScraper:
                   depth < 10 && sponsorProbe;
                   depth++, sponsorProbe = sponsorProbe.parentElement
                 ) {
+                  const linksInSection = sponsorProbe.querySelectorAll(
+                    'a[href*="/ip/"]'
+                  ).length;
+                  if (linksInSection > 4 ||
+                      (catalogueHeading &&
+                       sponsorProbe.contains(catalogueHeading))) {
+                    break;
+                  }
                   const probeText = normalize(
                     sponsorProbe.innerText || sponsorProbe.textContent
                   ).toLowerCase();
