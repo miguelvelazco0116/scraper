@@ -14,7 +14,7 @@ def _location() -> Location:
         postal_code="77501",
         store="Chedraui Cancún Kabah",
         store_id="255",
-        enabled=True,
+        directory_area="Cancún",
     )
 
 
