@@ -216,6 +216,24 @@ def audit_collection(request, category, *, max_pages: int = 30,
             f"faltan_limit250={len(missing_control)}"
         )
 
+    changed_products = [
+        pid for pid in a_ids & b_ids
+        if (
+            str(primary["products"][pid].get("handle") or "").strip(),
+            str(primary["products"][pid].get("title") or "").strip(),
+            str(primary["products"][pid].get("vendor") or "").strip(),
+        ) != (
+            str(control["products"][pid].get("handle") or "").strip(),
+            str(control["products"][pid].get("title") or "").strip(),
+            str(control["products"][pid].get("vendor") or "").strip(),
+        )
+    ]
+    if changed_products:
+        errors.append(
+            f"{len(changed_products)} productos cambiaron título/handle/marca "
+            "entre pasadas"
+        )
+
     a_variants = primary["variants"]
     b_variants = control["variants"]
     a_vkeys = set(a_variants)
@@ -248,7 +266,8 @@ def audit_collection(request, category, *, max_pages: int = 30,
         "pagination_complete": pagination_verified,
         "pagination_verified": pagination_verified,
         "independent_match": not bool(
-            missing_primary or missing_control or a_vkeys != b_vkeys or changed
+            missing_primary or missing_control or changed_products
+            or a_vkeys != b_vkeys or changed
         ),
         "first_pass_limit": PRIMARY_LIMIT,
         "second_pass_limit": CONTROL_LIMIT,
@@ -263,5 +282,6 @@ def audit_collection(request, category, *, max_pages: int = 30,
         "missing_ids_limit50": missing_primary[:25],
         "missing_ids_limit250": missing_control[:25],
         "changed_variant_ids": changed[:25],
+        "changed_product_ids": changed_products[:25],
     }
     return list(primary["products"].values()), report, primary["pages"] + control["pages"]
