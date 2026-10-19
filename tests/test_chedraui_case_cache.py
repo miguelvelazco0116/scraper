@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from chedraui_case_cache import (
     CONTRACT, persist_case, seed_from_prior_test, validate_case,
+    load_valid_snapshots,
 )
 
 
@@ -90,6 +91,16 @@ class ChedrauiCaseCheckpointTests(unittest.TestCase):
         self.assertEqual(
             len(seed_from_prior_test(self.root, previous,
                                      store_id="232", day=self.day)), 0
+        )
+
+    def test_loads_only_same_day_validated_snapshots(self):
+        persist_case(self.root, self.rows, self.case,
+                     store_id="232", day=self.day)
+        cases = load_valid_snapshots(self.root, day=self.day)
+        self.assertIn(("Chedraui", "higiene-bucal", "232"), cases)
+        self.assertEqual(len(cases[("Chedraui", "higiene-bucal", "232")][0]), 1)
+        self.assertEqual(
+            load_valid_snapshots(self.root, day="2026-10-20"), {}
         )
 
     def test_error_summary_cannot_seed(self):
