@@ -39,8 +39,8 @@ def money(value):
 def pack_units(title: str, variant_title: str):
     text = f"{title} {variant_title}"
     patterns = (
-        r"(?i)\\b(?:caja|paquete|pack|display)\\s*(?:de|con)?\\s*(\\d{1,4})\\s*(?:pzas?|piezas?|unidades?|uds?|art[ií]culos?)\\b",
-        r"(?i)\\b(\\d{1,4})\\s*(?:pzas?|piezas?|unidades?|uds?|art[ií]culos?)\\s*(?:por|x|/)\\s*(?:caja|paquete|pack)\\b",
+        r"(?i)\b(?:caja|paquete|pack|display)\s*(?:de|con)?\s*(\d{1,4})\s*(?:pzas?|piezas?|unidades?|uds?|art[ií]culos?)\b",
+        r"(?i)\b(\d{1,4})\s*(?:pzas?|piezas?|unidades?|uds?|art[ií]culos?)\s*(?:por|x|/)\s*(?:caja|paquete|pack)\b",
     )
     for pattern in patterns:
         match = re.search(pattern, text)
@@ -95,7 +95,7 @@ def product_rows(product: dict, category, stamp: str) -> list[dict]:
             "price_current": price,
             "price_regular": regular,
             "promotion": bool(regular is not None and regular > price),
-            "package_type": "CAJA" if re.search(r"(?i)\\bcaja\\b", f"{title} {variant_title}") else None,
+            "package_type": "CAJA" if re.search(r"(?i)\bcaja\b", f"{title} {variant_title}") else None,
             "units_per_package": units,
             "is_single_item": single if units is not None else None,
             "price_per_unit": round(price / units, 4) if units else None,
@@ -164,7 +164,7 @@ def collect_category(request, category, max_pages: int):
         "pages_visited": pages,
         "pagination_complete": complete,
         "sku_complete": int(df["sku"].fillna("").astype(str).str.strip().ne("").sum()) if len(df) else 0,
-        "merchant_sku_complete": int((~df["sku"].fillna("").astype(str).str.startswith("SHOPIFY-VARIANT-")).sum()) if len(df) else 0,
+        "merchant_sku_complete": int((df["sku"].fillna("").astype(str).str.strip().ne("") & ~df["sku"].fillna("").astype(str).str.startswith("SHOPIFY-VARIANT-")).sum()) if len(df) else 0,
         "price_complete": int(df["price_current"].notna().sum()) if len(df) else 0,
         "url_complete": int(df["url"].fillna("").astype(str).str.strip().ne("").sum()) if len(df) else 0,
         "pack_units_complete": int(df["units_per_package"].notna().sum()) if len(df) else 0,
