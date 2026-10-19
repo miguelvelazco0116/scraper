@@ -98,7 +98,8 @@ Write-Host "- Deja otra pestana abierta de Walmart."
 Write-Host "- En Walmart deja seleccionada SC Toreo / CP 11220."
 Write-Host "- El runner NO abre ni cierra Chrome."
 Write-Host "- Bodega y Walmart se ejecutan secuencialmente."
-Write-Host "- La Fase 3 solo se publica si las 5 categorias pasan calidad."
+Write-Host "- La Fase 3 completa solo se publica si las 5 categorias pasan calidad."
+Write-Host "- El master integra retailers completos incluso si otro queda parcial."
 Write-Host ""
 
 $ArgsList = @(
@@ -119,7 +120,7 @@ if ($code -eq 0) {
     Write-Host "Log     : $LogPath"
 } else {
     Write-Warning "La Fase 3 NO fue publicada."
-    Write-Host "El master productivo anterior se conserva."
+    Write-Host "Los retailers incompletos no modifican el master."
     Write-Host "Diagnostico: $ProjectDir\diagnostics\phase3_production\last_run.json"
     Write-Host "Log        : $LogPath"
 }
