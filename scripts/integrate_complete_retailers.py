@@ -274,6 +274,7 @@ def _phase4_5_candidates(
                 summary["manual_delivery_cp"] = MANUAL_DELIVERY_CP
                 summary["manual_delivery_checked"] = True
                 summary["manual_price_sample_checked"] = True
+                summary["manual_price_sample_scope"] = "ONE_RETAILER_LEVEL_SAMPLE_UNIDENTIFIED"
                 summary["postal_price_verified"] = False
                 summary["online_catalogue_approval"] = "OPERATOR_EXPLICIT"
                 summary["evidence_pagination_json"] = evidence["evidence_files"]["pagination"]
@@ -434,6 +435,10 @@ def main():
                 "retailer": retailer, "result": result,
                 "products": len(frame), "reason": scope,
                 "source": str(source),
+                "integration_scope": (
+                    ONLINE_SCOPE if retailer == "Mayorista Duero"
+                    and args.approve_duero_online else "STANDARD_VERIFIED"
+                ),
             })
         except (ValueError, KeyError, OSError) as exc:
             rows.append({"retailer": retailer, "result": "PENDIENTE", "products": 0, "reason": str(exc), "source": str(source)})
