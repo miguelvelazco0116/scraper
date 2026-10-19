@@ -3,6 +3,7 @@ param(
     [ValidateSet(1, 2, 3, 4, 5)]
     [int]$Phase,
     [switch]$Preview,
+    [switch]$ApproveDueroOnline,
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = ""
 )
@@ -35,6 +36,13 @@ Write-Host "Python  : $PythonExe"
 
 $ArgsList = @(".\scripts\integrate_complete_retailers.py", "--phase", "$Phase")
 if ($Preview) { $ArgsList += "--preview" }
+if ($ApproveDueroOnline) {
+    if ($Phase -ne 5) {
+        throw "-ApproveDueroOnline solo se permite con -Phase 5."
+    }
+    $ArgsList += "--approve-duero-online"
+    Write-Host "Duero: APROBACION EXPLICITA CATALOGO ONLINE (NO precios/stock por CP)"
+}
 
 & $PythonExe @ArgsList
 exit $LASTEXITCODE
