@@ -22,7 +22,11 @@ from main import COLUMNS
 from scraper.config import Category, Location, load_categories, load_locations
 from scraper.io_utils import atomic_output_path
 from scraper.quality_rules import MIN_SUCCESS_RATE, meets_rate, valid_after_errors
-from scraper.retailers.chedraui import ChedrauiBlocked, ChedrauiStoreContextError
+from scraper.retailers.chedraui import (
+    ChedrauiBlocked,
+    ChedrauiStoreContextError,
+    STORE_CONTEXT_CONTRACT_VERSION,
+)
 from scraper.retailers.chedraui_polanco_api import ChedrauiScraper
 from scraper.retailers.farmacias_del_ahorro import (
     FarmaciasDelAhorroBlocked,
@@ -117,6 +121,13 @@ def _read_phase1_snapshot(
         retailer = str(summary_row.get("retailer") or "").strip()
         category_id = str(summary_row.get("category_id") or "").strip()
         store_id = summary_row.get("store_id")
+
+        if retailer == "Chedraui":
+            contract = str(
+                summary_row.get("store_context_contract_version") or ""
+            ).strip()
+            if contract != STORE_CONTEXT_CONTRACT_VERSION:
+                continue
         key = _case_key(retailer, category_id, store_id)
 
         mask = (
@@ -635,6 +646,12 @@ def _run_chedraui(
             price_required_complete=price_required_complete,
             store_context_verified=store_verified,
             store_context_method=meta.get("store_context_method"),
+            store_context_contract_version=meta.get(
+                "store_context_contract_version"
+            ),
+            vtex_region_mutation_skipped=meta.get(
+                "vtex_region_mutation_skipped"
+            ),
             api_price_pages=len(meta.get("api_price_pages") or []),
             structured_price_missing_pages=structured_missing,
             pagination_gaps=pagination_gaps,
