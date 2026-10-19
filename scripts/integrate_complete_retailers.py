@@ -30,6 +30,11 @@ from run_phase2_production import (
     _enabled_category_ids, _validate_fg, _validate_soriana,
 )
 from scraper.quality_rules import meets_rate
+from duero_online_integration_evidence import (
+    validate_duero_online_evidence,
+    ONLINE_SCOPE,
+    MANUAL_DELIVERY_CP,
+)
 
 EXPECTED = {
     1: {"Farmacias del Ahorro": 6, "Ibarra Mayoreo": 4, "Chedraui": 20},
@@ -221,7 +226,10 @@ def _phase3_candidates(day: str):
             yield retailer, pd.DataFrame(), pd.DataFrame(), path, [str(exc)]
 
 
-def _phase4_5_candidates(phase: int, day: str):
+def _phase4_5_candidates(
+    phase: int, day: str, *,
+    approve_duero_online: bool = False,
+):
     sources = PHASE4_RETAILER_SOURCES if phase == 4 else PHASE5_RETAILER_SOURCES
     validators = {
         "Farmacias San Pablo": _validate_san_pablo_phase,
@@ -244,12 +252,33 @@ def _phase4_5_candidates(phase: int, day: str):
                 raise ValueError("Retailer del archivo incorrecto")
             if "status" not in summary.columns or not summary["status"].astype(str).str.upper().isin(["COMPLETE", "SUCCESS"]).all():
                 raise ValueError("Retailer con categorías no completas")
-            errors = validators[retailer](frame, summary)
-            if errors:
-                raise ValueError("; ".join(errors))
+            if retailer == "Mayorista Duero" and approve_duero_online:
+                errors = _validate_duero_retailer(
+                    frame, summary, allow_online_catalogue=True
+                )
+                if errors:
+                    raise ValueError("; ".join(errors))
+                evidence = validate_duero_online_evidence(
+                    frame, summary, day, REPORT_DIR
+                )
+            else:
+                errors = validators[retailer](frame, summary)
+                if errors:
+                    raise ValueError("; ".join(errors))
+                evidence = None
             summary = summary.copy()
             summary["source_status"] = summary["status"].astype(str)
             summary["status"] = "COMPLETE"
+            if evidence is not None:
+                summary["integration_scope"] = ONLINE_SCOPE
+                summary["manual_delivery_cp"] = MANUAL_DELIVERY_CP
+                summary["manual_delivery_checked"] = True
+                summary["manual_price_sample_checked"] = True
+                summary["postal_price_verified"] = False
+                summary["online_catalogue_approval"] = "OPERATOR_EXPLICIT"
+                summary["evidence_pagination_json"] = evidence["evidence_files"]["pagination"]
+                summary["evidence_storefront_json"] = evidence["evidence_files"]["storefront"]
+                summary["evidence_packaging_json"] = evidence["evidence_files"]["packaging"]
             if retailer == "Farmacias San Pablo":
                 summary["products"] = pd.to_numeric(summary["products_extracted"], errors="coerce")
             yield retailer, frame, summary, path, []
@@ -257,14 +286,19 @@ def _phase4_5_candidates(phase: int, day: str):
             yield retailer, pd.DataFrame(), pd.DataFrame(), path, [str(exc)]
 
 
-def _candidates(phase: int, day: str):
+def _candidates(
+    phase: int, day: str, *,
+    approve_duero_online: bool = False,
+):
     if phase == 1:
         return _phase1_candidates(day)
     if phase == 2:
         return _phase2_candidates(day)
     if phase == 3:
         return _phase3_candidates(day)
-    return _phase4_5_candidates(phase, day)
+    return _phase4_5_candidates(
+        phase, day, approve_duero_online=approve_duero_online
+    )
 
 
 def _phase_states(frame: pd.DataFrame, summary: pd.DataFrame):
@@ -345,7 +379,16 @@ def main():
     parser = argparse.ArgumentParser(description="Integra retailers completos y reporta parciales.")
     parser.add_argument("--phase", type=int, choices=range(1, 6), required=True)
     parser.add_argument("--preview", action="store_true", help="No modificar master ni puntero.")
+    parser.add_argument(
+        "--approve-duero-online", action="store_true",
+        help=(
+            "Aprueba expresamente catálogo público online Duero para Fase 5 "
+            "con evidencia del día; NO certifica precios/stock para CP 59690."
+        ),
+    )
     args = parser.parse_args()
+    if args.approve_duero_online and args.phase != 5:
+        parser.error("--approve-duero-online solo aplica a Fase 5")
     day = datetime.now().astimezone().date().isoformat()
     master = _master_path_for_date(day)
     pointer = _read_current_master_pointer()
@@ -368,7 +411,9 @@ def main():
 
     rows = []
     additions = []
-    for retailer, frame, summary, source, errors in _candidates(args.phase, day):
+    for retailer, frame, summary, source, errors in _candidates(
+        args.phase, day, approve_duero_online=args.approve_duero_online
+    ):
         try:
             if errors:
                 raise ValueError("; ".join(errors))
@@ -379,7 +424,17 @@ def main():
             summary["retailer"] = retailer
             additions.append((retailer, _canonical(frame), summary))
             result = "ACTUALIZADO" if existing_frame["retailer"].astype(str).eq(retailer).any() else "AGREGADO"
-            rows.append({"retailer": retailer, "result": result, "products": len(frame), "reason": "COMPLETE; validado", "source": str(source)})
+            scope = (
+                "COMPLETE; catálogo público auditado; CP 59690: solo entrega "
+                "y producto manual; precios/stock por CP NO certificados"
+                if retailer == "Mayorista Duero" and args.approve_duero_online
+                else "COMPLETE; validado"
+            )
+            rows.append({
+                "retailer": retailer, "result": result,
+                "products": len(frame), "reason": scope,
+                "source": str(source),
+            })
         except (ValueError, KeyError, OSError) as exc:
             rows.append({"retailer": retailer, "result": "PENDIENTE", "products": 0, "reason": str(exc), "source": str(source)})
 
