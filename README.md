@@ -185,6 +185,41 @@ al incorporarse Duero junto con Similares, HEB y Sam's Club.
 
 ## Chedraui: diagnóstico de navegación visible y cierre Fase 1
 
+### Fallo intermitente `location_button_opened=False` (2026-10-19)
+
+En la misma sesión, Polanco Lavandería logró 348/348 y después una prueba
+`all` falló *antes de abrir el directorio*. Esto **no** demuestra que
+la selección Estado/Ciudad/Tienda esté mal: el botón de ubicación
+todavía no fue abierto. Se agregaron hasta 10 búsquedas breves mientras
+se hidrata el encabezado VTEX, alternativas de control visible y
+metadatos de selector/errores por intento. No se da por verificado el
+contexto si el localizador no se abre.
+
+La prueba aislada ahora crea un respaldo de su anterior workbook
+`output\checkpoints_validos\before_chedraui_<sucursal>_*.xlsx`
+antes de repetir la descarga. No restaura capturas sobrescritas
+en ejecuciones anteriores a este cambio.
+
+```powershell
+cd C:\Proyectos\scraper
+git pull --ff-only origin main
+python -m unittest discover -s tests -p "test_chedraui_locator_hydration.py" -v
+
+$env:CHEDRAUI_TRACE_STORE = "1"
+& .\scripts\test_chedraui.ps1 -Category higiene-bucal -Store chedraui-polanco -Headed
+Remove-Item Env:\CHEDRAUI_TRACE_STORE
+```
+
+Si vuelve a fallar, inspeccionar
+`diagnostics\chedraui_run_meta.json`:
+`location_locator_attempts`, `location_button_matches`,
+`location_locator_final_url`, y la captura
+`diagnostics\chedraui_store_steps\*01_locator_abierto.png`.
+**No ejecutar la prueba `-Category all` hasta tener éxito estable
+en una categoría aislada.**
+
+
+
 La selección de tienda debe seguir la UI pública de forma secuencial:
 botón de ubicación visible -> `Recoger en tienda` -> `Directorio de tiendas`
 -> Estado -> Ciudad/Zona -> tarjeta/radio de la sucursal exacta ->
