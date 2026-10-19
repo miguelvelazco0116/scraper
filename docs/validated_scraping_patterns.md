@@ -110,6 +110,8 @@ Reglas:
 - structured_price_missing_pages = 0
 - pagination_gaps = 0
 - `productSearchV3` nunca se selecciona por orden de llegada: la plantilla se elige por afinidad con la categoría y evidencia de respuesta (`recordsFiltered`, productos y rango).
+- para producción, la misma consulta nativa se reescribe con `hideUnavailableItems=false` y `skusFilter=ALL`; no se acepta como universo el shelf filtrado a disponibles.
+- `AvailableQuantity > 0` produce `is_available=1`; `AvailableQuantity == 0` produce `is_available=0`. Los productos sin stock se conservan aunque el storefront omita precio.
 - búsquedas auxiliares/recomendaciones no pueden reemplazar la búsqueda principal de categoría.
 - el total estructurado se contrasta con el contador visible; si éste no existe, se usa el número de tarjetas DOM de la página como referencia mínima.
 - una contradicción material se registra como `template_records_mismatch`, fuerza una recaptura nativa de la categoría y vuelve a verificar el contexto de tienda antes de aceptar datos.
