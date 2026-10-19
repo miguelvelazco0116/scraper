@@ -247,6 +247,33 @@ La publicación crea copia del master y del puntero antes de sobrescribir,
 y checkpoint posterior. Conserva todos los demás retailers y sucursales.
 La Fase 1 sigue PARTIAL_VALIDATED hasta tener las 20 combinaciones.
 La siguiente sucursal es Tepeyac (173) con cinco categorías aisladas.
+### Tepeyac: radio correcto, CTA de confirmación sin activar (2026-10-19)
+
+La prueba de lavandería fue COMPLETE (356/356) con checkpoint de la tienda 173.
+La prueba siguiente, higiene bucal, llegó a estado CDMX y area Metropolitana,
+zona CDMX Noreste y seleccionó el radio chedrauimx0173_PP0173,
+pero quedó en pickup_confirmed=False. No había productos y no se creó checkpoint.
+
+Corrección: esperar de forma acotada el botón visible exacto
+'Recoger en esta tienda', confirmar exclusivamente si permanece
+seleccionado el radio de la sucursal configurada y registrar los intentos
+en pickup_confirmation_observations. Se eliminaron los botones genéricos
+de confirmación para evitar acciones sobre otra UI. Sin confirmación
+real, la prueba sigue rechazándose con STORE_CONTEXT_ERROR.
+
+```powershell
+cd C:\Proyectos\scraper
+git pull --ff-only origin main
+python -m unittest discover -s tests -p "test_chedraui_pickup_confirmation.py" -v
+$env:CHEDRAUI_TRACE_STORE = "1"
+& .\scripts\test_chedraui.ps1 -Category higiene-bucal -Store chedraui-tepeyac -Headed
+Remove-Item Env:\CHEDRAUI_TRACE_STORE
+```
+
+Si vuelve a fallar, revisar la sección
+'ULTIMOS INTENTOS DE CONFIRMAR RECOLECCION', y las capturas
+'06_tienda_seleccionada' y '07_confirmacion_no_lograda'.
+Solo ejecutar -Category all cuando higiene bucal alcance COMPLETE.
 ## Chedraui: diagnóstico de navegación visible y cierre Fase 1
 
 ### Fallo intermitente `location_button_opened=False` (2026-10-19)
