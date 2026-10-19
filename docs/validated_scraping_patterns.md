@@ -95,6 +95,9 @@ Método:
 - No se reutiliza una tienda heredada del perfil como prueba suficiente.
 - Estado, Ciudad/Zona, tienda y confirmación deben quedar explícitamente registrados.
 - Después de cerrar el directorio, el control visible de ubicación debe mostrar la tienda configurada.
+- La paginación es dinámica por categoría y por corrida. Se lee el rango nativo `Mostrando X-Y de Z Productos`; con ese total se calcula el número de páginas usando el tamaño real de la primera página.
+- Nunca se configura un número fijo de páginas. El total se vuelve a leer en cada página y puede aumentar o disminuir durante una corrida.
+- El avance productivo usa el control nativo `Siguiente` y exige evidencia de cambio de rango antes de aceptar la página siguiente.
 - Si falla cualquier paso, el caso se detiene antes de capturar productos.
 - Playwright headless
 - perfil persistente .chedraui_profile
