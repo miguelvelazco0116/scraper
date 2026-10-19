@@ -191,35 +191,154 @@ class ChedrauiScraper(BaseChedrauiScraper):
         location: Location,
         extra_labels: tuple[str, ...] = (),
     ) -> bool:
+        """Select the exact store card, even when its name spans child nodes."""
+        tokens = self._location_store_tokens(location)
         labels = tuple(
             dict.fromkeys(
                 value
                 for value in (
                     location.store,
                     *extra_labels,
-                    *self._location_store_tokens(location),
+                    *tokens,
                 )
                 if value
             )
         )
         self.run_meta["directory_store_labels"] = list(labels)
+        self.run_meta["directory_store_tokens"] = list(tokens)
 
+        # First prefer an exact/full-name text node when the storefront exposes
+        # one. This is the cheapest and least ambiguous path.
         for label in labels:
             try:
                 nodes = page.get_by_text(label, exact=False)
                 for i in range(min(nodes.count(), 80)):
                     node = nodes.nth(i)
-                    if not node.is_visible():
+                    try:
+                        if not node.is_visible():
+                            continue
+                        text = self._normalize(
+                            node.inner_text(timeout=1_500)
+                        )
+                        if tokens and not all(
+                            token in text for token in tokens
+                        ):
+                            continue
+                        node.click(timeout=5_000)
+                        page.wait_for_timeout(600)
+                        self.run_meta[
+                            "directory_store_match_method"
+                        ] = "direct_text"
+                        return True
+                    except Exception:
                         continue
-                    text = self._normalize(node.inner_text(timeout=1_500))
-                    tokens = self._location_store_tokens(location)
-                    if tokens and not all(token in text for token in tokens):
-                        continue
-                    node.click(timeout=5_000)
-                    page.wait_for_timeout(600)
-                    return True
             except Exception:
                 continue
+
+        if not tokens:
+            return False
+
+        # Store cards commonly split the store name across several descendants.
+        # Start from the rarest/specific token and climb a few ancestors until
+        # a compact visible container contains every meaningful store token.
+        probe_tokens = list(reversed(tokens))
+        seen_containers: set[str] = set()
+
+        for probe in probe_tokens:
+            try:
+                nodes = page.get_by_text(probe, exact=False)
+            except Exception:
+                continue
+
+            for i in range(min(nodes.count(), 100)):
+                try:
+                    node = nodes.nth(i)
+                    if not node.is_visible():
+                        continue
+                except Exception:
+                    continue
+
+                current = node
+                for depth in range(0, 7):
+                    try:
+                        text = self._normalize(
+                            current.inner_text(timeout=1_500)
+                        )
+                    except Exception:
+                        text = ""
+
+                    if (
+                        text
+                        and len(text) <= 1_800
+                        and all(token in text for token in tokens)
+                    ):
+                        signature = text[:500]
+                        if signature in seen_containers:
+                            break
+                        seen_containers.add(signature)
+
+                        self.run_meta[
+                            "directory_store_matched_text"
+                        ] = text[:1_000]
+                        self.run_meta[
+                            "directory_store_match_depth"
+                        ] = depth
+
+                        # Prefer a radio/label/card selector inside the matched
+                        # store container. Do not click a generic confirmation
+                        # button here; confirmation remains a separate gate.
+                        candidate_selectors = (
+                            'input[type="radio"]',
+                            '[role="radio"]',
+                            'label',
+                            '[role="option"]',
+                            '[tabindex="0"]',
+                        )
+                        for selector in candidate_selectors:
+                            try:
+                                controls = current.locator(selector)
+                                for j in range(
+                                    min(controls.count(), 12)
+                                ):
+                                    control = controls.nth(j)
+                                    if not control.is_visible():
+                                        continue
+                                    control.click(timeout=5_000)
+                                    page.wait_for_timeout(600)
+                                    self.run_meta[
+                                        "directory_store_match_method"
+                                    ] = (
+                                        "ancestor_card_control:"
+                                        + selector
+                                    )
+                                    return True
+                            except Exception:
+                                continue
+
+                        # Some Chedraui store cards are themselves clickable.
+                        try:
+                            current.click(timeout=5_000)
+                            page.wait_for_timeout(600)
+                            self.run_meta[
+                                "directory_store_match_method"
+                            ] = "ancestor_card"
+                            return True
+                        except Exception:
+                            pass
+
+                    if depth >= 6:
+                        break
+                    try:
+                        parent = current.locator("xpath=..")
+                        if not parent.count():
+                            break
+                        current = parent.first
+                    except Exception:
+                        break
+
+        self.run_meta["directory_store_match_method"] = (
+            "no_matching_store_card"
+        )
         return False
 
     def _try_select_store_directory_generic(
