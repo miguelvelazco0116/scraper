@@ -1,0 +1,774 @@
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from datetime import datetime
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import pandas as pd
+from playwright.sync_api import sync_playwright
+
+from main import COLUMNS
+from scraper.config import load_categories, load_locations
+from scraper.quality_rules import meets_rate, valid_after_errors
+from scraper.retailers.sams_club import (
+    SamsClubBlocked,
+    SamsClubNetworkUnavailable,
+    SamsClubScraper,
+)
+
+
+OUTPUT_PATH = ROOT / "output" / "sams_club_phase5_test.xlsx"
+
+CURRENT_RE = re.compile(
+    r"precio\s+actual\s*\$\s*([0-9][0-9,]*(?:\.\d{1,2})?)",
+    re.IGNORECASE,
+)
+BEFORE_RE = re.compile(
+    r"Antes\s*\$\s*([0-9][0-9,]*(?:\.\d{1,2})?)",
+    re.IGNORECASE,
+)
+
+
+def _money(group: str | None) -> float | None:
+    if not group:
+        return None
+    try:
+        return float(group.replace(",", ""))
+    except ValueError:
+        return None
+
+
+def audit_visible_prices(df: pd.DataFrame, category_id: str) -> pd.DataFrame:
+    """Compare exported prices with the explicit prices shown in each card."""
+    records = []
+
+    for _, row in df.iterrows():
+        raw = str(row.get("price_raw") or "")
+        current_match = CURRENT_RE.search(raw)
+        before_match = BEFORE_RE.search(raw)
+
+        expected_current = _money(
+            current_match.group(1) if current_match else None
+        )
+        expected_regular = _money(
+            before_match.group(1) if before_match else None
+        )
+
+        actual_current = row.get("price_current")
+        actual_regular = row.get("price_regular")
+
+        current_ok = (
+            expected_current is None
+            or (
+                pd.notna(actual_current)
+                and abs(float(actual_current) - expected_current) < 0.005
+            )
+        )
+        regular_ok = (
+            expected_regular is None
+            or (
+                pd.notna(actual_regular)
+                and abs(float(actual_regular) - expected_regular) < 0.005
+            )
+        )
+        positive_ok = (
+            pd.notna(actual_current)
+            and float(actual_current) > 0
+        )
+        order_ok = (
+            pd.isna(actual_regular)
+            or float(actual_regular) >= float(actual_current)
+        )
+
+        records.append(
+            {
+                "category_id": category_id,
+                "sku": row.get("sku"),
+                "product": row.get("product"),
+                "url": row.get("url"),
+                "price_current": actual_current,
+                "expected_current_from_card": expected_current,
+                "current_price_match": current_ok,
+                "price_regular": actual_regular,
+                "expected_regular_from_card": expected_regular,
+                "regular_price_match": regular_ok,
+                "positive_price": positive_ok,
+                "regular_gte_current": order_ok,
+                "price_validation_ok": (
+                    current_ok
+                    and regular_ok
+                    and positive_ok
+                    and order_ok
+                ),
+            }
+        )
+
+    return pd.DataFrame(records)
+
+
+def find_sams_page(browser):
+    candidates = []
+    for context in browser.contexts:
+        for page in context.pages:
+            url = (page.url or "").casefold()
+            if "sams.com.mx" in url:
+                candidates.append(page)
+    return candidates[-1] if candidates else None
+
+
+def run_category(category, location, page):
+    print("")
+    print("-" * 72)
+    print(f"SAM'S CLUB | {category.id}")
+    print("-" * 72)
+    print(f"Departamento : {category.department}")
+    print(f"Categoría    : {category.name}")
+    print(f"Subcategoría : {category.subcategory}")
+    print(f"URL          : {category.url}")
+    print("")
+
+    scraper = SamsClubScraper(
+        headless=False,
+        browser_channel="chrome",
+        max_pages=100,
+        wait_ms=2500,
+        manual_verification_timeout_ms=180_000,
+    )
+
+    rows = []
+    status = "SUCCESS"
+    error = None
+
+    try:
+        rows = scraper.scrape_category_on_page(
+            page,
+            category,
+            location,
+        )
+        status = str(scraper.run_meta.get("status") or "SUCCESS")
+    except SamsClubBlocked as exc:
+        status = "BLOCKED"
+        error = str(exc)
+    except SamsClubNetworkUnavailable as exc:
+        status = "NETWORK_UNAVAILABLE"
+        error = str(exc)
+    except Exception as exc:
+        status = "ERROR"
+        error = f"{type(exc).__name__}: {exc}"
+
+    df = pd.DataFrame(rows, columns=COLUMNS)
+    if not df.empty:
+        df = (
+            df.drop_duplicates(subset=["sku", "url"], keep="last")
+            .sort_values(["brand", "product"], na_position="last")
+            .reset_index(drop=True)
+        )
+
+    meta = scraper.run_meta or {}
+    target_products = meta.get("target_products")
+    coverage = meta.get("coverage")
+    coverage_ok = bool(
+        coverage is not None and float(coverage) >= 0.90
+    )
+    pagination_verified = bool(meta.get("pagination_verified"))
+    catalogue_gate_ok = bool(
+        coverage_ok
+        or (
+            target_products in (None, 0)
+            and pagination_verified
+        )
+    )
+    price_audit = audit_visible_prices(df, category.id)
+
+    sources = []
+    for item in meta.get("sources") or []:
+        flat = {
+            "category_id": category.id,
+            **{
+                key: value
+                for key, value in item.items()
+                if key not in {"explicit_page_meta"}
+            },
+            "explicit_page_meta": json.dumps(
+                item.get("explicit_page_meta") or [],
+                ensure_ascii=False,
+            ),
+        }
+        sources.append(flat)
+
+    extraction = [
+        {"category_id": category.id, **item}
+        for item in (meta.get("card_extraction") or [])
+    ]
+
+    explicit_current_rows = (
+        int(price_audit["expected_current_from_card"].notna().sum())
+        if not price_audit.empty
+        else 0
+    )
+    explicit_current_matches = (
+        int(
+            (
+                price_audit["expected_current_from_card"].notna()
+                & price_audit["current_price_match"]
+            ).sum()
+        )
+        if not price_audit.empty
+        else 0
+    )
+    explicit_regular_rows = (
+        int(price_audit["expected_regular_from_card"].notna().sum())
+        if not price_audit.empty
+        else 0
+    )
+    explicit_regular_matches = (
+        int(
+            (
+                price_audit["expected_regular_from_card"].notna()
+                & price_audit["regular_price_match"]
+            ).sum()
+        )
+        if not price_audit.empty
+        else 0
+    )
+    price_validation_errors = (
+        int((~price_audit["price_validation_ok"]).sum())
+        if not price_audit.empty
+        else 0
+    )
+
+    summary = {
+        "retailer": "Sam's Club",
+        "department": category.department,
+        "category": category.name,
+        "subcategory": category.subcategory,
+        "category_id": category.id,
+        "status": (
+            "SUCCESS"
+            if status == "SUCCESS" and catalogue_gate_ok
+            else "PARTIAL"
+            if status == "SUCCESS"
+            else status
+        ),
+        "target_products": target_products,
+        "coverage": coverage,
+        "coverage_threshold": 0.90,
+        "coverage_ok": coverage_ok,
+        "products": len(df),
+        "sku_complete": int(
+            df["sku"].fillna("").astype(str).str.strip().ne("").sum()
+        ) if not df.empty else 0,
+        "price_complete": int(df["price_current"].notna().sum())
+        if not df.empty else 0,
+        "url_complete": int(
+            df["url"].fillna("").astype(str).str.strip().ne("").sum()
+        ) if not df.empty else 0,
+        "sources_discovered": int(meta.get("sources_discovered") or 0),
+        "sources_visited": len(meta.get("sources") or []),
+        "pages_visited": sum(
+            int(item.get("pages_visited") or 0)
+            for item in (meta.get("sources") or [])
+        ),
+        "pagination_methods": " | ".join(
+            dict.fromkeys(
+                str(item.get("pagination_method") or "")
+                for item in (meta.get("sources") or [])
+                if item.get("pagination_method")
+            )
+        ),
+        "sponsored_banner_clicks": sum(
+            int(item.get("sponsored_banner_clicks") or 0)
+            for item in (meta.get("sources") or [])
+        ),
+        "pagination_verified": pagination_verified,
+        "catalogue_gate_ok": catalogue_gate_ok,
+        "explicit_pages": sum(
+            int(item.get("explicit_pages") or 0)
+            for item in (meta.get("sources") or [])
+        ),
+        "explicit_current_rows": explicit_current_rows,
+        "explicit_current_matches": explicit_current_matches,
+        "explicit_regular_rows": explicit_regular_rows,
+        "explicit_regular_matches": explicit_regular_matches,
+        "price_validation_errors": price_validation_errors,
+        "blocked_detected": bool(meta.get("blocked_detected")),
+        "manual_verification_required": bool(
+            meta.get("manual_verification_required")
+        ),
+        "manual_verification_resolved": bool(
+            meta.get("manual_verification_resolved")
+        ),
+        "error": error,
+    }
+
+    print("RESULTADO")
+    for key in (
+        "status",
+        "target_products",
+        "products",
+        "coverage",
+        "coverage_threshold",
+        "coverage_ok",
+        "catalogue_gate_ok",
+        "sku_complete",
+        "price_complete",
+        "url_complete",
+        "sources_discovered",
+        "sources_visited",
+        "pages_visited",
+        "pagination_methods",
+        "sponsored_banner_clicks",
+        "explicit_pages",
+        "pagination_verified",
+        "explicit_current_rows",
+        "explicit_current_matches",
+        "explicit_regular_rows",
+        "explicit_regular_matches",
+        "price_validation_errors",
+        "blocked_detected",
+        "manual_verification_required",
+        "manual_verification_resolved",
+    ):
+        print(f"{key:29}: {summary[key]}")
+    if error:
+        print(f"{'error':29}: {error}")
+
+    return df, summary, sources, extraction, price_audit
+
+
+def _summary_is_acceptable(summary: dict) -> bool:
+    products = int(summary.get("products") or 0)
+    return bool(
+        summary.get("status") == "SUCCESS"
+        and products > 0
+        and meets_rate(summary.get("sku_complete") or 0, products)
+        and meets_rate(summary.get("price_complete") or 0, products)
+        and meets_rate(summary.get("url_complete") or 0, products)
+        and summary.get("sources_discovered") == summary.get("sources_visited")
+        and bool(summary.get("catalogue_gate_ok"))
+        and valid_after_errors(
+            products,
+            summary.get("price_validation_errors") or 0,
+        )
+        and not bool(summary.get("blocked_detected"))
+    )
+
+
+def _load_existing_valid_results(categories) -> dict[str, tuple]:
+    """Reuse only valid Sam's Club categories already captured today."""
+    if not OUTPUT_PATH.exists():
+        return {}
+    try:
+        concentrated = pd.read_excel(
+            OUTPUT_PATH,
+            sheet_name="Concentrado",
+            dtype={"sku": str, "store_id": str, "category_id": str},
+        )
+        summary_df = pd.read_excel(
+            OUTPUT_PATH,
+            sheet_name="Resumen",
+            dtype={"category_id": str},
+        )
+    except Exception:
+        return {}
+    if concentrated.empty or summary_df.empty:
+        return {}
+
+    today = datetime.now().astimezone().date().isoformat()
+    dates = set(
+        concentrated["scrape_timestamp"]
+        .dropna()
+        .astype(str)
+        .str.slice(0, 10)
+    )
+    if dates != {today}:
+        return {}
+
+    optional = {}
+    for sheet in ("Fuentes", "Extraccion", "ValidacionPrecios"):
+        try:
+            optional[sheet] = pd.read_excel(
+                OUTPUT_PATH,
+                sheet_name=sheet,
+                dtype={"category_id": str},
+            )
+        except Exception:
+            optional[sheet] = pd.DataFrame()
+
+    configured = {item.id for item in categories}
+    results = {}
+    for _, row in summary_df.iterrows():
+        category_id = str(row.get("category_id") or "").strip()
+        if category_id not in configured:
+            continue
+        summary = row.to_dict()
+        if not _summary_is_acceptable(summary):
+            continue
+        frame = concentrated.loc[
+            concentrated["category_id"].astype(str).eq(category_id)
+        ].copy()
+        if len(frame) != int(summary["products"]):
+            continue
+
+        sources_df = optional["Fuentes"]
+        extraction_df = optional["Extraccion"]
+        audit_df = optional["ValidacionPrecios"]
+        sources = (
+            sources_df.loc[
+                sources_df["category_id"].astype(str).eq(category_id)
+            ].to_dict("records")
+            if "category_id" in sources_df.columns
+            else []
+        )
+        extraction = (
+            extraction_df.loc[
+                extraction_df["category_id"].astype(str).eq(category_id)
+            ].to_dict("records")
+            if "category_id" in extraction_df.columns
+            else []
+        )
+        audit = (
+            audit_df.loc[
+                audit_df["category_id"].astype(str).eq(category_id)
+            ].copy()
+            if "category_id" in audit_df.columns
+            else pd.DataFrame()
+        )
+        results[category_id] = (
+            frame,
+            summary,
+            sources,
+            extraction,
+            audit,
+        )
+    return results
+
+
+def _write_results(
+    results: dict[str, tuple],
+    category_order: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    ordered = [
+        results[category_id]
+        for category_id in category_order
+        if category_id in results
+    ]
+
+    frames = [item[0] for item in ordered if not item[0].empty]
+    summaries = [item[1] for item in ordered]
+    sources = [row for item in ordered for row in item[2]]
+    extraction = [row for item in ordered for row in item[3]]
+    price_audits = [
+        item[4]
+        for item in ordered
+        if not item[4].empty
+    ]
+
+    concentrated = (
+        pd.concat(frames, ignore_index=True)
+        if frames
+        else pd.DataFrame(columns=COLUMNS)
+    )
+    summary_df = pd.DataFrame(summaries)
+    price_audit_df = (
+        pd.concat(price_audits, ignore_index=True)
+        if price_audits
+        else pd.DataFrame()
+    )
+
+    control = pd.DataFrame(
+        [
+            {
+                "status": (
+                    "PRODUCTIVE"
+                    if summaries
+                    and all(_summary_is_acceptable(item) for item in summaries)
+                    else "PARTIAL"
+                ),
+                "products": len(concentrated),
+                "categories": len(summary_df),
+                "all_categories_complete": bool(
+                    summaries
+                    and all(_summary_is_acceptable(item) for item in summaries)
+                ),
+            }
+        ]
+    )
+
+    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(OUTPUT_PATH, engine="openpyxl") as writer:
+        concentrated.to_excel(
+            writer,
+            index=False,
+            sheet_name="Concentrado",
+        )
+        summary_df.to_excel(
+            writer,
+            index=False,
+            sheet_name="Resumen",
+        )
+        control.to_excel(
+            writer,
+            index=False,
+            sheet_name="Control",
+        )
+        pd.DataFrame(sources).to_excel(
+            writer,
+            index=False,
+            sheet_name="Fuentes",
+        )
+        pd.DataFrame(extraction).to_excel(
+            writer,
+            index=False,
+            sheet_name="Extraccion",
+        )
+        price_audit_df.to_excel(
+            writer,
+            index=False,
+            sheet_name="ValidacionPrecios",
+        )
+
+    return concentrated, summary_df
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Sam's Club sobre Chrome abierto manualmente."
+        )
+    )
+    parser.add_argument("--cdp-url", required=True)
+    parser.add_argument(
+        "--category",
+        help="Ejecuta solo un category_id, por ejemplo cuidado-bucal.",
+    )
+    parser.add_argument(
+        "--retry-failed-at-end",
+        type=int,
+        default=1,
+        help=(
+            "Reintentos al final exclusivamente para categorías fallidas. "
+            "Las categorías SUCCESS no se vuelven a descargar."
+        ),
+    )
+    args = parser.parse_args()
+
+    if args.retry_failed_at_end < 0:
+        print("ERROR: --retry-failed-at-end debe ser >= 0")
+        return 12
+
+    categories = [
+        x
+        for x in load_categories(
+            ROOT / "config" / "sams-club" / "categories.yaml"
+        )
+    ]
+    if args.category:
+        categories = [
+            item
+            for item in categories
+            if item.id == args.category
+        ]
+        if not categories:
+            print(
+                f"ERROR: category_id no configurado: {args.category}"
+            )
+            return 12
+
+    location = next(
+        x
+        for x in load_locations(ROOT / "config" / "locations.yaml")
+        if x.id == "sams-club-online"
+    )
+
+    print("=" * 72)
+    print("SAM'S CLUB - VALIDACION DE COBERTURA Y PRECIOS")
+    print("=" * 72)
+    print("La prueba valida:")
+    print("  1. Fuentes/secciones reales de la categoría.")
+    print("  2. Carga hasta estabilizar el catálogo visible.")
+    print("  3. Páginas explícitas si el sitio las publica.")
+    print("  4. price_current contra 'precio actual' mostrado.")
+    print("  5. price_regular contra 'Antes' mostrado.")
+    print("")
+    print("Si aparece 'Verifica tu identidad', completa manualmente la")
+    print("verificación en Chrome. El scraper NO la evade.")
+
+    category_order = [category.id for category in categories]
+    results: dict[str, tuple] = (
+        _load_existing_valid_results(categories)
+        if not args.category
+        else {}
+    )
+    if results:
+        print("")
+        print("CATEGORÍAS BODEGA YA VÁLIDAS HOY:")
+        for category_id in category_order:
+            if category_id in results:
+                print(
+                    f"- {category_id}: REUTILIZADA, NO SE DESCARGA DE NUEVO"
+                )
+        _write_results(results, category_order)
+
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.connect_over_cdp(
+                args.cdp_url
+            )
+        except Exception as exc:
+            print("ERROR: no fue posible conectarse al Chrome abierto.")
+            print(f"{type(exc).__name__}: {exc}")
+            return 10
+
+        page = find_sams_page(browser)
+        if page is None:
+            print(
+                "ERROR: abre una pestaña de Sam's Club "
+                "antes de ejecutar el test."
+            )
+            return 11
+
+        print(f"Pestaña Sam's Club detectada: {page.url}")
+        print("El script NO abrirá ni cerrará Chrome.")
+        print("")
+        print("PRIMERA PASADA:")
+        print("- Cada categoría se descarga una sola vez.")
+        print("- Las categorías SUCCESS quedan preservadas.")
+        print("- Los reintentos se hacen sólo al final y sólo sobre fallas.")
+        print("")
+
+        failed_ids: list[str] = []
+        category_by_id = {item.id: item for item in categories}
+
+        for category in categories:
+            if category.id in results:
+                print(
+                    f"BODEGA | {category.id}: "
+                    "YA VÁLIDA HOY, SE OMITE DESCARGA."
+                )
+                continue
+            result = run_category(category, location, page)
+            results[category.id] = result
+            _write_results(results, category_order)
+
+            if not _summary_is_acceptable(result[1]):
+                failed_ids.append(category.id)
+
+            print(
+                "Checkpoint Sam's Club actualizado. "
+                "Pausa entre categorías: 4 segundos.",
+                flush=True,
+            )
+            page.wait_for_timeout(4_000)
+
+        for retry_round in range(1, args.retry_failed_at_end + 1):
+            if not failed_ids:
+                break
+
+            pending_ids = list(failed_ids)
+            failed_ids = []
+
+            print("")
+            print("=" * 72)
+            print(
+                f"REINTENTO FINAL SAM'S CLUB {retry_round}/"
+                f"{args.retry_failed_at_end}"
+            )
+            print("=" * 72)
+            print(
+                "Sólo se reintentan: "
+                + ", ".join(pending_ids)
+            )
+
+            for category_id in pending_ids:
+                category = category_by_id[category_id]
+                result = run_category(category, location, page)
+                results[category_id] = result
+                _write_results(results, category_order)
+
+                if not _summary_is_acceptable(result[1]):
+                    failed_ids.append(category_id)
+
+                print(
+                    "Checkpoint Sam's Club actualizado. "
+                    "Pausa entre reintentos: 4 segundos.",
+                    flush=True,
+                )
+                page.wait_for_timeout(4_000)
+
+        # No browser.close(): la sesión pertenece al usuario.
+
+    concentrated, summary_df = _write_results(
+        results,
+        category_order,
+    )
+
+    print("")
+    print("=" * 72)
+    print("RESUMEN SAM'S CLUB")
+    print("=" * 72)
+    print(
+        summary_df[
+            [
+                "department",
+                "category_id",
+                "status",
+                "target_products",
+                "products",
+                "coverage",
+                "coverage_threshold",
+                "sku_complete",
+                "price_complete",
+                "url_complete",
+                "sources_discovered",
+                "sources_visited",
+                "pages_visited",
+                "pagination_methods",
+                "sponsored_banner_clicks",
+                "explicit_pages",
+                "pagination_verified",
+                "price_validation_errors",
+                "blocked_detected",
+            ]
+        ].to_string(index=False)
+    )
+    print("")
+    print(f"Total filas: {len(concentrated)}")
+    print(f"Archivo: {OUTPUT_PATH}")
+    print("Diagnósticos: diagnostics\\sams_club_*")
+
+    acceptable = bool(
+        len(summary_df) == len(categories)
+        and not summary_df.empty
+        and all(
+            _summary_is_acceptable(results[item.id][1])
+            for item in categories
+        )
+    )
+
+    if acceptable:
+        print("Resultado Sam's Club: TODAS LAS CATEGORÍAS VÁLIDAS.")
+    else:
+        failed = [
+            item.id
+            for item in categories
+            if item.id not in results
+            or not _summary_is_acceptable(results[item.id][1])
+        ]
+        print(
+            "Resultado Sam's Club: quedan categorías pendientes: "
+            + ", ".join(failed)
+        )
+
+    return 0 if acceptable else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
