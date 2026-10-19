@@ -82,16 +82,45 @@ def _scan(request, *, category_id: str, base_url: str, limit: int,
             status = response.status
             if status != 200:
                 errors.append(f"limit={limit} page={page_number}: HTTP {status}")
+                page_log.append({
+                    "category_id": category_id, "limit": limit,
+                    "page": page_number, "http_status": status,
+                    "products": None, "new_products": 0,
+                    "cumulative_products": len(products),
+                    "cumulative_variants": len(variants),
+                    "terminal_empty": False,
+                    "elapsed_ms": round((time.monotonic() - started) * 1000),
+                    "error": "HTTP " + str(status),
+                })
                 break
             payload = response.json()
             batch = payload.get("products") if isinstance(payload, dict) else None
             if not isinstance(batch, list):
                 errors.append(f"limit={limit} page={page_number}: missing products array")
+                page_log.append({
+                    "category_id": category_id, "limit": limit,
+                    "page": page_number, "http_status": status,
+                    "products": None, "new_products": 0,
+                    "cumulative_products": len(products),
+                    "cumulative_variants": len(variants),
+                    "terminal_empty": False,
+                    "elapsed_ms": round((time.monotonic() - started) * 1000),
+                    "error": "missing products array",
+                })
                 break
         except Exception as exc:
-            errors.append(
-                f"limit={limit} page={page_number}: {type(exc).__name__}: {exc}"
-            )
+            error = f"{type(exc).__name__}: {exc}"
+            errors.append(f"limit={limit} page={page_number}: " + error)
+            page_log.append({
+                "category_id": category_id, "limit": limit,
+                "page": page_number, "http_status": status,
+                "products": None, "new_products": 0,
+                "cumulative_products": len(products),
+                "cumulative_variants": len(variants),
+                "terminal_empty": False,
+                "elapsed_ms": round((time.monotonic() - started) * 1000),
+                "error": error,
+            })
             break
 
         if len(batch) > limit:
@@ -99,6 +128,16 @@ def _scan(request, *, category_id: str, base_url: str, limit: int,
                 f"limit={limit} page={page_number}: devolvió {len(batch)} "
                 "productos (límite ignorado)"
             )
+            page_log.append({
+                "category_id": category_id, "limit": limit,
+                "page": page_number, "http_status": status,
+                "products": len(batch), "new_products": 0,
+                "cumulative_products": len(products),
+                "cumulative_variants": len(variants),
+                "terminal_empty": False,
+                "elapsed_ms": round((time.monotonic() - started) * 1000),
+                "error": "limit ignored",
+            })
             break
 
         page_ids = set()
