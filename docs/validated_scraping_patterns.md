@@ -86,9 +86,16 @@ Validación productiva de referencia:
 
 ### Chedraui
 
-Estado: VALIDADO
+Estado: REVALIDACIÓN LIVE REQUERIDA POR CAMBIO DE CONTEXTO DE TIENDA
 
 Método:
+- Chrome visible obligatorio para certificación de tienda.
+- La tienda se selecciona de forma determinística en cada caso por la UI nativa:
+  `Localizador -> Recoger en tienda -> Directorio -> Estado -> Ciudad/Zona -> Tienda exacta -> Confirmar`.
+- No se reutiliza una tienda heredada del perfil como prueba suficiente.
+- Estado, Ciudad/Zona, tienda y confirmación deben quedar explícitamente registrados.
+- Después de cerrar el directorio, el control visible de ubicación debe mostrar la tienda configurada.
+- Si falla cualquier paso, el caso se detiene antes de capturar productos.
 - Playwright headless
 - perfil persistente .chedraui_profile
 - low-memory
