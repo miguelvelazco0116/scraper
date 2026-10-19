@@ -59,7 +59,8 @@ $UseHeaded = $Headed -and -not $Headless
 $UseLowMemory = -not $StandardMemory
 
 Write-Host "Profile   : $ProfileDir"
-Write-Host "Navegador : $(if ($UseHeaded) { 'VISIBLE' } else { 'HEADLESS' })"
+Write-Host "Ibarra    : $(if ($UseHeaded) { 'VISIBLE' } else { 'HEADLESS' })"
+Write-Host "Chedraui  : VISIBLE | Directorio Estado -> Ciudad/Zona -> Tienda"
 Write-Host "Memoria   : $(if ($UseLowMemory) { 'LOW-MEMORY' } else { 'STANDARD' })"
 Write-Host "Chedraui  : 4 tiendas x 5 categorias"
 Write-Host "Delay cat.: $ChedrauiCategoryDelaySeconds segundos"
