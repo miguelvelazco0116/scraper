@@ -551,7 +551,9 @@ def _run_chedraui(
         print(f"CHEDRAUI [{index}/{len(categories)}] {category.id}")
         print(category.url)
         scraper = ChedrauiScraper(
-            headless=not headed,
+            # Chedraui production deliberately runs visible so the exact
+            # State -> City/Zone -> Store directory path is auditable.
+            headless=False,
             browser_channel="chrome",
             profile_dir=profile_dir,
             max_pages=100,
@@ -627,6 +629,20 @@ def _run_chedraui(
                 )
             if not store_verified:
                 notes.append("tienda no verificada")
+            if meta.get("store_selection_strategy") != (
+                "directory_ui_state_city_store"
+            ):
+                notes.append("estrategia de tienda no certificada")
+            if not bool(meta.get("state_selected")):
+                notes.append("estado no seleccionado")
+            if not bool(meta.get("city_selected")):
+                notes.append("ciudad/zona no seleccionada")
+            if not bool(meta.get("store_clicked")):
+                notes.append("tienda no seleccionada en directorio")
+            if not bool(meta.get("pickup_confirmed")):
+                notes.append("pickup no confirmado")
+            if not bool(meta.get("directory_ui_store_verified")):
+                notes.append("control visible de tienda no verificado")
             if structured_missing:
                 notes.append(f"structured_missing {structured_missing}")
             if pagination_gaps:
@@ -648,6 +664,24 @@ def _run_chedraui(
             store_context_method=meta.get("store_context_method"),
             store_context_contract_version=meta.get(
                 "store_context_contract_version"
+            ),
+            store_selection_strategy=meta.get(
+                "store_selection_strategy"
+            ),
+            directory_state_selected=meta.get("state_selected"),
+            directory_city_selected=meta.get("city_selected"),
+            directory_store_clicked=meta.get("store_clicked"),
+            directory_pickup_confirmed=meta.get(
+                "pickup_confirmed"
+            ),
+            directory_ui_store_verified=meta.get(
+                "directory_ui_store_verified"
+            ),
+            selected_state_label=meta.get(
+                "selected_state_label"
+            ),
+            selected_city_label=meta.get(
+                "selected_city_label"
             ),
             vtex_region_mutation_skipped=meta.get(
                 "vtex_region_mutation_skipped"
