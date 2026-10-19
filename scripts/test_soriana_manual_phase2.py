@@ -231,6 +231,14 @@ def main() -> int:
     print("El script NO abrirá ni cerrará Chrome.")
     print("")
 
+    # All configured categories are already validated in today's workbook.
+    # Do not require a live Soriana tab when no scraping is necessary.
+    if args.category == "all" and not categories:
+        print("SORIANA: 6/6 categorías ya válidas hoy.")
+        print("Se conserva el Excel validado; no se requiere pestaña ni nueva descarga.")
+        print(f"Output: {OUTPUT}")
+        return 0
+
     with sync_playwright() as playwright:
         try:
             browser = playwright.chromium.connect_over_cdp(args.cdp_url)
