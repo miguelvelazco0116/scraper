@@ -91,7 +91,7 @@ Write-Host "IMPORTANTE:"
 Write-Host "- Deja una pestana abierta de Farmacias Guadalajara."
 Write-Host "- Deja otra pestana abierta de Soriana."
 Write-Host "- El runner reutiliza los metodos ya validados."
-Write-Host "- El master solo se reemplaza si TODAS las categorias pasan calidad."
+Write-Host "- El master integra retailers COMPLETE aunque otro quede PARTIAL."
 Write-Host ""
 
 $ArgsList = @(".\scripts\run_phase2_production.py", "--cdp-url", $CdpUrl)
@@ -110,7 +110,7 @@ if ($code -eq 0) {
     if ($SkipIntegration) {
         Write-Host "Fase 2 valida y publicada."
         Write-Host "Integracion al concentrado: OMITIDA por -SkipIntegration."
-        Write-Host "La salida queda disponible para integrar cuando las fases previas esten completas."
+        Write-Host "La salida queda disponible para integracion incremental posterior."
     } else {
         Write-Host "Fase 2 valida. Integrando automaticamente al concentrado diario..."
 
@@ -128,7 +128,7 @@ if ($code -eq 0) {
         }
     }
 } else {
-    Write-Warning "La Fase 2 NO fue publicada. El master productivo anterior se conserva."
+    Write-Warning "La Fase 2 completa NO fue publicada; se evaluaran retailers completos por separado."
     Write-Host "Diagnostico: $ProjectDir\diagnostics\phase2_production\last_run.json"
     Write-Host "Log        : $LogPath"
     if (-not $SkipIntegration) {
