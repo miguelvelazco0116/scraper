@@ -151,3 +151,47 @@ def seed_from_prior_test(root: Path, prior: Path, *,
                 root, case_products, row, store_id=store_id, day=day
             ))
     return recovered
+
+
+
+def load_valid_snapshots(root: Path, *, day: str):
+    """Load latest independently verified same-day checkpoints for Phase 1.
+
+    Returns {(retailer, category_id, store_id): (rows, summary)}. One
+    category failure cannot corrupt another case's successful checkpoint.
+    """
+    base = root / "output" / "checkpoints_validos" / "chedraui_cases"
+    result = {}
+    if not base.exists():
+        return result
+    for path in sorted(base.glob("*/*.xlsx"), reverse=True):
+        try:
+            frame = pd.read_excel(
+                path, sheet_name="Concentrado",
+                dtype={"sku": str, "store_id": str, "category_id": str},
+            )
+            summary = pd.read_excel(
+                path, sheet_name="Resumen", dtype={"category_id": str, "store_id": str},
+            )
+            control = pd.read_excel(path, sheet_name="Control")
+        except (OSError, ValueError, KeyError, ImportError):
+            continue
+        if frame.empty or len(summary) != 1 or len(control) != 1:
+            continue
+        row = summary.iloc[0].to_dict()
+        category_id = str(row.get("category_id") or "")
+        store_id = _store_id(row.get("store_id"))
+        if not store_id or control.iloc[0].get("status") != "ISOLATED_VALIDATED":
+            continue
+        if str(control.iloc[0].get("capture_date") or "")[:10] != day:
+            continue
+        key = ("Chedraui", category_id, store_id)
+        if key in result:
+            continue
+        if validate_case(
+            frame, row, category_id=category_id,
+            store_id=store_id, day=day,
+        ):
+            continue
+        result[key] = (frame, row)
+    return result
