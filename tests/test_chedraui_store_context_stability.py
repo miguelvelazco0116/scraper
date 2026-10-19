@@ -270,3 +270,23 @@ def test_pickup_value_padding_is_generic_for_other_store_ids():
     assert scraper._expected_pickup_value(location) == (
         "chedrauimx0076_PP0076"
     )
+
+
+
+def test_locator_opening_uses_visible_duplicate_header_control():
+    from pathlib import Path
+
+    source = Path(
+        "scraper/retailers/chedraui_polanco.py"
+    ).read_text(encoding="utf-8")
+
+    method = source.split(
+        "def _open_locator", 1
+    )[1].split(
+        "def _click_enabled_pickup_button", 1
+    )[0]
+
+    assert ".first.wait_for" not in method
+    assert "nodes.nth(index)" in method
+    assert "button.is_visible()" in method
+    assert "location_button_match_index" in method
