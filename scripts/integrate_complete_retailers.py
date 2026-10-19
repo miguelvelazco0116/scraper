@@ -77,6 +77,20 @@ def _quality(phase: int, retailer: str, frame: pd.DataFrame, summary: pd.DataFra
         raise ValueError("Conteo de productos inconsistente")
 
     if retailer == "Chedraui":
+        keys = summary["store_id"].astype(str).str.replace(r"\.0$", "", regex=True) + "|" + summary["category_id"].astype(str)
+    else:
+        keys = summary["category_id"].astype(str)
+    if keys.nunique() != expected:
+        raise ValueError("Casos o categorías duplicados")
+    for _, item in summary.iterrows():
+        mask = frame["category_id"].astype(str).eq(str(item["category_id"]))
+        if retailer == "Chedraui":
+            store_id = str(item["store_id"]).removesuffix(".0")
+            mask = mask & frame["store_id"].astype(str).str.replace(r"\.0$", "", regex=True).eq(store_id)
+        if int(mask.sum()) != int(item["products"]):
+            raise ValueError("Conteo por categoría/tienda inconsistente: " + str(item["category_id"]))
+
+    if retailer == "Chedraui":
         stores = summary["store_id"].dropna().astype(str).str.replace(r"\.0$", "", regex=True)
         if set(stores) != {"232", "173", "255", "76"}:
             raise ValueError("Chedraui: faltan tiendas validadas")
