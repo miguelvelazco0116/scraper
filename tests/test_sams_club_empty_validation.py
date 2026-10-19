@@ -70,6 +70,34 @@ class SamsEmptyCategoryTests(unittest.TestCase):
         self.assertFalse(scraper.run_meta["pagination_verified"])
         self.assertEqual(scraper.run_meta["status"], "PARTIAL")
 
+    def test_category_heading_count_ignores_sponsored_banner(self):
+        class FakeLocator:
+            def __init__(self, *, headings=None, body=None):
+                self.headings = headings
+                self.body = body
+
+            def all_inner_texts(self, timeout=None):
+                return self.headings or []
+
+            def inner_text(self, timeout=None):
+                return self.body or ""
+
+        class FakePage:
+            def locator(self, selector):
+                if selector == "body":
+                    return FakeLocator(body=(
+                        "Patrocinado por Colgate\\n"
+                        "Pasta Dental y Enjuague Bucal (11)\\n"
+                        "Colgate $147.31"
+                    ))
+                return FakeLocator(headings=[
+                    "Sonrisas que brillan",
+                    "Pasta Dental y Enjuague Bucal (11)",
+                    "Opiniones (200)",
+                ])
+
+        self.assertEqual(SamsClubScraper._target_count(FakePage()), 11)
+
     def test_summary_rejects_no_pagination_proof(self):
         summary = {
             "status": "SUCCESS", "products": 18,
