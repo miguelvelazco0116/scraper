@@ -673,9 +673,9 @@ class ChedrauiScraper:
             "location_button_opened": bool(
                 self.run_meta.get("location_button_opened")
             ),
-            "pickup_clicked": bool(
-                self.run_meta.get("pickup_clicked")
-            ),
+            # Some Chedraui layouts expose "Directorio de tiendas" directly
+            # from the locator, so the intermediate Pickup click is diagnostic
+            # rather than mandatory when the directory was reached.
             "directory_clicked": bool(
                 self.run_meta.get("directory_clicked")
             ),
