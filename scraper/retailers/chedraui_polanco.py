@@ -61,44 +61,73 @@ class ChedrauiScraper(BaseChedrauiScraper):
         return clicked
 
     def _open_locator(self, page) -> bool:
-        selector = "button.chedrauimx-locator-2-x-labelTextAddress"
+        """Open a *visible* store locator; tolerate delayed VTEX header hydration.
 
-        # VTEX can render duplicate desktop/mobile header controls. Never trust
-        # .first here: the first DOM match can be hidden while another copy is
-        # visibly showing the currently selected store.
-        for attempt in range(4):
-            try:
-                nodes = page.locator(selector)
-                count = nodes.count()
-            except Exception:
-                count = 0
-
-            self.run_meta["location_button_matches"] = count
-            for index in range(min(count, 20)):
+        Never treat an inherited profile store as proof. This must actually
+        open the locator/directory in the current page session.
+        """
+        selectors = (
+            "button.chedrauimx-locator-2-x-labelTextAddress",
+            'button[class*="locator"][class*="labelTextAddress"]',
+            '[class*="locator"][class*="labelTextAddress"]',
+            'button[aria-label*="tienda" i]',
+            'button[aria-label*="ubicaci" i]',
+            '[data-testid*="location" i]',
+            '[data-testid*="store" i]',
+        )
+        attempts = []
+        for attempt in range(10):
+            # The home page's VTEX header can hydrate after DOMContentLoaded.
+            # Use short bounded waits, not sleeps without useful evidence.
+            snapshot = {
+                "attempt": attempt + 1,
+                "url": getattr(page, "url", None),
+                "selectors": {},
+                "errors": [],
+            }
+            for selector in selectors:
                 try:
-                    button = nodes.nth(index)
-                    if not button.is_visible():
-                        continue
-                    text = self._normalize(
-                        button.inner_text(timeout=1_500)
+                    nodes = page.locator(selector)
+                    count = nodes.count()
+                    snapshot["selectors"][selector] = count
+                except Exception as exc:
+                    snapshot["errors"].append(
+                        f"{selector}: {type(exc).__name__}: {str(exc)[:180]}"
                     )
-                    self.run_meta[
-                        "location_button_visible_text"
-                    ] = text[:1_000]
-                    button.click(timeout=5_000)
-                    page.wait_for_timeout(650)
-                    self.run_meta[
-                        "location_button_match_index"
-                    ] = index
-                    return True
-                except Exception:
                     continue
 
-            if attempt < 3:
+                for index in range(min(count, 15)):
+                    try:
+                        button = nodes.nth(index)
+                        if not button.is_visible():
+                            continue
+                        label = self._normalize(
+                            (button.inner_text(timeout=1_500) or "")
+                            + " "
+                            + (button.get_attribute("aria-label") or "")
+                        )
+                        snapshot.setdefault("visible_controls", []).append(
+                            {"selector": selector, "index": index,
+                             "text": label[:300]}
+                        )
+                        button.click(timeout=4_000)
+                        page.wait_for_timeout(700)
+                        self.run_meta["location_button_match_index"] = index
+                        self.run_meta["location_button_selector"] = selector
+                        self.run_meta["location_button_visible_text"] = label
+                        self.run_meta["location_locator_attempts"] = attempts + [snapshot]
+                        return True
+                    except Exception as exc:
+                        snapshot["errors"].append(
+                            f"{selector}[{index}]: {type(exc).__name__}: "
+                            + str(exc)[:180]
+                        )
+            attempts.append(snapshot)
+            if attempt < 9:
                 page.wait_for_timeout(900)
 
-        # Generic fallback for sessions where no store has been selected yet
-        # and the header renders an address CTA instead of the locator class.
+        # With no configured store yet the header sometimes renders an
+        # address link rather than the VTEX locator button.
         opened = self._click_text(
             page,
             (
@@ -106,12 +135,22 @@ class ChedrauiScraper(BaseChedrauiScraper):
                 "Agregar una Direccion",
                 "Agregar dirección",
                 "Agregar una",
+                "Cambiar tienda",
+                "Seleccionar tienda",
+                "Elige tu tienda",
+                "Mi tienda",
             ),
-            timeout=5_000,
+            timeout=4_000,
         )
         if opened:
-            page.wait_for_timeout(650)
-        return opened
+            page.wait_for_timeout(700)
+        self.run_meta["location_button_matches"] = attempts[-1]["selectors"].get(
+            selectors[0], 0
+        )
+        self.run_meta["location_locator_attempts"] = attempts
+        self.run_meta["location_locator_fallback_clicked"] = bool(opened)
+        self.run_meta["location_locator_final_url"] = getattr(page, "url", None)
+        return bool(opened)
 
     def _click_enabled_pickup_button(self, page) -> bool:
         try:
