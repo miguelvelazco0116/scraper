@@ -14,7 +14,7 @@ from ..config import Category, Location
 from ..parsers import absolute_url, clean_text, extract_sku, parse_money
 
 BASE_URL = "https://www.chedraui.com.mx/"
-STORE_CONTEXT_CONTRACT_VERSION = "chedraui-store-context-v2"
+STORE_CONTEXT_CONTRACT_VERSION = "chedraui-directory-ui-v3"
 PRODUCT_SELECTOR = 'a[href$="/p"], a[href*="/p?"]'
 BLOCK_MARKERS = (
     "access denied",
@@ -648,55 +648,94 @@ class ChedrauiScraper:
         page: Page,
         location: Location,
     ) -> tuple[bool, str | None]:
-        """Preserve an exact selected store; regionalize only as fallback."""
-        verified, method = self._verify_store_context(
-            page,
-            location,
-        )
-        self.run_meta["preexisting_store_context_verified"] = (
-            bool(verified)
-        )
-        self.run_meta["preexisting_store_context_method"] = method
+        """Select the exact store through the visible directory every time.
 
-        if verified:
-            self.run_meta["vtex_region_mutation_skipped"] = True
-            snapshot = self._vtex_session_snapshot(page)
-            if isinstance(snapshot, dict):
-                self.run_meta["vtex_session_before_category"] = snapshot
-            return True, method
-
-        # Postal-code regionalization is only a discovery aid when no exact
-        # store is selected. It must never overwrite a known exact store.
-        structured_ok, structured_method = (
-            self._prepare_structured_store_context(
-                page,
-                location,
-            )
+        Production deliberately does not trust inherited profile/session
+        context here. The deterministic route is:
+        locator -> pickup -> store directory -> state -> city/zone ->
+        configured store -> confirmation -> visible-store verification.
+        """
+        self.run_meta["store_selection_strategy"] = (
+            "directory_ui_state_city_store"
         )
-        self.run_meta["structured_store_context_ready"] = (
-            structured_ok
-        )
-        self.run_meta["structured_store_context_method"] = (
-            structured_method
-        )
-        self.run_meta["vtex_region_mutation_skipped"] = False
+        self.run_meta["vtex_region_mutation_skipped"] = True
+        self.run_meta["preexisting_store_context_ignored"] = True
 
         verified, method = self._try_select_store_ui(
             page,
             location,
         )
         if not verified:
+            self.run_meta["directory_ui_store_verified"] = False
             return False, None
 
-        # The exact UI selection is the authority. Snapshot the resulting
-        # segment and do not post the postal code again afterward.
-        page.wait_for_timeout(1_200)
+        required_steps = {
+            "location_button_opened": bool(
+                self.run_meta.get("location_button_opened")
+            ),
+            "pickup_clicked": bool(
+                self.run_meta.get("pickup_clicked")
+            ),
+            "directory_clicked": bool(
+                self.run_meta.get("directory_clicked")
+            ),
+            "state_selected": bool(
+                self.run_meta.get("state_selected")
+            ),
+            "city_selected": bool(
+                self.run_meta.get("city_selected")
+            ),
+            "store_clicked": bool(
+                self.run_meta.get("store_clicked")
+            ),
+            "pickup_confirmed": bool(
+                self.run_meta.get("pickup_confirmed")
+            ),
+        }
+        self.run_meta["directory_ui_steps"] = required_steps
+
+        if not all(required_steps.values()):
+            self.run_meta["directory_ui_store_verified"] = False
+            self.run_meta["directory_selection_failure"] = (
+                "incomplete_directory_ui_steps"
+            )
+            self._save_diagnostics(
+                page,
+                "store_directory_incomplete_steps",
+            )
+            return False, None
+
+        # The visible store control must show the configured store after the
+        # directory has closed. This is the final UI-side proof.
+        control_text = self._visible_store_control_text(page)
+        self.run_meta["visible_store_control_text"] = control_text
+        control_verified = self._store_control_matches_location(
+            control_text,
+            location,
+        )
+        self.run_meta["directory_ui_store_verified"] = (
+            bool(control_verified)
+        )
+        if not control_verified:
+            self.run_meta["directory_selection_failure"] = (
+                "visible_store_control_mismatch"
+            )
+            self._save_diagnostics(
+                page,
+                "store_directory_visible_control_mismatch",
+            )
+            return False, None
+
         snapshot = self._vtex_session_snapshot(page)
         if isinstance(snapshot, dict):
             self.run_meta["vtex_session_after_store_selection"] = (
                 snapshot
             )
-        return True, method or structured_method
+
+        return True, (
+            method
+            or "visible_store_control_after_directory_ui"
+        )
 
     @staticmethod
     def _click_text(page: Page, labels: tuple[str, ...], timeout: int = 5_000) -> bool:
