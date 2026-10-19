@@ -552,11 +552,11 @@ class SamsClubScraper:
                     continue
                 if re.search(
                     r"^(precio|marca|opiniones|reseñas|reviews|departamento|"
-                    r"promociones|ordenar por)\\b",
+                    r"promociones|ordenar por)\b",
                     label, flags=re.IGNORECASE,
                 ):
                     continue
-                match = re.search(r"\\(\\s*(\\d{1,6})\\s*\\)", label)
+                match = re.search(r"\(\s*(\d{1,6})\s*\)", label)
                 if match:
                     heading_totals.append(int(match.group(1)))
         except Exception:
