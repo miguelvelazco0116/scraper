@@ -193,10 +193,14 @@ def main():
 
     frames, summaries = [], []
     with sync_playwright() as playwright:
+        # APIRequest.new_context does not accept browser-only locale.
+        # Request language is conveyed through ordinary HTTP headers.
         request = playwright.request.new_context(
             user_agent="Mozilla/5.0 (compatible; ProductCatalogAudit/1.0)",
-            locale="es-MX",
-            extra_http_headers={"Accept": "application/json"},
+            extra_http_headers={
+                "Accept": "application/json",
+                "Accept-Language": "es-MX,es;q=0.9",
+            },
         )
         try:
             for category in categories:
