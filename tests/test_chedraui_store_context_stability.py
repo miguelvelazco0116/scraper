@@ -55,7 +55,7 @@ def test_preexisting_store_is_ignored_and_directory_ui_is_forced():
         scraper.run_meta.update(
             {
                 "location_button_opened": True,
-                "pickup_clicked": True,
+                "pickup_clicked": False,
                 "directory_clicked": True,
                 "state_selected": True,
                 "city_selected": True,
@@ -188,3 +188,56 @@ def test_whole_page_text_is_diagnostic_not_store_certification():
     assert verified is False
     assert method is None
     assert scraper.run_meta["page_text_store_hint"] is True
+
+
+
+def test_direct_directory_entry_does_not_require_pickup_preclick():
+    scraper = ChedrauiScraper(require_store_context=False)
+    location = _location()
+    page = _FakePage()
+
+    def select_ui(*_args):
+        scraper.run_meta.update(
+            {
+                "location_button_opened": True,
+                "pickup_clicked": False,
+                "directory_clicked": True,
+                "state_selected": True,
+                "city_selected": True,
+                "store_clicked": True,
+                "pickup_confirmed": True,
+            }
+        )
+        return True, "visible_store_control_after_directory_ui"
+
+    scraper._try_select_store_ui = select_ui
+    scraper._visible_store_control_text = (
+        lambda *_: "Chedraui Cancún Kabah"
+    )
+    scraper._vtex_session_snapshot = lambda *_: {}
+
+    verified, _ = scraper._establish_store_before_category(
+        page,
+        location,
+    )
+
+    assert verified is True
+    assert "pickup_clicked" not in scraper.run_meta["directory_ui_steps"]
+
+
+def test_store_card_matching_supports_split_name_nodes():
+    from pathlib import Path
+
+    source = Path(
+        "scraper/retailers/chedraui_polanco.py"
+    ).read_text(encoding="utf-8")
+
+    method = source.split(
+        "def _click_configured_store", 1
+    )[1].split(
+        "def _try_select_store_directory_generic", 1
+    )[0]
+
+    assert "ancestor_card" in method
+    assert "all(token in text for token in tokens)" in method
+    assert "no_matching_store_card" in method
