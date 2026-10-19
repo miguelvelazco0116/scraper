@@ -592,7 +592,9 @@ def _validate_duero_retailer(
     }
     required = {
         "retailer", "category_id", "status", "products",
-        "pagination_complete", "sku_complete", "price_complete",
+        "pagination_complete", "pagination_verified", "independent_match",
+        "terminal_page_limit50", "terminal_page_limit250", "variants_seen_api",
+        "sku_complete", "price_complete",
         "url_complete", "pack_units_complete", "unit_price_complete",
         "store_context_verified", "blocked_detected",
     }
@@ -610,7 +612,18 @@ def _validate_duero_retailer(
         notes.append("Duero tiene categorías no SUCCESS")
     if not summary["pagination_complete"].eq(True).all():
         notes.append("Duero paginación no verificada")
+    if not summary["pagination_verified"].eq(True).all():
+        notes.append("Duero sin segunda paginación certificada")
+    if not summary["independent_match"].eq(True).all():
+        notes.append("Duero límites 50/250 no coinciden")
+    for field in ("terminal_page_limit50", "terminal_page_limit250"):
+        terminals = pd.to_numeric(summary[field], errors="coerce")
+        if terminals.isna().any() or not terminals.ge(2).all():
+            notes.append(f"Duero sin página terminal vacía: {field}")
     counts = pd.to_numeric(summary["products"], errors="coerce").fillna(0)
+    api_variants = pd.to_numeric(summary["variants_seen_api"], errors="coerce")
+    if api_variants.isna().any() or not api_variants.eq(counts).all():
+        notes.append("Duero variantes exportadas no coinciden con API")
     if counts.sum() != len(frame) or counts.le(0).any():
         notes.append("Duero totales por categoría inconsistentes")
     for metric in ("sku_complete", "price_complete", "url_complete"):
