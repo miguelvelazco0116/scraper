@@ -114,6 +114,19 @@ def main():
         parser.error("--delay-seconds debe ser >= 0")
     if not args.input.exists():
         parser.error(f"Captura no encontrada: {args.input}")
+    captured = pd.read_excel(
+        args.input, sheet_name="Concentrado",
+        usecols=["scrape_timestamp"],
+    )
+    if captured.empty:
+        parser.error("Concentrado de Duero vacío")
+    dates = set(captured["scrape_timestamp"].dropna().astype(str).str.slice(0, 10))
+    today = datetime.now().astimezone().date().isoformat()
+    if dates != {today}:
+        parser.error(
+            "La auditoría HTML y el Excel deben ser del mismo día: "
+            f"Excel={sorted(dates)}, hoy={today}"
+        )
     summary = pd.read_excel(
         args.input, sheet_name="Resumen", dtype={"category_id": str}
     )
