@@ -75,6 +75,7 @@ def audit(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     inferred_evidence = inferred.map(lambda match: match.evidence)
     recoverable = unknown & inferred_count.notna()
     conflicts = count.notna() & inferred_count.notna() & count.ne(inferred_count)
+    unconfirmed_existing = count.notna() & inferred_count.isna()
     unconfirmed_pack = declared_packs & unknown & inferred_count.isna()
     store_verified = frame["store_context_verified"].map(
         lambda x: x is True or str(x).strip().lower() in {"true", "1"}
@@ -99,13 +100,14 @@ def audit(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     else:
         audited_pagination = False
 
-    review = unknown | conflicts
+    review = unknown | conflicts | unconfirmed_existing
     subset = frame.loc[review, [
         "category_id", "sku", "product", "package_type",
         "units_per_package", "price_current", "price_per_unit", "url",
     ]].copy()
     subset.insert(0, "revision", [
         "CONFLICTO_CANTIDAD" if conflicts.at[i]
+        else "CANTIDAD_PREVIA_SIN_EVIDENCIA" if unconfirmed_existing.at[i]
         else "RECUPERABLE_DEL_TEXTO" if recoverable.at[i]
         else "CAJA_SIN_UNIDADES" if missing_box.at[i]
         else "PRESENTACION_NO_DETERMINADA"
@@ -126,6 +128,7 @@ def audit(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
             "unknown_units": int(unknown.loc[idx].sum()),
             "recoverable_from_variant": int(recoverable.loc[idx].sum()),
             "conflicting_counts": int(conflicts.loc[idx].sum()),
+            "prior_count_without_variant_evidence": int(unconfirmed_existing.loc[idx].sum()),
             "boxes_without_units": int(missing_box.loc[idx].sum()),
             "nonbox_unknown_units": int(unknown_non_box.loc[idx].sum()),
             "store_context_verified": int(store_verified.loc[idx].sum()),
@@ -144,6 +147,7 @@ def audit(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
         "unit_count_recoverable_from_variant": int(recoverable.sum()),
         "unit_count_still_indeterminate": int((unknown & ~recoverable).sum()),
         "unit_count_conflicts": int(conflicts.sum()),
+        "prior_count_without_variant_evidence": int(unconfirmed_existing.sum()),
         "package_without_count_and_no_text_evidence": int(unconfirmed_pack.sum()),
         "boxes_without_unit_count": int(missing_box.sum()),
         "nonbox_unknown_unit_count": int(unknown_non_box.sum()),
@@ -160,6 +164,7 @@ def audit(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
             and int(missing_box.sum()) == 0
             and int(unconfirmed_pack.sum()) == 0
             and int(conflicts.sum()) == 0
+            and int(unconfirmed_existing.sum()) == 0
             and int(invalid_unit_price.sum()) == 0
             and store_verified.all()
             and price_ok.all()
@@ -171,6 +176,7 @@ def audit(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
                 ("CAJAS_SIN_UNIDADES", missing_box.any()),
                 ("EMPAQUES_SIN_CANTIDAD", unconfirmed_pack.any()),
                 ("INCONSISTENCIA_EN_UNIDADES", conflicts.any()),
+                ("CANTIDADES_PREVIAS_SIN_EVIDENCIA", unconfirmed_existing.any()),
                 ("PRECIO_UNITARIO_FALTANTE", invalid_unit_price.any()),
                 ("CAPTURA_NO_COMPLETA", captured_status != {"SUCCESS"} or len(summary) != 6),
             ] if condition
@@ -211,6 +217,7 @@ def main() -> int:
     print(f"Recuperables por variante: {outcome['unit_count_recoverable_from_variant']}")
     print(f"Todavía indeterminadas: {outcome['unit_count_still_indeterminate']}")
     print(f"Conflictos de cantidad: {outcome['unit_count_conflicts']}")
+    print(f"Unidades previas sin evidencia explícita: {outcome['prior_count_without_variant_evidence']}")
     print(f"Contexto tienda : {outcome['store_context_verified']}/{outcome['variants']}")
     print(f"Paginación 50/250: {outcome['dual_pagination_verified']}")
     print(f"Integrable      : {outcome['integration_ready']}")
