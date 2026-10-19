@@ -74,7 +74,7 @@ PHASES = {
             "HEB",
             "Sam's Club",
         },
-        "categories": 6,
+        "categories": 7,
         "require_fg_names": False,
     },
 } 
@@ -113,7 +113,7 @@ PHASE5_RETAILER_SOURCES = {
     },
     "Sam's Club": {
         "source": ROOT / "output" / "sams_club_phase5_test.xlsx",
-        "categories": 2,
+        "categories": 3,
     },
 }
 
@@ -580,9 +580,17 @@ def _validate_sams_retailer(
 
     if frame.empty:
         notes.append("Concentrado Sam's Club vacío")
-    if len(summary) != 2:
-        notes.append(f"Sam's Club categorías {len(summary)}/2")
+    if len(summary) != 3:
+        notes.append(f"Sam's Club categorías {len(summary)}/3")
         return notes
+
+    expected = {"cuidado-de-la-ropa", "antigripales-y-respiratorios", "cuidado-bucal"}
+    if "category_id" not in summary.columns:
+        notes.append("Sam's Club sin category_id")
+        return notes
+    observed = set(summary["category_id"].dropna().astype(str))
+    if observed != expected:
+        notes.append(f"Sam's Club categorías inesperadas: {sorted(observed)}")
 
     retailers = set(summary["retailer"].dropna().astype(str))
     if retailers != {"Sam's Club"}:
@@ -652,6 +660,23 @@ def _validate_sams_retailer(
             for total, error in zip(products, errors)
         ):
             notes.append("Sam's Club validación de precios < 90%")
+
+    if "blocked_detected" not in summary.columns:
+        notes.append("Sam's Club sin blocked_detected")
+    elif summary["blocked_detected"].fillna(True).astype(bool).any():
+        notes.append("Sam's Club blocked_detected=True")
+
+    if "sponsored_banner_clicks" not in summary.columns:
+        notes.append("Sam's Club sin sponsored_banner_clicks")
+    elif pd.to_numeric(summary["sponsored_banner_clicks"], errors="coerce").fillna(-1).ne(0).any():
+        notes.append("Sam's Club sponsored_banner_clicks != 0")
+
+    if "sources_discovered" in summary.columns:
+        expected_sources = {"cuidado-de-la-ropa": 2, "antigripales-y-respiratorios": 1, "cuidado-bucal": 1}
+        for _, row in summary.iterrows():
+            category_id = str(row.get("category_id") or "")
+            if int(row.get("sources_discovered") or 0) != expected_sources.get(category_id, -1):
+                notes.append(f"Sam's Club fuentes configuradas incorrectas: {category_id}")
 
     return notes
 
