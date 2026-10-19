@@ -1,0 +1,14 @@
+categories:
+  - id: cuidado-bucal
+    name: Cuidado Bucal
+    subcategory: null
+    department: Belleza, Cuidado Personal y Perfumería
+    url: https://www.sams.com.mx/browse/belleza-cuidado-personal-y-perfumeria/cuidado-bucal/30128_30152
+    enabled: true
+
+  - id: cuidado-de-la-ropa
+    name: Cuidado de la Ropa
+    subcategory: null
+    department: Limpieza y Cuidado de la Ropa
+    url: https://www.sams.com.mx/browse/limpieza-y-cuidado-de-la-ropa/cuidado-de-la-ropa/30088_30089
+    enabled: true
