@@ -4,6 +4,7 @@ param(
     [int]$Phase,
     [ValidateSet("", "Bodega Aurrera", "Walmart", "Farmacias San Pablo", "Farmacias Benavides", "Farmacias Similares", "HEB")]
     [string]$Retailer = "",
+    [switch]$AllowPartialPrevious,
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = ""
 )
@@ -43,6 +44,9 @@ Write-Host ""
 $ArgsList = @(".\scripts\integrate_validated_phase.py", "--phase", "$Phase")
 if (-not [string]::IsNullOrWhiteSpace($Retailer)) {
     $ArgsList += @("--retailer", $Retailer)
+}
+if ($AllowPartialPrevious) {
+    $ArgsList += "--allow-partial-previous"
 }
 
 & $PythonExe @ArgsList
