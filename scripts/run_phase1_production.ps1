@@ -100,7 +100,7 @@ if ($code -eq 0) {
     Write-Host ""
     Write-Host "Fase 1 valida. Integrando automaticamente al concentrado diario..."
 
-    & ".\scripts\integrate_validated_phase.ps1" `
+    & ".\scripts\integrate_complete_retailers.ps1" `
         -Phase 1 `
         -ProjectDir $ProjectDir `
         -PythonExe $PythonExe
@@ -116,6 +116,14 @@ if ($code -eq 0) {
     Write-Warning "La Fase 1 NO fue publicada. El master productivo anterior se conserva."
     Write-Host "Diagnostico: $ProjectDir\diagnostics\phase1_production\last_run.json"
     Write-Host "Log        : $LogPath"
+    Write-Host "Revisando retailers completos para integrarlos sin Chedraui parcial..."
+    & ".\scripts\integrate_complete_retailers.ps1" `
+        -Phase 1 `
+        -ProjectDir $ProjectDir `
+        -PythonExe $PythonExe
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "No se pudo integrar los retailers completos de Fase 1."
+    }
 }
 
 try {
