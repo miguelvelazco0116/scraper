@@ -22,7 +22,7 @@ def _decimal(value) -> str | None:
     if value is None:
         return None
     try:
-        return str(Decimal(str(value)))
+        return str(Decimal(str(value)).normalize())
     except (InvalidOperation, ValueError, TypeError):
         return None
 
