@@ -1,14 +1,28 @@
 categories:
-  - id: cuidado-bucal
-    name: Cuidado Bucal
-    subcategory: null
-    department: Belleza, Cuidado Personal y Perfumería
-    url: https://www.sams.com.mx/browse/belleza-cuidado-personal-y-perfumeria/cuidado-bucal/30128_30152
-    enabled: true
-
   - id: cuidado-de-la-ropa
     name: Cuidado de la Ropa
-    subcategory: null
     department: Limpieza y Cuidado de la Ropa
+    subcategory: Detergentes
     url: https://www.sams.com.mx/browse/limpieza-y-cuidado-de-la-ropa/cuidado-de-la-ropa/30088_30089
+    source_urls:
+      - https://www.sams.com.mx/browse/limpieza-y-cuidado-de-la-ropa/cuidado-de-la-ropa/detergente-liquido/30088_30089_30091
+      - https://www.sams.com.mx/browse/limpieza-y-cuidado-de-la-ropa/cuidado-de-la-ropa/detergente-en-polvo/30088_30089_30092
+    enabled: true
+
+  - id: antigripales-y-respiratorios
+    name: Antigripales y Respiratorios
+    department: Farmacia
+    subcategory: Medicamentos y Tratamientos
+    url: https://www.sams.com.mx/browse/farmacia/medicamentos-y-tratamientos/antigripales-y-respiratorios/60049_1870017_1870020
+    source_urls:
+      - https://www.sams.com.mx/browse/farmacia/medicamentos-y-tratamientos/antigripales-y-respiratorios/60049_1870017_1870020
+    enabled: true
+
+  - id: cuidado-bucal
+    name: Cuidado Bucal
+    department: Belleza, Cuidado Personal y Perfumería
+    subcategory: Pasta Dental y Enjuague Bucal
+    url: https://www.sams.com.mx/browse/belleza-cuidado-personal-y-perfumeria/cuidado-bucal/pasta-dental-y-enjuague-bucal/30128_30152_30153
+    source_urls:
+      - https://www.sams.com.mx/browse/belleza-cuidado-personal-y-perfumeria/cuidado-bucal/pasta-dental-y-enjuague-bucal/30128_30152_30153
     enabled: true
