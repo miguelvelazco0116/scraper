@@ -50,6 +50,31 @@ Farmacias Guadalajara ya está validado y productivo dentro de Fase 2.
 
 La Comer está implementado pero sigue fuera del runner principal hasta completar validación live.
 
+## Auditoría de Mayorista Duero (Fase 5)
+
+La captura desde la API de catálogo Shopify puede validar productos, variantes,
+SKU, precios y disponibilidad publicada, pero **no certifica el contexto de
+tienda/código postal**. No se convierte automáticamente `SUCCESS` de
+extracción en `COMPLETE` integrable. El integrador conserva a Duero como
+`PENDIENTE` mientras `store_context_verified=False`.
+
+Una variante sin `units_per_package` no se presume pieza individual: se
+distingue una **CAJA sin unidades** de una presentación no determinada.
+No se inventa el precio unitario.
+
+```powershell
+# No descarga nada y no cambia el master
+& C:\Proyectos\venvs\scraper\Scripts\python.exe .\scripts\audit_duero_phase5.py
+```
+
+El comando genera `output\reportes_integracion\auditoria_duero_fase5_*.csv`
+con presentaciones no determinadas y `*.json` con detalles por categoría,
+verificación de contexto y motivos que impiden integrar. El aviso `FutureWarning`
+de concatenación se corrigió sin cambiar el esquema de salida. La certificación
+del contexto y la interpretación de empaques requieren evidencia observable;
+ningún control debe aprobarse basándose únicamente en la disponibilidad
+de `collections/.../products.json`.
+
 ## Integración por retailer: COMPLETE / PARTIAL
 
 **Regla operativa (19 de octubre de 2026):** no esperar a que todos los retailers de una fase estén completos. Cada retailer se valida por separado. Si todas sus categorías/casos están en `COMPLETE`, pasa los gates de calidad y corresponde a la fecha del master, se agrega o actualiza **únicamente su partición**. Si está `PARTIAL`, incompleto o bloqueado, queda **PENDIENTE** para revisión al cierre de la fase, sin bloquear los demás.
