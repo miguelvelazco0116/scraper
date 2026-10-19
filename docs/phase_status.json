@@ -274,13 +274,14 @@
           "status": "PENDING_LIVE_VALIDATION",
           "categories": {
             "cuidado-bucal": "PENDING",
-            "cuidado-de-la-ropa": "PENDING"
+            "cuidado-de-la-ropa": "PENDING",
+            "antigripales-y-respiratorios": "PENDING"
           },
           "test_command": "& .\\scripts\\test_sams_club.ps1",
           "source_workbook": "output/sams_club_phase5_test.xlsx"
         }
       },
-      "note": "Fase 5: Similares (2), HEB (2), Sam's Club (2). COMPLETE solo con los tres retailers validados en la misma fecha."
+      "note": "Fase 5: Similares (2), HEB (2), Sam's Club (3). COMPLETE solo con los tres retailers validados en la misma fecha."
     }
   }
 }
