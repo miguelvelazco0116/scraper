@@ -896,8 +896,18 @@ def main() -> int:
         f"{len(chedraui_categories)} categorías"
     )
     print(f"Salida    : {OUTPUT_PATH}")
-    print(f"Navegador : {'visible' if args.headed else 'headless'}")
-    print(f"Memoria   : {'LOW-MEMORY' if args.low_memory else 'standard'}")
+    print(
+        "Ibarra    : "
+        f"{'visible' if args.headed else 'headless'}"
+    )
+    print(
+        "Chedraui  : visible | "
+        "Directorio Estado -> Ciudad/Zona -> Tienda"
+    )
+    print(
+        f"Memoria   : "
+        f"{'LOW-MEMORY' if args.low_memory else 'standard'}"
+    )
     print("Publicación: sólo si TODOS los casos quedan COMPLETE")
     print("")
 
