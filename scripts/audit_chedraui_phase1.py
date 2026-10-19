@@ -57,13 +57,15 @@ def _case(frame: pd.DataFrame, summary: pd.DataFrame, *, store_id: str,
           require_store_in_summary: bool) -> dict | None:
     if frame.empty or summary.empty:
         return None
-    if not {"retailer", "category_id", "status", "products"}.issubset(summary):
+    if not {"category_id", "status", "products"}.issubset(summary):
         return None
     cases = summary.loc[
         summary["category_id"].fillna("").astype(str).eq(category_id)
     ]
     if "retailer" in cases:
         cases = cases.loc[cases["retailer"].fillna("").astype(str).eq("Chedraui")]
+    elif require_store_in_summary:
+        return None
     if "store_id" in cases:
         cases = cases.loc[cases["store_id"].map(_normalized_store).eq(store_id)]
     elif require_store_in_summary:
