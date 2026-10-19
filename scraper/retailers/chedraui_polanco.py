@@ -195,7 +195,7 @@ class ChedrauiScraper(BaseChedrauiScraper):
                 try:
                     nodes = page.get_by_role(
                         "button",
-                        name=re.compile(r"^\\s*recoger en esta tienda\\s*$", re.I),
+                        name=re.compile(r"^\s*recoger en esta tienda\s*$", re.I),
                     )
                     observation["role_matches"] = nodes.count()
                     for index in range(min(nodes.count(), 30)):
