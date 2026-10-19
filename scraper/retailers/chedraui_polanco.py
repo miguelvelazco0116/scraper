@@ -33,13 +33,43 @@ class ChedrauiScraper(BaseChedrauiScraper):
 
     def _open_locator(self, page) -> bool:
         selector = "button.chedrauimx-locator-2-x-labelTextAddress"
-        try:
-            page.locator(selector).first.wait_for(state="visible", timeout=7_000)
-            page.locator(selector).first.click(timeout=5_000)
-            page.wait_for_timeout(650)
-            return True
-        except Exception:
-            pass
+
+        # VTEX can render duplicate desktop/mobile header controls. Never trust
+        # .first here: the first DOM match can be hidden while another copy is
+        # visibly showing the currently selected store.
+        for attempt in range(4):
+            try:
+                nodes = page.locator(selector)
+                count = nodes.count()
+            except Exception:
+                count = 0
+
+            self.run_meta["location_button_matches"] = count
+            for index in range(min(count, 20)):
+                try:
+                    button = nodes.nth(index)
+                    if not button.is_visible():
+                        continue
+                    text = self._normalize(
+                        button.inner_text(timeout=1_500)
+                    )
+                    self.run_meta[
+                        "location_button_visible_text"
+                    ] = text[:1_000]
+                    button.click(timeout=5_000)
+                    page.wait_for_timeout(650)
+                    self.run_meta[
+                        "location_button_match_index"
+                    ] = index
+                    return True
+                except Exception:
+                    continue
+
+            if attempt < 3:
+                page.wait_for_timeout(900)
+
+        # Generic fallback for sessions where no store has been selected yet
+        # and the header renders an address CTA instead of the locator class.
         opened = self._click_text(
             page,
             (
