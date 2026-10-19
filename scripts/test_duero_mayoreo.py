@@ -21,6 +21,7 @@ from main import COLUMNS
 from scraper.config import load_categories
 from scraper.io_utils import atomic_output_path
 from duero_pagination_audit import audit_collection
+from duero_packaging import classify_pack
 
 OUTPUT = ROOT / "output" / "duero_mayoreo_phase5_test.xlsx"
 RETAILER = "Mayorista Duero"
@@ -41,19 +42,8 @@ def money(value):
 
 
 def pack_units(title: str, variant_title: str):
-    text = f"{title} {variant_title}"
-    patterns = (
-        r"(?i)\b(?:caja|paquete|pack|display)\s*(?:de|con)?\s*(\d{1,4})\s*(?:pzas?|piezas?|unidades?|uds?|art[ií]culos?)\b",
-        r"(?i)\b(\d{1,4})\s*(?:pzas?|piezas?|unidades?|uds?|art[ií]culos?)\s*(?:por|x|/)\s*(?:caja|paquete|pack)\b",
-    )
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if match:
-            count = int(match.group(1))
-            if 1 <= count <= 1000:
-                return count
-    return None
-
+    """Backward-compatible count helper; preserve evidence-sensitive parser."""
+    return classify_pack(title, variant_title).units
 
 def product_rows(product: dict, category, stamp: str) -> list[dict]:
     title = str(product.get("title") or "").strip()
@@ -76,7 +66,8 @@ def product_rows(product: dict, category, stamp: str) -> list[dict]:
         if not sku:
             # Explicitly distinguish synthetic identifiers from a merchant SKU.
             sku = f"SHOPIFY-VARIANT-{variant.get('id')}" if variant.get("id") else ""
-        units = pack_units(title, variant_title)
+        presentation = classify_pack(title, variant_title)
+        units = presentation.units
         single = units == 1
         availability = variant.get("available")
         available = int(availability) if isinstance(availability, bool) else None
@@ -99,7 +90,7 @@ def product_rows(product: dict, category, stamp: str) -> list[dict]:
             "price_current": price,
             "price_regular": regular,
             "promotion": bool(regular is not None and regular > price),
-            "package_type": "CAJA" if re.search(r"(?i)\bcaja\b", f"{title} {variant_title}") else None,
+            "package_type": presentation.package_type,
             "units_per_package": units,
             "is_single_item": single if units is not None else None,
             "price_per_unit": round(price / units, 4) if units else None,
