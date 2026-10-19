@@ -183,6 +183,39 @@ particiones anteriores, y espera **11,290 filas y 12 retailers** si
 el master actual tiene 10,631. La Fase 5 solo se reportará `COMPLETE`
 al incorporarse Duero junto con Similares, HEB y Sam's Club.
 
+## Auditoría integral del master: fases y retailers reales
+
+La lista de retailers esperados está en
+`scripts/integrate_complete_retailers.py`, `EXPECTED`. Para ver
+**qué está realmente integrado** y no confundir configuración con
+producción, ejecutar:
+
+```powershell
+git pull --ff-only origin main
+python -m unittest discover -s tests -p "test_audit_master_phases.py" -v
+& C:\Proyectos\venvs\scraper\Scripts\python.exe .\scripts\audit_master_phases.py --categories
+```
+
+Este último comando abre el master señalado por
+`output\checkpoints_validos\current_master.json` (o el master del día
+como fallback), lee las pestañas `Concentrado`, `Resumen` y
+`Control` y presenta:
+
+- Todas las fases, con el total efectivo de filas, retailers
+  integrados, casos completos y estatus calculado/control.
+- Los 13 retailers esperados (incluido `PENDIENTE` si no hay datos),
+  filas reales por retailer, casos integrados/esperados, SKU, precios,
+  URLs, disponibilidad `1/0` y contexto de tienda.
+- El detalle por categoría/caso con `--categories`.
+- Inconsistencias entre conteos reportados y capturas o entre
+  `Control` y el estado recalculado.
+
+Deja el CSV `auditoria_master_fases_*.csv` y el JSON homónimo en
+`output\reportes_integracion`. **No modifica el master, puntero,
+fuentes, checkpoints ni filas.** El total esperado tras integrar a
+Duero son 11,290 filas y 12 retailers, pero **solo la lectura del
+master productivo confirma su integración y Fase 5 `COMPLETE`**.
+
 ## Integración por retailer: COMPLETE / PARTIAL
 
 **Regla operativa (19 de octubre de 2026):** no esperar a que todos los retailers de una fase estén completos. Cada retailer se valida por separado. Si todas sus categorías/casos están en `COMPLETE`, pasa los gates de calidad y corresponde a la fecha del master, se agrega o actualiza **únicamente su partición**. Si está `PARTIAL`, incompleto o bloqueado, queda **PENDIENTE** para revisión al cierre de la fase, sin bloquear los demás.
