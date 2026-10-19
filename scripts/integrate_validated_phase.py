@@ -1345,12 +1345,14 @@ def _write_current_master_pointer(
     master_path: Path,
     capture_date: str,
     completed_phases: list[int],
+    accepted_partial_phases: list[int] | None = None,
 ) -> None:
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
         "master": str(master_path),
         "capture_date": capture_date,
         "completed_phases": completed_phases,
+        "accepted_partial_phases": accepted_partial_phases or [],
         "updated_at": datetime.now().astimezone().isoformat(
             timespec="seconds"
         ),
@@ -1472,6 +1474,15 @@ def main() -> int:
         type=int,
         choices=[1, 2, 3, 4, 5],
         required=True,
+    )
+    parser.add_argument(
+        "--allow-partial-previous",
+        action="store_true",
+        help=(
+            "Permite continuar cuando una fase previa está explícitamente "
+            "marcada PARTIAL_VALIDATED. La fase parcial se registra como "
+            "aceptada, pero NO se marca COMPLETE."
+        ),
     )
     parser.add_argument(
         "--retailer",
@@ -1641,6 +1652,7 @@ def main() -> int:
         existing_frame = pd.DataFrame(columns=COLUMNS)
         existing_summary = pd.DataFrame()
         completed = []
+        accepted_partial = []
     else:
         master_path = _read_current_master_pointer()
         if master_path is None:
@@ -1673,19 +1685,48 @@ def main() -> int:
             for x in completed_raw.split("|")
             if x.strip().isdigit()
         ]
+
+        accepted_raw = str(
+            existing_control.iloc[0].get("accepted_partial_phases") or ""
+        )
+        accepted_partial = [
+            int(x)
+            for x in accepted_raw.split("|")
+            if x.strip().isdigit()
+        ]
+
         required_previous = list(range(1, phase))
+
+        # Existing explicit acceptances remain valid for later phases. A new
+        # acceptance can only be created with the command-line override and
+        # only when the master itself says that phase is PARTIAL_VALIDATED.
+        if args.allow_partial_previous:
+            for item in required_previous:
+                if item in completed or item in accepted_partial:
+                    continue
+                status = str(
+                    existing_control.iloc[0].get(
+                        f"phase{item}_status"
+                    )
+                    or ""
+                ).strip().upper()
+                if status == "PARTIAL_VALIDATED":
+                    accepted_partial.append(item)
+
+        accepted_partial = sorted(set(accepted_partial))
+        satisfied_previous = set(completed) | set(accepted_partial)
         missing_previous = [
             item
             for item in required_previous
-            if item not in completed
+            if item not in satisfied_previous
         ]
         if missing_previous:
             missing_text = ", ".join(
                 f"Fase {item}" for item in missing_previous
             )
             print(
-                "ERROR: faltan fases previas validadas en el concentrado: "
-                f"{missing_text}."
+                "ERROR: faltan fases previas validadas o aceptadas "
+                f"como parciales en el concentrado: {missing_text}."
             )
             return 2
 
@@ -1890,6 +1931,31 @@ def main() -> int:
     else:
         completed = [item for item in completed if item != 5]
 
+    accepted_partial = sorted(
+        item for item in set(accepted_partial)
+        if item not in set(completed)
+    )
+
+    previous_phase1_status = ""
+    if phase != 1 and not existing_control.empty:
+        previous_phase1_status = str(
+            existing_control.iloc[0].get("phase1_status") or ""
+        ).strip().upper()
+    phase1_status = (
+        "COMPLETE"
+        if 1 in completed
+        else (
+            previous_phase1_status
+            if previous_phase1_status
+            else "PENDING"
+        )
+    )
+    phase2_status = (
+        "COMPLETE"
+        if 2 in completed
+        else "PENDING"
+    )
+
     control = pd.DataFrame(
         [
             {
@@ -1897,6 +1963,11 @@ def main() -> int:
                 "updated_at": generated_at,
                 "last_phase_added": phase,
                 "completed_phases": "|".join(str(x) for x in completed),
+                "accepted_partial_phases": "|".join(
+                    str(x) for x in accepted_partial
+                ),
+                "phase1_status": phase1_status,
+                "phase2_status": phase2_status,
                 "phase3_status": (
                     "COMPLETE"
                     if 3 in completed
@@ -1993,6 +2064,7 @@ def main() -> int:
         master_path=master_path,
         capture_date=capture_date,
         completed_phases=completed,
+        accepted_partial_phases=accepted_partial,
     )
 
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
@@ -2012,6 +2084,9 @@ def main() -> int:
         "phase_added": phase,
         "retailer_added": retailer_mode,
         "completed_phases": completed,
+        "accepted_partial_phases": accepted_partial,
+        "phase1_status": phase1_status,
+        "phase2_status": phase2_status,
         "phase3_status": control.iloc[0]["phase3_status"],
         "phase3_validated_retailers": phase3_validated_retailers,
         "phase4_status": control.iloc[0]["phase4_status"],
@@ -2045,6 +2120,12 @@ def main() -> int:
     print(f"{display_label} INTEGRADA AL CONCENTRADO")
     print("=" * 80)
     print(f"Fases completadas : {control.iloc[0]['completed_phases']}")
+    print(
+        "Parciales aceptadas: "
+        f"{control.iloc[0]['accepted_partial_phases'] or 'ninguna'}"
+    )
+    print(f"Estado Fase 1     : {control.iloc[0]['phase1_status']}")
+    print(f"Estado Fase 2     : {control.iloc[0]['phase2_status']}")
     print(f"Estado Fase 3     : {control.iloc[0]['phase3_status']}")
     if phase == 3 and retailer_mode:
         print(
