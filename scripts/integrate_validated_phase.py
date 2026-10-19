@@ -594,8 +594,9 @@ def _validate_duero_retailer(
         "retailer", "category_id", "status", "products",
         "pagination_complete", "pagination_verified", "independent_match",
         "terminal_page_limit50", "terminal_page_limit250", "variants_seen_api",
-        "sku_complete", "price_complete",
-        "url_complete", "pack_units_complete", "unit_price_complete",
+        "sku_complete", "merchant_sku_complete", "price_complete",
+        "url_complete", "availability_complete",
+        "pack_units_complete", "unit_price_complete",
         "store_context_verified", "blocked_detected",
     }
     missing = required.difference(summary.columns)
@@ -630,6 +631,20 @@ def _validate_duero_retailer(
         vals = pd.to_numeric(summary[metric], errors="coerce").fillna(0)
         if not all(meets_rate(v, n) for v, n in zip(vals, counts)):
             notes.append(f"Duero {metric} por debajo de umbral")
+    merchant_skus = pd.to_numeric(
+        summary["merchant_sku_complete"], errors="coerce"
+    ).fillna(0)
+    if not all(meets_rate(v, n) for v, n in zip(merchant_skus, counts)):
+        notes.append("Duero SKU reales del comercio por debajo de 90%")
+    avail_complete = pd.to_numeric(
+        summary["availability_complete"], errors="coerce"
+    ).fillna(0)
+    if not all(meets_rate(v, n) for v, n in zip(avail_complete, counts)):
+        notes.append("Duero disponibilidad binaria incompleta")
+    if "is_available" not in frame.columns or not pd.to_numeric(
+        frame["is_available"], errors="coerce"
+    ).isin([0, 1]).all():
+        notes.append("Duero filas sin is_available 1/0")
     if not summary["store_context_verified"].eq(True).all():
         notes.append("Duero contexto de tienda/código postal no verificado")
     if summary["blocked_detected"].eq(True).any():
