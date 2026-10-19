@@ -462,7 +462,10 @@ def main() -> int:
                 "location_button_selector",
                 "location_locator_fallback_clicked",
                 "location_locator_final_url",
+                "pickup_clicked",
                 "directory_clicked",
+                "directory_open_method",
+                "directory_final_selects_visible",
                 "state_selected",
                 "selected_state_label",
                 "city_selected",
@@ -485,6 +488,13 @@ def main() -> int:
             if locator_checks:
                 print("ULTIMOS INTENTOS DE ABRIR UBICACION")
                 for item in locator_checks[-2:]:
+                    print(f"  {item}")
+            directory_checks = scraper.run_meta.get(
+                "directory_open_observations"
+            ) or []
+            if directory_checks:
+                print("ULTIMOS INTENTOS DE ABRIR DIRECTORIO")
+                for item in directory_checks[-4:]:
                     print(f"  {item}")
             header_checks = scraper.run_meta.get(
                 "directory_header_observations"
