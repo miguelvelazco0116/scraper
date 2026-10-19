@@ -185,13 +185,73 @@ class ChedrauiScraper(BaseChedrauiScraper):
 
         return False, last_options, last_selected
 
+    @staticmethod
+    def _directory_control_selected(control) -> bool:
+        """Detect a selected native/custom radio without requiring visibility."""
+        try:
+            if control.is_checked():
+                return True
+        except Exception:
+            pass
+
+        for attribute in ("aria-checked", "data-checked"):
+            try:
+                value = (
+                    control.get_attribute(attribute) or ""
+                ).strip().lower()
+                if value in ("true", "1", "checked", "selected"):
+                    return True
+            except Exception:
+                pass
+
+        try:
+            if control.get_attribute("checked") is not None:
+                return True
+        except Exception:
+            pass
+
+        try:
+            classes = (
+                control.get_attribute("class") or ""
+            ).casefold()
+            if any(
+                token in classes
+                for token in ("selected", "checked", "active")
+            ):
+                return True
+        except Exception:
+            pass
+
+        return False
+
+    def _matched_store_card_is_selected(
+        self,
+        container,
+    ) -> bool:
+        """Return True when the matched store card already owns the selected radio."""
+        selectors = (
+            'input[type="radio"]',
+            '[role="radio"]',
+            '[aria-checked]',
+        )
+        for selector in selectors:
+            try:
+                controls = container.locator(selector)
+                for index in range(min(controls.count(), 12)):
+                    control = controls.nth(index)
+                    if self._directory_control_selected(control):
+                        return True
+            except Exception:
+                continue
+        return False
+
     def _click_configured_store(
         self,
         page,
         location: Location,
         extra_labels: tuple[str, ...] = (),
     ) -> bool:
-        """Select the exact store card, even when its name spans child nodes."""
+        """Select or recognize the exact store card in the directory."""
         tokens = self._location_store_tokens(location)
         labels = tuple(
             dict.fromkeys(
@@ -206,41 +266,18 @@ class ChedrauiScraper(BaseChedrauiScraper):
         )
         self.run_meta["directory_store_labels"] = list(labels)
         self.run_meta["directory_store_tokens"] = list(tokens)
-
-        # First prefer an exact/full-name text node when the storefront exposes
-        # one. This is the cheapest and least ambiguous path.
-        for label in labels:
-            try:
-                nodes = page.get_by_text(label, exact=False)
-                for i in range(min(nodes.count(), 80)):
-                    node = nodes.nth(i)
-                    try:
-                        if not node.is_visible():
-                            continue
-                        text = self._normalize(
-                            node.inner_text(timeout=1_500)
-                        )
-                        if tokens and not all(
-                            token in text for token in tokens
-                        ):
-                            continue
-                        node.click(timeout=5_000)
-                        page.wait_for_timeout(600)
-                        self.run_meta[
-                            "directory_store_match_method"
-                        ] = "direct_text"
-                        return True
-                    except Exception:
-                        continue
-            except Exception:
-                continue
+        self.run_meta["directory_store_already_selected"] = False
+        self.run_meta["directory_store_click_performed"] = False
 
         if not tokens:
+            self.run_meta["directory_store_match_method"] = (
+                "no_store_tokens"
+            )
             return False
 
-        # Store cards commonly split the store name across several descendants.
-        # Start from the rarest/specific token and climb a few ancestors until
-        # a compact visible container contains every meaningful store token.
+        # Store names may be split across descendants. Probe by the most
+        # specific tokens and climb to a compact parent that contains all
+        # meaningful tokens for the configured store.
         probe_tokens = list(reversed(tokens))
         seen_containers: set[str] = set()
 
@@ -259,7 +296,7 @@ class ChedrauiScraper(BaseChedrauiScraper):
                     continue
 
                 current = node
-                for depth in range(0, 7):
+                for depth in range(0, 8):
                     try:
                         text = self._normalize(
                             current.inner_text(timeout=1_500)
@@ -284,11 +321,22 @@ class ChedrauiScraper(BaseChedrauiScraper):
                             "directory_store_match_depth"
                         ] = depth
 
-                        # Prefer a radio/label/card selector inside the matched
-                        # store container. Do not click a generic confirmation
-                        # button here; confirmation remains a separate gate.
+                        # Important for Chedraui: the orange radio can already
+                        # be selected while the underlying native input is
+                        # hidden. Check state before requiring a click.
+                        if self._matched_store_card_is_selected(current):
+                            self.run_meta[
+                                "directory_store_already_selected"
+                            ] = True
+                            self.run_meta[
+                                "directory_store_match_method"
+                            ] = "ancestor_card_already_selected"
+                            return True
+
+                        # Otherwise activate the radio/label belonging to this
+                        # exact card. Hidden native inputs are not clicked
+                        # directly; their visible label/custom radio is used.
                         candidate_selectors = (
-                            'input[type="radio"]',
                             '[role="radio"]',
                             'label',
                             '[role="option"]',
@@ -306,6 +354,9 @@ class ChedrauiScraper(BaseChedrauiScraper):
                                     control.click(timeout=5_000)
                                     page.wait_for_timeout(600)
                                     self.run_meta[
+                                        "directory_store_click_performed"
+                                    ] = True
+                                    self.run_meta[
                                         "directory_store_match_method"
                                     ] = (
                                         "ancestor_card_control:"
@@ -315,10 +366,13 @@ class ChedrauiScraper(BaseChedrauiScraper):
                             except Exception:
                                 continue
 
-                        # Some Chedraui store cards are themselves clickable.
+                        # Some cards are clickable as a whole.
                         try:
                             current.click(timeout=5_000)
                             page.wait_for_timeout(600)
+                            self.run_meta[
+                                "directory_store_click_performed"
+                            ] = True
                             self.run_meta[
                                 "directory_store_match_method"
                             ] = "ancestor_card"
@@ -326,7 +380,7 @@ class ChedrauiScraper(BaseChedrauiScraper):
                         except Exception:
                             pass
 
-                    if depth >= 6:
+                    if depth >= 7:
                         break
                     try:
                         parent = current.locator("xpath=..")
