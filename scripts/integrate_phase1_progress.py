@@ -284,7 +284,9 @@ def main() -> int:
             row.get("category_id"),
             row.get("store_id"),
         )
-        mask = row_keys.eq(key)
+        # Series.eq(tuple) treats the tuple as a list-like operand and
+        # raises "Lengths must be equal". Compare tuple objects row by row.
+        mask = row_keys.map(lambda value: value == key)
         observed = int(mask.sum())
         expected = int(row.get("products") or 0)
         if observed != expected:
