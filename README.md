@@ -1399,3 +1399,17 @@ Abrir selector de ubicación
 ```
 
 No existe una ruta especial por sucursal. Polanco, Tepeyac, Cancún Kabah y Puebla Centro Sur usan la misma función y sólo cambian sus datos de ubicación y el pickup point devuelto por VTEX.
+
+
+### Mayorista Duero — candidato Fase 5 (6 categorías)
+
+El retailer `dueromayoreo.mayoreoenlinea.mx` se añadió como candidato de extracción independiente. Usa un storefront Shopify, distinto al HTML y reglas de navegación de Ibarra. El objetivo es mantener comparabilidad de precios por empaque, sin inferir unidades no verificadas.
+
+Categorías: `cuidado-bucal`, `desodorantes-y-antitranspirantes`, `cuidado-facial-y-corporal`, `farmacia`, `detergentes`, `cloros-y-blanqueadores`.
+
+```powershell
+& .\scripts\test_duero_mayoreo.ps1
+```
+
+El test recorre secuencialmente las colecciones por paginación pública Shopify y escribe `output/duero_mayoreo_phase5_test.xlsx` con hojas `Concentrado` y `Resumen`. **No integra automáticamente**. Antes de incorporar Duero a producción deben validarse el acceso real a las colecciones, la cobertura, las presentaciones/cajas, los SKU y el contexto de tienda/código postal; el integrador rechaza resultados sin contexto de tienda certificado.
+
