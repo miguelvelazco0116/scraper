@@ -82,6 +82,33 @@ solicitud) y `duero_paginacion_*.json` (resultados por categoría).
 Antes de sobrescribir el Excel, guarda un backup en
 `output\checkpoints_validos\before_duero_audit_*.xlsx`.
 
+**Clasificación conservadora de empaques (Duero):** el `title` Shopify
+puede mencionar contenidos de la presentación (p. ej. "Cepillo 4 Pzas"),
+mientras que `variant.title` determina la cantidad vendida ("1 Pieza",
+"Exhibidor de 12 Piezas"). El parser prioriza la variante, reconoce
+`PIEZA`, `EXHIBIDOR`, `CAJA` y otras opciones explícitas, y deja
+`units_per_package` vacío sin evidencia; jamás presupone una unidad.
+La auditoría de workbook señala `RECUPERABLE_DEL_TEXTO` y
+`CONFLICTO_CANTIDAD`, sin editar los datos.
+
+**Conteo real de tienda vs API:** además de los dos recorridos de API,
+comparar el total público de cada categoría con su página HTML en una
+misma ejecución. El script no modifica datos productivos ni acredita
+contexto de código postal:
+
+```powershell
+python -m unittest discover -s tests -p "test_duero_packaging.py" -v
+python -m unittest discover -s tests -p "test_duero_storefront_count.py" -v
+& C:\Proyectos\venvs\scraper\Scripts\python.exe .\scripts\audit_duero_storefront.py -h
+& C:\Proyectos\venvs\scraper\Scripts\python.exe .\scripts\audit_duero_storefront.py --delay-seconds 1
+```
+
+Reportes en `output\reportes_integracion\duero_storefront_*.csv/.json`.
+Una diferencia o ausencia de conteo se registra como observación y
+**no certifica** la equivalencia del catálogo completo. El sitio indica
+que se requiere validar el código postal para comprar; esto es un control
+separado del conteo público.
+
 **Límite del alcance:** la comparación `limit=50/250` verifica
 exhaustividad y estabilidad de la **API pública Shopify**, pero no
 demuestra que la tienda física, el código postal o el conteo visible
