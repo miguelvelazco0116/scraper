@@ -1350,6 +1350,12 @@ class SamsClubScraper:
         ):
             pagination_complete = False
 
+        # An empty scrape cannot prove catalogue pagination completeness.
+        # A visible /ip/ link without an extractable product card is also a
+        # parsing failure, not a successfully exhausted category.
+        if not unique_source:
+            pagination_complete = False
+
         return new_rows, {
             "source_url": source_url,
             "actual_url": page.url,
@@ -1369,7 +1375,7 @@ class SamsClubScraper:
                 int(item.get("pager_scroll_rounds") or 0)
                 for item in page_meta
             ),
-            "stabilized": bool(page_meta),
+            "stabilized": bool(page_meta) and bool(unique_source) and pagination_complete,
             "explicit_pages": max(0, len(page_meta) - 1),
             "explicit_pages_stabilized": pagination_complete,
             "pagination_complete": pagination_complete,
@@ -1733,6 +1739,27 @@ class SamsClubScraper:
             source_meta["source_index"] = source_index
             self.run_meta["sources"].append(source_meta)
 
+            if int(source_meta.get("rows") or 0) == 0:
+                # Keep the actual page and extraction counts for diagnosis.
+                # No synthetic products, CAPTCHA bypasses or source substitutions.
+                self._save_diagnostics(
+                    page,
+                    f"empty_{category.id}_source_{source_index}",
+                )
+                latest = (self.run_meta.get("card_extraction") or [{}])[-1]
+                print(
+                    "SAM'S CLUB EMPTY SOURCE: "
+                    f"category={category.id}, source={source_index}, "
+                    f"actual_url={page.url}, "
+                    f"product_links={source_meta.get('product_links')}, "
+                    f"raw_cards={latest.get('raw_cards')}, "
+                    f"parsed_rows={latest.get('rows')}, "
+                    f"rejected_sku={latest.get('rejected_missing_sku')}, "
+                    f"rejected_price={latest.get('rejected_missing_price')}; "
+                    "diagnostics/sams_club_empty_*.html/.png",
+                    flush=True,
+                )
+
             print(
                 f"Sam's Club source={source_index}/{len(sources)}: "
                 f"rows={source_meta.get('rows')}, "
@@ -1771,12 +1798,15 @@ class SamsClubScraper:
         self.run_meta["coverage"] = coverage
         self.run_meta["coverage_threshold"] = 0.90
 
-        stabilized = all(
-            bool(item.get("stabilized"))
+        sources_meta = self.run_meta.get("sources", [])
+        stabilized = bool(sources_meta) and all(
+            int(item.get("rows") or 0) > 0
+            and int(item.get("product_links") or 0) > 0
+            and not bool(item.get("no_product_links"))
+            and bool(item.get("stabilized"))
             and bool(item.get("explicit_pages_stabilized", True))
             and bool(item.get("pagination_complete"))
-            for item in self.run_meta.get("sources", [])
-            if not item.get("no_product_links")
+            for item in sources_meta
         )
         self.run_meta["pages_visited"] = sum(
             int(item.get("pages_visited") or 0)
