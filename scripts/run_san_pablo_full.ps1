@@ -85,25 +85,21 @@ Write-Host "Consolidado: $ProjectDir\output\concentrado_scraper.xlsx"
 
 if ($code -ne 0) {
     Write-Warning "El test termino con observaciones (exit_code=$code). Revisa la hoja Resumen; el archivo de salida se conserva."
-    exit $code
 }
 
 if ($Category -eq "all") {
     Write-Host ""
-    Write-Host "Fase 4 San Pablo validada. Integrando al concentrado diario..."
-    & ".\scripts\integrate_validated_phase.ps1" `
+    Write-Host "Evaluando retailers completos de Fase 4; parciales quedan pendientes..."
+    & ".\scripts\integrate_complete_retailers.ps1" `
         -Phase 4 `
-        -Retailer "Farmacias San Pablo" `
         -ProjectDir $ProjectDir `
         -PythonExe $PythonExe
 
     $integrationCode = $LASTEXITCODE
     if ($integrationCode -ne 0) {
-        Write-Warning "San Pablo fue validado, pero NO pudo integrarse al concentrado diario."
-        exit $integrationCode
+        Write-Warning "No se pudo actualizar el master de Fase 4."
+        if ($code -eq 0) { $code = $integrationCode }
     }
-
-    Write-Host "FASE 4 SAN PABLO VALIDADA E INTEGRADA AL CONCENTRADO."
 }
 
-exit 0
+exit $code
