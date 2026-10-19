@@ -88,7 +88,7 @@ class SamsEmptyCategoryTests(unittest.TestCase):
         )
         def fake_scrape(self, page, category, location):
             self.run_meta = {
-                "target_products": None, "coverage": None,
+                "target_products": None, "coverage": None, "status": "EMPTY",
                 "pagination_verified": True, "blocked_detected": False,
                 "sources_discovered": 1, "sources": [
                     {"pages_visited": 1, "pagination_method": "ui_numeric_next"}
