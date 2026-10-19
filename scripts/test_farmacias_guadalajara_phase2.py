@@ -100,21 +100,45 @@ def _invalid_product_name(value: object) -> bool:
 
 
 def _summary_is_acceptable(summary: dict) -> bool:
-    products = int(summary.get("products") or 0)
-    target = int(summary.get("target_products") or 0)
-    if products <= 0 or target <= 0:
+    """Reuse only complete, numeric, validated category results.
+
+    Excel loads blank metrics as NaN; bool(float('nan')) is True,
+    so expressions such as int(value or 0) are unsafe.
+    """
+    if str(summary.get("status") or "").strip().upper() != "SUCCESS":
         return False
-    return bool(
-        str(summary.get("status") or "").upper() == "SUCCESS"
-        and meets_rate(products, target)
-        and meets_rate(summary.get("product_name_complete") or 0, products)
-        and valid_after_errors(
-            products,
-            summary.get("product_name_invalid") or 0,
+
+    def metric(name: str) -> int | None:
+        value = pd.to_numeric(summary.get(name), errors="coerce")
+        if pd.isna(value):
+            return None
+        try:
+            return int(value) if float(value) >= 0 else None
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    products = metric("products")
+    target = metric("target_products")
+    if products is None or target is None or products <= 0 or target <= 0:
+        return False
+
+    metrics = {
+        name: metric(name)
+        for name in (
+            "product_name_complete", "product_name_invalid",
+            "sku_complete", "price_complete", "url_complete",
         )
-        and meets_rate(summary.get("sku_complete") or 0, products)
-        and meets_rate(summary.get("price_complete") or 0, products)
-        and meets_rate(summary.get("url_complete") or 0, products)
+    }
+    if any(value is None for value in metrics.values()):
+        return False
+
+    return bool(
+        meets_rate(products, target)
+        and meets_rate(metrics["product_name_complete"], products)
+        and valid_after_errors(products, metrics["product_name_invalid"])
+        and meets_rate(metrics["sku_complete"], products)
+        and meets_rate(metrics["price_complete"], products)
+        and meets_rate(metrics["url_complete"], products)
     )
 
 
