@@ -291,7 +291,9 @@ def main() -> int:
         print("-" * 72)
 
         scraper = ChedrauiScraper(
-            headless=not args.headed,
+            # Store certification uses the visible directory UI:
+            # State -> City/Zone -> exact store.
+            headless=False,
             browser_channel="chrome",
             profile_dir=profile_dir,
             max_pages=args.max_pages,
