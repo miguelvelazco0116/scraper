@@ -210,7 +210,11 @@ def main():
         finally:
             request.dispose()
 
-    consolidated = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=COLUMNS)
+    # Preserve the canonical schema without pandas concat's all-NA dtype warning.
+    consolidated = pd.DataFrame(
+        [row for frame in frames for row in frame.to_dict("records")],
+        columns=COLUMNS,
+    )
     report = pd.DataFrame(summaries)
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     with pd.ExcelWriter(OUTPUT, engine="openpyxl") as writer:
