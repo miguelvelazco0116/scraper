@@ -135,3 +135,12 @@ locations:
     store: HEB online
     store_id: null
     enabled: true
+
+  - id: sams-club-online
+    city: Catálogo online
+    state: Nacional
+    country: México
+    postal_code: null
+    store: Sam's Club online
+    store_id: null
+    enabled: true
