@@ -114,7 +114,7 @@ if ($code -eq 0) {
     } else {
         Write-Host "Fase 2 valida. Integrando automaticamente al concentrado diario..."
 
-        & ".\scripts\integrate_validated_phase.ps1" `
+        & ".\scripts\integrate_complete_retailers.ps1" `
             -Phase 2 `
             -ProjectDir $ProjectDir `
             -PythonExe $PythonExe
@@ -131,6 +131,16 @@ if ($code -eq 0) {
     Write-Warning "La Fase 2 NO fue publicada. El master productivo anterior se conserva."
     Write-Host "Diagnostico: $ProjectDir\diagnostics\phase2_production\last_run.json"
     Write-Host "Log        : $LogPath"
+    if (-not $SkipIntegration) {
+        Write-Host "Integrando retailers completos; parciales quedan pendientes..."
+        & ".\scripts\integrate_complete_retailers.ps1" `
+            -Phase 2 `
+            -ProjectDir $ProjectDir `
+            -PythonExe $PythonExe
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "No se pudieron integrar los retailers completos de Fase 2."
+        }
+    }
 }
 
 try { Stop-Transcript | Out-Null } catch {}
