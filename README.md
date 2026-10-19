@@ -183,6 +183,50 @@ particiones anteriores, y espera **11,290 filas y 12 retailers** si
 el master actual tiene 10,631. La Fase 5 solo se reportará `COMPLETE`
 al incorporarse Duero junto con Similares, HEB y Sam's Club.
 
+## Chedraui: diagnóstico de navegación visible y cierre Fase 1
+
+La selección de tienda debe seguir la UI pública de forma secuencial:
+botón de ubicación visible -> `Recoger en tienda` -> `Directorio de tiendas`
+-> Estado -> Ciudad/Zona -> tarjeta/radio de la sucursal exacta ->
+`Recoger en esta tienda`/confirmación -> texto de sucursal visible
+en el encabezado. Se valida el `store_id` y el contrato
+`chedraui-directory-ui-v3` antes de extraer precios; no se altera
+manualmente la región VTEX ni se omite un paso fallido.
+
+Auditar los **20 casos exigidos** (4 sucursales x 5 categorías)
+sin modificar el master:
+
+```powershell
+cd C:\Proyectos\scraper
+git pull --ff-only origin main
+python -m unittest discover -s tests -p "test_audit_chedraui_phase1.py" -v
+& C:\Proyectos\venvs\scraper\Scripts\python.exe .\scripts\audit_chedraui_phase1.py
+```
+
+Para depurar el recorrido real de Polanco y compararlo con capturas
+manuales, activar capturas opt-in, ejecutar **una sola categoría**
+y apagar el modo de traza:
+
+```powershell
+$env:CHEDRAUI_TRACE_STORE = "1"
+& .\scripts\test_chedraui.ps1 -Category lavanderia -Store chedraui-polanco -Headed
+Remove-Item Env:\CHEDRAUI_TRACE_STORE
+```
+
+Se guardan imágenes sucesivas `01_locator_abierto` hasta
+`08_contexto_verificado` (o `08_contexto_no_verificado`) en
+`diagnostics\chedraui_store_steps\`, con la sucursal en el nombre.
+Las capturas son datos locales de diagnóstico y **no** se suben al
+repositorio. Si aparece CAPTCHA, bloqueo o desafío de identidad,
+se detiene la prueba sin intentar evadirlo.
+
+Las pruebas aisladas no integran ni certifican un retailer completo.
+Para completar Fase 1, Chedraui exige 20 combinaciones validadas;
+la corrida productiva reutiliza los casos válidos del **día**
+almacenados en `output\fase1_progress.xlsx`. El integrador sólo
+actualiza la partición Chedraui cuando toda la matriz ha pasado los
+controles de tienda, SKU, precios y paginación.
+
 ## Auditoría integral del master: fases y retailers reales
 
 La lista de retailers esperados está en
