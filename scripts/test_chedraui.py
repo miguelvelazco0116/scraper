@@ -367,6 +367,16 @@ def main() -> int:
             "store_context_method": (
                 scraper.run_meta.get("store_context_method")
             ),
+            "store_context_contract_version": (
+                scraper.run_meta.get(
+                    "store_context_contract_version"
+                )
+            ),
+            "vtex_region_mutation_skipped": (
+                scraper.run_meta.get(
+                    "vtex_region_mutation_skipped"
+                )
+            ),
             "api_price_pages": len(
                 scraper.run_meta.get("api_price_pages") or []
             ),
@@ -399,6 +409,8 @@ def main() -> int:
             "price_required_complete",
             "store_context_verified",
             "store_context_method",
+            "store_context_contract_version",
+            "vtex_region_mutation_skipped",
             "api_price_pages",
             "structured_price_missing_pages",
             "pagination_gaps",
