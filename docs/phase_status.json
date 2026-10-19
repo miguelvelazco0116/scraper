@@ -182,11 +182,12 @@
     "5": {
       "name": "Fase 5",
       "status": "PARTIAL_VALIDATED",
-      "categories": 7,
+      "categories": 13,
       "retailers": [
         "Farmacias Similares",
         "HEB",
-        "Sam's Club"
+        "Sam's Club",
+        "Mayorista Duero"
       ],
       "retailer_progress": {
         "Farmacias Similares": {
@@ -279,9 +280,25 @@
           },
           "test_command": "& .\\scripts\\test_sams_club.ps1",
           "source_workbook": "output/sams_club_phase5_test.xlsx"
+        },
+        "Mayorista Duero": {
+          "status": "PENDING_LIVE_VALIDATION",
+          "categories": {
+            "cuidado-bucal": "PENDING",
+            "desodorantes-y-antitranspirantes": "PENDING",
+            "cuidado-facial-y-corporal": "PENDING",
+            "farmacia": "PENDING",
+            "detergentes": "PENDING",
+            "cloros-y-blanqueadores": "PENDING"
+          },
+          "source_workbook": "output/duero_mayoreo_phase5_test.xlsx",
+          "test_command": "& .\\scripts\\test_duero_mayoreo.ps1",
+          "integration_command": "& .\\scripts\\integrate_validated_phase.ps1 -Phase 5 -Retailer 'Mayorista Duero'",
+          "strategy": "SHOPIFY_PUBLIC_COLLECTION_JSON_SEQUENTIAL_PAGINATION",
+          "note": "Candidato inicial no validado live. Precio de variante sin inferir empaque; tienda/CP no verificados. Integrador bloquea hasta certificar contexto y presentación."
         }
       },
-      "note": "Fase 5: Similares (2), HEB (2), Sam's Club (3). COMPLETE solo con los tres retailers validados en la misma fecha."
+      "note": "Fase 5: Farmacias Similares 2 + HEB 2 + Sam's Club 3 + Mayorista Duero 6 = 13 categorías. Duero requiere validación live de paginación, empaque y contexto de tienda."
     }
   }
 }
