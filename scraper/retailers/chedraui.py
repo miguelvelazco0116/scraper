@@ -14,6 +14,7 @@ from ..config import Category, Location
 from ..parsers import absolute_url, clean_text, extract_sku, parse_money
 
 BASE_URL = "https://www.chedraui.com.mx/"
+STORE_CONTEXT_CONTRACT_VERSION = "chedraui-store-context-v2"
 PRODUCT_SELECTOR = 'a[href$="/p"], a[href*="/p?"]'
 BLOCK_MARKERS = (
     "access denied",
@@ -1206,6 +1207,9 @@ class ChedrauiScraper:
                 )
                 self.run_meta["store_context_verified"] = True
                 self.run_meta["store_context_method"] = self._active_store_context_method
+                self.run_meta["store_context_contract_version"] = (
+                    STORE_CONTEXT_CONTRACT_VERSION
+                )
                 self.run_meta["store_id"] = location.store_id
                 self.run_meta["store"] = location.store
 
