@@ -614,7 +614,7 @@ class ChedrauiScraper(BaseChedrauiScraper):
                             item.inner_text(timeout=1_000)
                         )
                         if not re.fullmatch(
-                            r"directorio de tiendas(?:\\s*[›»>])?",
+                            r"directorio de tiendas(?:\s*[›»>])?",
                             label,
                         ):
                             continue
