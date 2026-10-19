@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-16",
+  "updated_at": "2026-10-18",
   "operating_rule": "A validated phase remains validated and must not be reworked unless a new concrete failure proves necessary. A pending phase is added only after a successful live Windows Server run.",
   "phases": {
     "1": {
@@ -182,10 +182,11 @@
     "5": {
       "name": "Fase 5",
       "status": "PARTIAL_VALIDATED",
-      "categories": 4,
+      "categories": 6,
       "retailers": [
         "Farmacias Similares",
-        "HEB"
+        "HEB",
+        "Sam's Club"
       ],
       "retailer_progress": {
         "Farmacias Similares": {
@@ -268,9 +269,18 @@
             "rule": "Only mark verified when a concrete selected HEB store is deterministically exposed by the existing browser session. Generic selectors such as 'Selecciona tu tienda' are rejected; conflicting store evidence is rejected.",
             "integration_gate": "100% of HEB rows must have store_context_verified=true, a non-empty method, and one concrete store shared across both categories."
           }
+        },
+        "Sam's Club": {
+          "status": "PENDING_LIVE_VALIDATION",
+          "categories": {
+            "cuidado-bucal": "PENDING",
+            "cuidado-de-la-ropa": "PENDING"
+          },
+          "test_command": "& .\\scripts\\test_sams_club.ps1",
+          "source_workbook": "output/sams_club_phase5_test.xlsx"
         }
       },
-      "note": "Fase 5 contiene 4 retailer-categorías: Farmacias Similares 2 + HEB 2. Queda COMPLETE sólo cuando ambos retailers estén validados e integrados para la misma fecha. La Comer permanece fuera de Fase 5."
+      "note": "Fase 5: Similares (2), HEB (2), Sam's Club (2). COMPLETE solo con los tres retailers validados en la misma fecha."
     }
   }
 }
