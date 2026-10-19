@@ -185,18 +185,6 @@ class ChedrauiScraper(BaseChedrauiScraper):
 
         return False, last_options, last_selected
 
-    @staticmethod
-    def _expected_pickup_value(location: Location) -> str | None:
-        """Build VTEX pickup-point value from the configured Chedraui store id."""
-        if not location.store_id:
-            return None
-        raw = str(location.store_id).strip()
-        if not raw.isdigit():
-            return None
-        numeric = int(raw)
-        return (
-            f"chedrauimx{numeric:04d}_PP{numeric:04d}"
-        )
 
     def _click_store_radio_by_id(
         self,
