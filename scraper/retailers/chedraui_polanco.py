@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import math
+import os
 import re
+from datetime import datetime
+from pathlib import Path
 
 from .chedraui import (
     PRODUCT_SELECTOR,
@@ -14,6 +17,32 @@ from ..config import Location
 
 class ChedrauiScraper(BaseChedrauiScraper):
     """Chedraui scraper using one live VTEX directory flow for every store."""
+
+    def _trace_directory_step(self, page, location: Location, step: str) -> None:
+        """Optional screenshots for troubleshooting visible UI; never alter state."""
+        if os.environ.get("CHEDRAUI_TRACE_STORE", "").strip() != "1":
+            return
+        try:
+            destination = (
+                Path(self.diagnostics_dir) / "chedraui_store_steps"
+            )
+            destination.mkdir(parents=True, exist_ok=True)
+            label = re.sub(r"[^a-zA-Z0-9_-]", "_", str(step))[:60]
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            path = destination / (
+                f"store{location.store_id}_{timestamp}_{label}.png"
+            )
+            page.screenshot(
+                path=str(path), full_page=False, timeout=10_000,
+            )
+            self.run_meta.setdefault("directory_ui_screenshots", []).append(
+                str(path)
+            )
+            print(f"CHEDRAUI UI TRACE [{step}]: {path}", flush=True)
+        except Exception as exc:
+            self.run_meta.setdefault("directory_ui_trace_errors", []).append(
+                f"{step}: {type(exc).__name__}: {exc}"
+            )
 
     def _accept_cookies(self, page) -> bool:
         clicked = False
@@ -489,6 +518,7 @@ class ChedrauiScraper(BaseChedrauiScraper):
 
         opened = self._open_locator(page)
         self.run_meta["location_button_opened"] = opened
+        self._trace_directory_step(page, location, "01_locator_abierto")
         if not opened:
             self._save_diagnostics(page, "store_location_button_not_found")
             return False, None
@@ -499,12 +529,14 @@ class ChedrauiScraper(BaseChedrauiScraper):
         )
         self.run_meta["pickup_clicked"] = pickup_clicked
         page.wait_for_timeout(500)
+        self._trace_directory_step(page, location, "02_opcion_recoger")
 
         directory_clicked = self._click_text(
             page,
             ("Directorio de tiendas",),
         )
         self.run_meta["directory_clicked"] = directory_clicked
+        self._trace_directory_step(page, location, "03_directorio")
         if not directory_clicked:
             self._save_diagnostics(page, "store_directory_not_found")
             return False, None
@@ -552,6 +584,7 @@ class ChedrauiScraper(BaseChedrauiScraper):
             )
             if state_selected:
                 page.wait_for_timeout(1_000)
+            self._trace_directory_step(page, location, "04_estado")
 
             city_selected, city_options, city_label = (
                 self._select_directory_option_with_retry(
@@ -569,6 +602,7 @@ class ChedrauiScraper(BaseChedrauiScraper):
             )
             if city_selected:
                 page.wait_for_timeout(1_400)
+            self._trace_directory_step(page, location, "05_ciudad_zona")
         except Exception as exc:
             self.run_meta["directory_select_error"] = str(exc)
 
@@ -611,6 +645,7 @@ class ChedrauiScraper(BaseChedrauiScraper):
         )
         self.run_meta["store_clicked"] = store_clicked
         page.wait_for_timeout(700)
+        self._trace_directory_step(page, location, "06_tienda_seleccionada")
 
         confirmed = (
             self._click_enabled_pickup_button(page)
@@ -632,6 +667,7 @@ class ChedrauiScraper(BaseChedrauiScraper):
             )
         self.run_meta["pickup_confirmed"] = confirmed
         page.wait_for_timeout(1_500)
+        self._trace_directory_step(page, location, "07_tienda_confirmada")
 
         if not store_clicked:
             self.run_meta["directory_selection_failure"] = (
@@ -654,6 +690,7 @@ class ChedrauiScraper(BaseChedrauiScraper):
             return False, None
 
         verified, method = self._verify_store_context(page, location)
+        self._trace_directory_step(page, location, "08_contexto_verificado" if verified else "08_contexto_no_verificado")
         if verified:
             return True, f"{method}_after_directory_ui"
 
