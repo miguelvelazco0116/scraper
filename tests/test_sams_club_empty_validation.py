@@ -32,10 +32,10 @@ def fake_source(rows, *, product_links, source_url="https://www.sams.com.mx/brow
 
 
 class SamsEmptyCategoryTests(unittest.TestCase):
-    def test_empty_source_does_not_prove_pagination(self):
+    def test_visible_product_links_without_extracted_rows_do_not_prove_pagination(self):
         scraper = SamsClubScraper()
         saved = []
-        scraper._collect_source = lambda *args: fake_source([], product_links=0)
+        scraper._collect_source = lambda *args: fake_source([], product_links=12)
         scraper._save_diagnostics = lambda page, prefix: saved.append(prefix)
         category = SimpleNamespace(
             id="cuidado-bucal", url="https://www.sams.com.mx/browse/test",
