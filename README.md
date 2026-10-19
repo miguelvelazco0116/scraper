@@ -50,6 +50,32 @@ Farmacias Guadalajara ya está validado y productivo dentro de Fase 2.
 
 La Comer está implementado pero sigue fuera del runner principal hasta completar validación live.
 
+## Integración por retailer: COMPLETE / PARTIAL
+
+**Regla operativa (19 de octubre de 2026):** no esperar a que todos los retailers de una fase estén completos. Cada retailer se valida por separado. Si todas sus categorías/casos están en `COMPLETE`, pasa los gates de calidad y corresponde a la fecha del master, se agrega o actualiza **únicamente su partición**. Si está `PARTIAL`, incompleto o bloqueado, queda **PENDIENTE** para revisión al cierre de la fase, sin bloquear los demás.
+
+El master se guarda atómicamente, se genera un checkpoint y se respalda el archivo anterior. No se mezclan fechas; las reintegraciones reemplazan la partición del retailer sin duplicarla.
+
+```powershell
+# Vista previa sin modificar el master
+& .\scripts\integrate_complete_retailers.ps1 -Phase 4 -Preview
+
+# Integración real de retailers completos
+& .\scripts\integrate_complete_retailers.ps1 -Phase 4
+
+# Aplica también a las demás fases
+& .\scripts\integrate_complete_retailers.ps1 -Phase 1
+& .\scripts\integrate_complete_retailers.ps1 -Phase 2
+& .\scripts\integrate_complete_retailers.ps1 -Phase 3
+& .\scripts\integrate_complete_retailers.ps1 -Phase 5
+```
+
+Los runners de las Fases 1, 2 y 3 invocan la integración incremental al finalizar, incluso si otros retailers quedaron parciales. En Fases 2 y 3, `-SkipIntegration` permite omitirla. Para Fases 4 y 5 se usa el comando al finalizar los tests de retailers.
+
+**Lista de retailers agregados:** se imprime `AGREGADO`, `ACTUALIZADO` o `PENDIENTE`, con productos y motivo. También se guarda CSV y JSON en `output\reportes_integracion\retailers_faseN_YYYYMMDD_HHMMSS_ffffff.*`.
+
+`AGREGADO` es nuevo en el master; `ACTUALIZADO` reemplaza la partición ya existente del mismo día. `PENDIENTE` no modifica los datos de ese retailer. La Fase 1 puede quedar `PARTIAL_VALIDATED` mientras se integran las fases posteriores.
+
 ## Producción por fases — recomendada para servidor de 4 GB
 
 Para reducir consumo de memoria, la operación productiva se ejecuta y consolida por checkpoints:
