@@ -178,11 +178,17 @@ def run_category(category, location, page):
         coverage is not None and float(coverage) >= 0.90
     )
     pagination_verified = bool(meta.get("pagination_verified"))
+    # Never certify a category with zero product rows, even when the
+    # storefront hides its target count or appears to have no "next" page.
     catalogue_gate_ok = bool(
-        coverage_ok
-        or (
-            target_products in (None, 0)
-            and pagination_verified
+        len(df) > 0
+        and not bool(meta.get("blocked_detected"))
+        and (
+            coverage_ok
+            or (
+                target_products in (None, 0)
+                and pagination_verified
+            )
         )
     )
     price_audit = audit_visible_prices(df, category.id)
@@ -353,6 +359,7 @@ def _summary_is_acceptable(summary: dict) -> bool:
         and meets_rate(summary.get("url_complete") or 0, products)
         and summary.get("sources_discovered") == summary.get("sources_visited")
         and bool(summary.get("catalogue_gate_ok"))
+        and bool(summary.get("pagination_verified"))
         and valid_after_errors(
             products,
             summary.get("price_validation_errors") or 0,
@@ -654,7 +661,7 @@ def main() -> int:
         for category in categories:
             if category.id in results:
                 print(
-                    f"BODEGA | {category.id}: "
+                    f"SAM'S CLUB | {category.id}: "
                     "YA VÁLIDA HOY, SE OMITE DESCARGA."
                 )
                 continue
