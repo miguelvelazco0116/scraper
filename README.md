@@ -138,6 +138,51 @@ del contexto y la interpretación de empaques requieren evidencia observable;
 ningún control debe aprobarse basándose únicamente en la disponibilidad
 de `collections/.../products.json`.
 
+## Cierre de Fase 5: Mayorista Duero (catálogo online auditado)
+
+Duero puede integrarse **con aprobación explícita del operador** como
+catálogo **ONLINE PÚBLICO**, conservando la distinción entre el precio
+publicado y una tarifa específica del código postal:
+
+- Seis categorías: 485 productos HTML/API coincidentes, 659 variantes.
+- Doble paginación API (50/250) con páginas terminales vacías.
+- 659/659 cantidades de empaque y precios unitarios identificados.
+- Disponibilidad API normalizada en `is_available` (1/0).
+- El operador constató manualmente `Delivery is available to 59690` y
+  que precio/presentación de un producto observado eran correctos.
+  **Eso NO certifica los 659 precios ni el inventario para CP 59690.**
+- Se mantiene `store_context_verified=False`, `postal_code=None` y
+  `store_context_method=public_collection_api_no_postal_code` en las
+  filas. El `Resumen` registra `integration_scope`,
+  `manual_delivery_cp`, `postal_price_verified=False` y rutas a
+  los JSON de auditoría del día.
+
+La opción `-ApproveDueroOnline` **solo se aplica a Fase 5** y obliga a
+comprobar los reportes del mismo día en
+`output\reportes_integracion\duero_paginacion_*.json`,
+`duero_storefront_*.json` y `auditoria_duero_fase5_*.json`.
+Sin esa aprobación, continúa el control estricto que impide integrar
+Duero cuando falta verificación de tienda/CP.
+
+```powershell
+cd C:\Proyectos\scraper
+git pull --ff-only origin main
+
+python -m unittest discover -s tests -p "test_duero_online_integration.py" -v
+
+# Primero previsualizar. Duero debe aparecer AGREGADO 659,
+# no PENDIENTE, y los tres retailers previos ACTUALIZADOS.
+& .\scripts\integrate_complete_retailers.ps1 -Phase 5 -Preview -ApproveDueroOnline
+
+# Solo si el preview es correcto:
+& .\scripts\integrate_complete_retailers.ps1 -Phase 5 -ApproveDueroOnline
+```
+
+La integración conserva copias inmutables y checkpoint, no recuenta
+particiones anteriores, y espera **11,290 filas y 12 retailers** si
+el master actual tiene 10,631. La Fase 5 solo se reportará `COMPLETE`
+al incorporarse Duero junto con Similares, HEB y Sam's Club.
+
 ## Integración por retailer: COMPLETE / PARTIAL
 
 **Regla operativa (19 de octubre de 2026):** no esperar a que todos los retailers de una fase estén completos. Cada retailer se valida por separado. Si todas sus categorías/casos están en `COMPLETE`, pasa los gates de calidad y corresponde a la fecha del master, se agrega o actualiza **únicamente su partición**. Si está `PARTIAL`, incompleto o bloqueado, queda **PENDIENTE** para revisión al cierre de la fase, sin bloquear los demás.
