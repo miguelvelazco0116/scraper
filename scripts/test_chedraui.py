@@ -419,6 +419,35 @@ def main() -> int:
             "price_order_errors",
         ):
             print(f"{key:32}: {summary.get(key)}")
+        if status == "STORE_CONTEXT_ERROR":
+            print("DIAGNOSTICO DE SELECCION DE TIENDA")
+            for key in (
+                "location_button_opened",
+                "directory_clicked",
+                "state_selected",
+                "selected_state_label",
+                "city_selected",
+                "selected_city_label",
+                "store_clicked",
+                "directory_store_match_method",
+                "directory_store_expected_pickup_value",
+                "directory_store_radio_matches",
+                "directory_store_radio_verified",
+                "pickup_confirmed",
+                "directory_header_matched_after_confirmation",
+                "visible_store_control_text",
+                "directory_selection_failure",
+                "directory_ui_steps",
+            ):
+                print(f"{key:42}: {scraper.run_meta.get(key)}")
+            header_checks = scraper.run_meta.get(
+                "directory_header_observations"
+            ) or []
+            if header_checks:
+                print("ULTIMAS VERIFICACIONES DE ENCABEZADO")
+                for item in header_checks[-4:]:
+                    print(f"  {item}")
+            print("Metadatos: diagnostics\\chedraui_run_meta.json")
         print(f"Output: {output_path}")
         print("")
 
