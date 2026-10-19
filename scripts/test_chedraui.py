@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 import time
 from copy import copy
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -270,6 +272,19 @@ def main() -> int:
         / f"chedraui_{args.store.removeprefix('chedraui-').replace('-', '_')}_test.xlsx"
     )
 
+    # Isolated test workbooks are mutable. Archive the previous capture
+    # before a new test can replace it with EMPTY/STORE_CONTEXT_ERROR.
+    if output_path.exists():
+        checkpoint_dir = ROOT / "output" / "checkpoints_validos"
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        previous_capture = checkpoint_dir / (
+            f"before_chedraui_{args.store.removeprefix('chedraui-')}_"
+            f"{stamp}.xlsx"
+        )
+        shutil.copy2(output_path, previous_capture)
+        print(f"Respaldo de captura anterior: {previous_capture}")
+
     all_rows: list[dict] = []
     summaries: list[dict] = []
 
@@ -423,6 +438,10 @@ def main() -> int:
             print("DIAGNOSTICO DE SELECCION DE TIENDA")
             for key in (
                 "location_button_opened",
+                "location_button_matches",
+                "location_button_selector",
+                "location_locator_fallback_clicked",
+                "location_locator_final_url",
                 "directory_clicked",
                 "state_selected",
                 "selected_state_label",
@@ -440,6 +459,13 @@ def main() -> int:
                 "directory_ui_steps",
             ):
                 print(f"{key:42}: {scraper.run_meta.get(key)}")
+            locator_checks = scraper.run_meta.get(
+                "location_locator_attempts"
+            ) or []
+            if locator_checks:
+                print("ULTIMOS INTENTOS DE ABRIR UBICACION")
+                for item in locator_checks[-2:]:
+                    print(f"  {item}")
             header_checks = scraper.run_meta.get(
                 "directory_header_observations"
             ) or []
