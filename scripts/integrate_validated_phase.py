@@ -72,8 +72,9 @@ PHASES = {
         "retailers": {
             "Farmacias Similares",
             "HEB",
+            "Sam's Club",
         },
-        "categories": 4,
+        "categories": 6,
         "require_fg_names": False,
     },
 } 
@@ -108,6 +109,10 @@ PHASE5_RETAILER_SOURCES = {
     },
     "HEB": {
         "source": ROOT / "output" / "heb_phase5_test.xlsx",
+        "categories": 2,
+    },
+    "Sam's Club": {
+        "source": ROOT / "output" / "sams_club_phase5_test.xlsx",
         "categories": 2,
     },
 }
@@ -565,6 +570,91 @@ def _validate_benavides_phase(
         )
 
     return notes
+
+
+def _validate_sams_retailer(
+    frame: pd.DataFrame,
+    summary: pd.DataFrame,
+) -> list[str]:
+    notes: list[str] = []
+
+    if frame.empty:
+        notes.append("Concentrado Sam's Club vacío")
+    if len(summary) != 2:
+        notes.append(f"Sam's Club categorías {len(summary)}/2")
+        return notes
+
+    retailers = set(summary["retailer"].dropna().astype(str))
+    if retailers != {"Sam's Club"}:
+        notes.append(
+            f"Retailers Sam's Club inesperados: {sorted(retailers)}"
+        )
+
+    if not summary["status"].astype(str).str.upper().eq("SUCCESS").all():
+        notes.append("Sam's Club tiene categorías no SUCCESS")
+
+    products = pd.to_numeric(
+        summary["products"], errors="coerce"
+    ).fillna(-1)
+    if int(products.sum()) != len(frame):
+        notes.append(
+            f"Sam's Club suma products={int(products.sum())} != filas={len(frame)}"
+        )
+
+    for metric in ("sku_complete", "price_complete", "url_complete"):
+        if metric not in summary.columns:
+            notes.append(f"Sam's Club sin {metric}")
+            continue
+        values = pd.to_numeric(
+            summary[metric], errors="coerce"
+        ).fillna(-2)
+        if not all(
+            meets_rate(value, total)
+            for value, total in zip(values, products)
+        ):
+            notes.append(f"Sam's Club {metric} < 90%")
+
+    if "sources_discovered" not in summary.columns or "sources_visited" not in summary.columns:
+        notes.append("Sam's Club sin métricas de fuentes")
+    else:
+        discovered = pd.to_numeric(
+            summary["sources_discovered"], errors="coerce"
+        ).fillna(-1)
+        visited = pd.to_numeric(
+            summary["sources_visited"], errors="coerce"
+        ).fillna(-2)
+        if not discovered.eq(visited).all():
+            notes.append("Sam's Club fuentes descubiertas != visitadas")
+
+    if "catalogue_gate_ok" not in summary.columns:
+        notes.append("Sam's Club sin catalogue_gate_ok")
+    elif not summary["catalogue_gate_ok"].map(bool).all():
+        notes.append("Sam's Club coverage/pagination gate incompleto")
+
+    if "pagination_verified" in summary.columns:
+        target = pd.to_numeric(
+            summary.get("target_products"),
+            errors="coerce",
+        )
+        no_target = target.isna() | target.eq(0)
+        pagination_ok = summary["pagination_verified"].map(bool)
+        if not pagination_ok.loc[no_target].all():
+            notes.append("Sam's Club paginación no verificada sin target")
+
+    if "price_validation_errors" not in summary.columns:
+        notes.append("Sam's Club sin price_validation_errors")
+    else:
+        errors = pd.to_numeric(
+            summary["price_validation_errors"], errors="coerce"
+        ).fillna(-1)
+        if not all(
+            valid_after_errors(total, error)
+            for total, error in zip(products, errors)
+        ):
+            notes.append("Sam's Club validación de precios < 90%")
+
+    return notes
+
 
 
 def _validate_similares_phase(
@@ -1493,6 +1583,7 @@ def main() -> int:
             "Farmacias Benavides",
             "Farmacias Similares",
             "HEB",
+            "Sam's Club",
         ],
         help=(
             "Integra un retailer validado dentro de Fase 3, Fase 4 "
@@ -1587,6 +1678,9 @@ def main() -> int:
             phase_frame,
             phase_summary,
         )
+    elif phase == 5 and retailer_mode == "Sam's Club":
+        phase_frame, phase_summary, phase_control = _read_workbook_optional_control(source)
+        notes = _validate_sams_retailer(phase_frame, phase_summary)
     elif phase == 5 and retailer_mode == "HEB":
         phase_frame, phase_summary, phase_control = (
             _read_workbook_optional_control(source)
