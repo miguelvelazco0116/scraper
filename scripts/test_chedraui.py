@@ -22,6 +22,7 @@ from scraper.retailers.chedraui import (
     ChedrauiStoreContextError,
 )
 from scraper.retailers.chedraui_polanco_api import ChedrauiScraper
+from chedraui_case_cache import persist_case, seed_from_prior_test
 
 
 OUTPUT_PATH = ROOT / "output" / "chedraui_test.xlsx"
@@ -285,6 +286,13 @@ def main() -> int:
         shutil.copy2(output_path, previous_capture)
         print(f"Respaldo de captura anterior: {previous_capture}")
 
+    today = datetime.now().astimezone().date().isoformat()
+    recovered = seed_from_prior_test(
+        ROOT, output_path, store_id=str(location.store_id), day=today
+    )
+    for archived in recovered:
+        print(f"Caso COMPLETE anterior recuperado: {archived}")
+
     all_rows: list[dict] = []
     summaries: list[dict] = []
 
@@ -412,6 +420,18 @@ def main() -> int:
             "error": error,
         }
         summaries.append(summary)
+        if status == "COMPLETE":
+            try:
+                validated_checkpoint = persist_case(
+                    ROOT, frame, summary,
+                    store_id=str(location.store_id), day=today,
+                )
+                print(f"Checkpoint validado independiente: {validated_checkpoint}")
+            except ValueError as exc:
+                status = "PARTIAL"
+                summary["status"] = "PARTIAL"
+                summary["error"] = str(exc)
+                print(f"ADVERTENCIA: {exc}")
         _write_output(all_rows, summaries, output_path)
 
         print("RESULTADO")
