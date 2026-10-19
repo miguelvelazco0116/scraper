@@ -52,6 +52,42 @@ La Comer está implementado pero sigue fuera del runner principal hasta completa
 
 ## Auditoría de Mayorista Duero (Fase 5)
 
+**Paginación reforzada:** una respuesta de Shopify con menos de 250
+productos NO demuestra que se agotó el catálogo. La prueba solicita
+**todas las páginas** de cada categoría en dos recorridos independientes:
+primero `limit=50`, luego `limit=250`. Ambos deben encontrar una
+**página terminal vacía explícita**, sin saltos ni IDs duplicados, y
+coincidir exactamente en los IDs de producto, variantes, SKU, precio
+y disponibilidad. Una inconsistencia obliga a dejar la categoría
+`PARTIAL`. Los recorridos usan pausa configurable y no descargan en paralelo.
+
+```powershell
+git pull --ff-only origin main
+
+# Pruebas locales de reglas de paginación (sin conectarse al sitio)
+python -m unittest discover -s tests -p "test_duero_pagination_audit.py" -v
+
+# Captura y auditoría exhaustiva de las 6 categorías de Duero
+& .\scripts\test_duero_mayoreo.ps1 -MaxPages 30 -DelaySeconds 1
+
+# Auditoría secundaria de empaque/tienda sobre el Excel (sin descargar)
+& C:\Proyectos\venvs\scraper\Scripts\python.exe .\scripts\audit_duero_phase5.py
+```
+
+La captura deja evidencia en el workbook
+`output\duero_mayoreo_phase5_test.xlsx` (pestaña
+`AuditoriaPaginacion`) y dos informes:
+`output\reportes_integracion\duero_paginacion_*.csv` (solicitud por
+solicitud) y `duero_paginacion_*.json` (resultados por categoría).
+Antes de sobrescribir el Excel, guarda un backup en
+`output\checkpoints_validos\before_duero_audit_*.xlsx`.
+
+**Límite del alcance:** la comparación `limit=50/250` verifica
+exhaustividad y estabilidad de la **API pública Shopify**, pero no
+demuestra que la tienda física, el código postal o el conteo visible
+del storefront sean equivalentes. Hasta validar esa evidencia y las
+unidades por caja, Duero permanece PENDIENTE y el master NO se modifica.
+
 La captura desde la API de catálogo Shopify puede validar productos, variantes,
 SKU, precios y disponibilidad publicada, pero **no certifica el contexto de
 tienda/código postal**. No se convierte automáticamente `SUCCESS` de
