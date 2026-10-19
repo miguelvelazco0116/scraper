@@ -695,7 +695,7 @@ Implementación por fase:
 - **Fase 2:** `farmacias_guadalajara_phase2_test.xlsx` y `soriana_manual_phase2_test.xlsx` conservan categorías exitosas del día; el runner productivo ya no borra estos checkpoints.
 - **Fase 3:** Bodega Aurrera y Walmart reutilizan categorías válidas del día; el runner productivo ya no elimina sus workbooks antes de ejecutarse.
 - **Fase 4:** San Pablo y Benavides conservan categorías válidas del día y sólo ejecutan las pendientes.
-- **Fase 5:** Farmacias Similares y HEB se integran de forma incremental por retailer. Ambos conservan categorías válidas del día, reintentan sólo las pendientes y usan el umbral >=90%. HEB tiene dos categorías activas: `higiene-dental` y `lavanderia`. Higiene Dental conserva su muestra live 272/272 del día y Lavandería queda pendiente de validación live. La Comer permanece fuera de Fase 5.
+- **Fase 5:** Farmacias Similares (2 categorías), HEB (2), Sam's Club (3) y Mayorista Duero (6) se evalúan individualmente mediante `integrate_complete_retailers.ps1 -Phase 5`. Se integra exclusivamente cada retailer `COMPLETE` del día; los parciales no bloquean los completos. Se conserva el umbral de calidad >=90% donde corresponde, junto con gates específicos de tienda, paginación y promociones. La Comer permanece fuera de Fase 5.
 
 El umbral común está centralizado en:
 
@@ -1296,7 +1296,7 @@ Después de una validación live satisfactoria:
 & .\scripts\integrate_validated_phase.ps1 -Phase 5 -Retailer "HEB"
 ```
 
-Fase 5 sólo queda `COMPLETE` cuando Farmacias Similares y HEB están integrados para la misma fecha.
+Fase 5 sólo queda `COMPLETE` cuando **Farmacias Similares, HEB, Sam's Club y Mayorista Duero** están integrados para la misma fecha. Cada retailer completo puede sumarse antes de que los demás terminen.
 
 ## La Comer
 
