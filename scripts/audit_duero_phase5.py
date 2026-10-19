@@ -127,7 +127,7 @@ def audit(path: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
         "dual_pagination_verified": audited_pagination,
         "integration_ready": bool(
             audited_pagination
-            captured_status == {"SUCCESS"}
+            and captured_status == {"SUCCESS"}
             and len(summary) == 6
             and int(missing_box.sum()) == 0
             and int(invalid_unit_price.sum()) == 0
