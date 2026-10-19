@@ -183,6 +183,45 @@ particiones anteriores, y espera **11,290 filas y 12 retailers** si
 el master actual tiene 10,631. La Fase 5 solo se reportará `COMPLETE`
 al incorporarse Duero junto con Similares, HEB y Sam's Club.
 
+### Checkpoints aislados por categoría (2026-10-19)
+
+La prueba de Chedraui Polanco fue `COMPLETE` para lavandería
+(348 filas) e higiene bucal (293 filas), pero una ejecución intermedia
+falló y sobrescribió `chedraui_polanco_test.xlsx`. Las capturas
+anteriores no se reconstruyen ni se dan por conservadas automáticamente.
+
+A partir de esta versión, cada ejecución aislada **COMPLETE**
+guarda un checkpoint separado por sucursal y categoría en
+`output\checkpoints_validos\chedraui_cases\<store_id>\<category_id>_<timestamp>.xlsx`.
+Antes de sobrescribir la prueba existente, recupera los casos
+`COMPLETE` del workbook previo **solo si sus filas coinciden con
+el retailer, tienda, categoría y fecha actual** y validan
+SKU, URL, precio requerido, disponibilidad 1/0, contexto y
+paginación sin incidencias. Los casos fallidos nunca invalidan
+checkpoints previos. Cada checkpoint incluye `Concentrado`,
+`Resumen` y `Control` y no es un archivo productivo.
+
+El runner de Fase 1 puede reutilizar estos checkpoints del día
+en los casos faltantes, priorizando los casos completos de
+`fase1_progress.xlsx` o del master de Fase 1. No reutiliza
+checkpoints de otros días, tiendas o categorías.
+
+```powershell
+cd C:\Proyectos\scraper
+git pull --ff-only origin main
+python -m unittest discover -s tests -p "test_chedraui_case_cache.py" -v
+
+# Prueba por categoría, conserva la higiene bucal previa si es válida hoy
+& .\scripts\test_chedraui.ps1 -Category lavanderia -Store chedraui-polanco -Headed
+
+# Verifica snapshots que sobreviven a fallos posteriores
+Get-ChildItem .\output\checkpoints_validos\chedraui_cases\232\*.xlsx
+```
+
+No volver a ejecutar todas las 20 combinaciones solo para recuperar
+una categoría con `COMPLETE`; ejecutar las pendientes y luego
+la corrida productiva de Fase 1 para integrar con controles.
+
 ## Chedraui: diagnóstico de navegación visible y cierre Fase 1
 
 ### Fallo intermitente `location_button_opened=False` (2026-10-19)
