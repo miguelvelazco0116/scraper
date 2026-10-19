@@ -538,10 +538,34 @@ class SamsClubScraper:
 
     @staticmethod
     def _target_count(page) -> int | None:
+        # Category headers can expose an exact total as "(11)" instead of
+        # "11 productos". Do not confuse review/star counts from product cards
+        # with the catalogue total: inspect short heading labels only.
+        heading_totals: list[int] = []
+        try:
+            heading_texts = page.locator(
+                'h1,h2,h3,h4,h5,h6,[role="heading"]'
+            ).all_inner_texts(timeout=5_000)
+            for text in heading_texts:
+                label = " ".join(str(text).split())
+                if not (8 <= len(label) <= 160):
+                    continue
+                if re.search(
+                    r"^(precio|marca|opiniones|reseñas|reviews|departamento|"
+                    r"promociones|ordenar por)\\b",
+                    label, flags=re.IGNORECASE,
+                ):
+                    continue
+                match = re.search(r"\\(\\s*(\\d{1,6})\\s*\\)", label)
+                if match:
+                    heading_totals.append(int(match.group(1)))
+        except Exception:
+            pass
+
         try:
             text = page.locator("body").inner_text(timeout=5_000)
         except Exception:
-            return None
+            return max(heading_totals) if heading_totals else None
 
         values: list[int] = []
         patterns = (
@@ -558,6 +582,10 @@ class SamsClubScraper:
                 except ValueError:
                     continue
 
+        # Prefer an explicit category heading total over incidental text
+        # elsewhere on the page, including the sponsored brand banner.
+        if heading_totals:
+            return max(heading_totals)
         return max(values) if values else None
 
     @staticmethod
