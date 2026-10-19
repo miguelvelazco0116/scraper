@@ -475,6 +475,8 @@ def main() -> int:
                 "directory_store_expected_pickup_value",
                 "directory_store_radio_matches",
                 "directory_store_radio_verified",
+                "pickup_confirmation_expected_radio",
+                "pickup_confirmation_method",
                 "pickup_confirmed",
                 "directory_header_matched_after_confirmation",
                 "visible_store_control_text",
@@ -495,6 +497,13 @@ def main() -> int:
             if directory_checks:
                 print("ULTIMOS INTENTOS DE ABRIR DIRECTORIO")
                 for item in directory_checks[-4:]:
+                    print(f"  {item}")
+            confirmation_checks = scraper.run_meta.get(
+                "pickup_confirmation_observations"
+            ) or []
+            if confirmation_checks:
+                print("ULTIMOS INTENTOS DE CONFIRMAR RECOLECCION")
+                for item in confirmation_checks[-4:]:
                     print(f"  {item}")
             header_checks = scraper.run_meta.get(
                 "directory_header_observations"
