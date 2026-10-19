@@ -73,8 +73,9 @@ PHASES = {
             "Farmacias Similares",
             "HEB",
             "Sam's Club",
+            "Mayorista Duero",
         },
-        "categories": 7,
+        "categories": 13,
         "require_fg_names": False,
     },
 } 
@@ -114,6 +115,10 @@ PHASE5_RETAILER_SOURCES = {
     "Sam's Club": {
         "source": ROOT / "output" / "sams_club_phase5_test.xlsx",
         "categories": 3,
+    },
+    "Mayorista Duero": {
+        "source": ROOT / "output" / "duero_mayoreo_phase5_test.xlsx",
+        "categories": 6,
     },
 }
 
@@ -569,6 +574,61 @@ def _validate_benavides_phase(
             f"Retailers Benavides inesperados: {sorted(retailers)}"
         )
 
+    return notes
+
+
+def _validate_duero_retailer(
+    frame: pd.DataFrame,
+    summary: pd.DataFrame,
+) -> list[str]:
+    notes: list[str] = []
+    expected = {
+        "cuidado-bucal",
+        "desodorantes-y-antitranspirantes",
+        "cuidado-facial-y-corporal",
+        "farmacia",
+        "detergentes",
+        "cloros-y-blanqueadores",
+    }
+    required = {
+        "retailer", "category_id", "status", "products",
+        "pagination_complete", "sku_complete", "price_complete",
+        "url_complete", "pack_units_complete", "unit_price_complete",
+        "store_context_verified", "blocked_detected",
+    }
+    missing = required.difference(summary.columns)
+    if missing:
+        return ["Duero Resumen sin columnas: " + ", ".join(sorted(missing))]
+    if frame.empty or len(summary) != 6:
+        notes.append(f"Duero filas={len(frame)}, categorías={len(summary)}/6")
+        return notes
+    if set(summary["category_id"].astype(str)) != expected:
+        notes.append("Duero categorías inesperadas")
+    if set(summary["retailer"].astype(str)) != {"Mayorista Duero"}:
+        notes.append("Duero retailer inesperado")
+    if not summary["status"].astype(str).eq("SUCCESS").all():
+        notes.append("Duero tiene categorías no SUCCESS")
+    if not summary["pagination_complete"].eq(True).all():
+        notes.append("Duero paginación no verificada")
+    counts = pd.to_numeric(summary["products"], errors="coerce").fillna(0)
+    if counts.sum() != len(frame) or counts.le(0).any():
+        notes.append("Duero totales por categoría inconsistentes")
+    for metric in ("sku_complete", "price_complete", "url_complete"):
+        vals = pd.to_numeric(summary[metric], errors="coerce").fillna(0)
+        if not all(meets_rate(v, n) for v, n in zip(vals, counts)):
+            notes.append(f"Duero {metric} por debajo de umbral")
+    if not summary["store_context_verified"].eq(True).all():
+        notes.append("Duero contexto de tienda/código postal no verificado")
+    if summary["blocked_detected"].eq(True).any():
+        notes.append("Duero bloqueado")
+    if "store_context_verified" not in frame.columns or not frame["store_context_verified"].eq(True).all():
+        notes.append("Duero filas sin contexto de tienda verificado")
+    if not frame["price_current"].gt(0).all():
+        notes.append("Duero precios no positivos")
+    # A pack price cannot be converted to a unit price without reliable count.
+    package = frame["package_type"].fillna("").astype(str).str.upper().eq("CAJA")
+    if (package & frame["units_per_package"].isna()).any():
+        notes.append("Duero cajas sin unidades por empaque verificadas")
     return notes
 
 
@@ -1646,7 +1706,7 @@ def main() -> int:
     if phase == 5 and not retailer_mode:
         print(
             "ERROR: Fase 5 se integra por retailer. Usa --retailer "
-            "'Farmacias Similares' o 'HEB'."
+            "'Farmacias Similares', 'HEB', 'Sam\'s Club' o 'Mayorista Duero'."
         )
         return 2
 
@@ -1706,6 +1766,9 @@ def main() -> int:
     elif phase == 5 and retailer_mode == "Sam's Club":
         phase_frame, phase_summary, phase_control = _read_workbook_optional_control(source)
         notes = _validate_sams_retailer(phase_frame, phase_summary)
+    elif phase == 5 and retailer_mode == "Mayorista Duero":
+        phase_frame, phase_summary, phase_control = _read_workbook_optional_control(source)
+        notes = _validate_duero_retailer(phase_frame, phase_summary)
     elif phase == 5 and retailer_mode == "HEB":
         phase_frame, phase_summary, phase_control = (
             _read_workbook_optional_control(source)
@@ -1896,12 +1959,11 @@ def main() -> int:
         products_numeric = pd.to_numeric(
             phase_summary["products"], errors="coerce"
         )
-        targets_numeric = pd.to_numeric(
-            phase_summary["target_products"], errors="coerce"
-        )
-        phase_summary["coverage"] = (
-            products_numeric / targets_numeric
-        )
+        if "target_products" in phase_summary.columns:
+            targets_numeric = pd.to_numeric(
+                phase_summary["target_products"], errors="coerce"
+            )
+            phase_summary["coverage"] = products_numeric / targets_numeric
         if "price_order_errors" in phase_summary.columns:
             price_errors = pd.to_numeric(
                 phase_summary["price_order_errors"],
@@ -1911,7 +1973,7 @@ def main() -> int:
                 (products_numeric - price_errors) / products_numeric
             )
 
-    if phase == 5 and retailer_mode in {"Farmacias Similares", "HEB"}:
+    if phase == 5 and retailer_mode in {"Farmacias Similares", "HEB", "Sam's Club", "Mayorista Duero"}:
         phase_summary["source_status"] = (
             phase_summary["status"].astype(str)
         )
