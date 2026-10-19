@@ -241,3 +241,32 @@ def test_store_card_matching_supports_split_name_nodes():
     assert "ancestor_card" in method
     assert "all(token in text for token in tokens)" in method
     assert "no_matching_store_card" in method
+
+
+
+def test_exact_pickup_value_is_derived_from_store_id():
+    location = _location()
+    scraper = ChedrauiScraper(require_store_context=False)
+
+    assert scraper._expected_pickup_value(location) == (
+        "chedrauimx0255_PP0255"
+    )
+
+
+def test_pickup_value_padding_is_generic_for_other_store_ids():
+    from scraper.config import Location
+
+    scraper = ChedrauiScraper(require_store_context=False)
+    location = Location(
+        id="chedraui-example",
+        city="Puebla",
+        state="Puebla",
+        country="México",
+        postal_code="72490",
+        store="Chedraui Puebla Centro Sur",
+        store_id="76",
+    )
+
+    assert scraper._expected_pickup_value(location) == (
+        "chedrauimx0076_PP0076"
+    )
