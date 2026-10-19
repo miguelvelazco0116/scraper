@@ -68,7 +68,8 @@ Write-Host "Delay store: $ChedrauiStoreDelaySeconds segundos"
 Write-Host "Salida    : $ProjectDir\output\concentrado_productivo.xlsx"
 Write-Host "Log       : $LogPath"
 Write-Host ""
-Write-Host "El master solo se reemplaza si TODAS las categorias pasan calidad."
+Write-Host "La fase completa se publica solo con todos los casos validados."
+Write-Host "El master integra cada retailer COMPLETE; los PARTIAL quedan pendientes."
 Write-Host ""
 
 $ArgsList = @(
@@ -113,7 +114,7 @@ if ($code -eq 0) {
         Write-Host "FASE 1 VALIDADA E INTEGRADA AL CONCENTRADO."
     }
 } else {
-    Write-Warning "La Fase 1 NO fue publicada. El master productivo anterior se conserva."
+    Write-Warning "La Fase 1 completa NO fue publicada; se evaluaran retailers completos por separado."
     Write-Host "Diagnostico: $ProjectDir\diagnostics\phase1_production\last_run.json"
     Write-Host "Log        : $LogPath"
     Write-Host "Revisando retailers completos para integrarlos sin Chedraui parcial..."
