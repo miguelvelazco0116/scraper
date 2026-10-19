@@ -185,6 +185,9 @@ def _phase2_candidates(day: str):
                 else _validate_soriana(frame, source_summary, expected_ids)
             )
             summary = pd.DataFrame(rows)
+            expected_source_status = "SUCCESS" if retailer == "Farmacias Guadalajara" else "COMPLETE"
+            if not summary["source_status"].astype(str).str.upper().eq(expected_source_status).all():
+                raise ValueError("Estado del origen no validado: " + expected_source_status)
             yield retailer, frame, summary, path, []
         except (ValueError, KeyError, OSError) as exc:
             yield retailer, pd.DataFrame(), pd.DataFrame(), path, [str(exc)]
