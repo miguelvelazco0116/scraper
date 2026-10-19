@@ -600,36 +600,41 @@ class ChedrauiScraper(BaseChedrauiScraper):
                 break
 
             # Prefer an explicit directory action over a generic pickup text.
-            # The directory may already be shown after opening the locator.
-            try:
-                nodes = page.get_by_text("Directorio de tiendas", exact=False)
-                observation["directory_text_matches"] = nodes.count()
-                for index in range(min(nodes.count(), 25)):
-                    item = nodes.nth(index)
-                    if not item.is_visible():
-                        continue
-                    label = self._normalize(
-                        item.inner_text(timeout=1_000)
-                    )
-                    if "directorio de tiendas" not in label:
-                        continue
-                    observation["directory_text_visible"] += 1
-                    try:
-                        item.click(timeout=3_000)
-                        directory_clicked = True
-                        directory_method = "visible_directory_text"
-                        observation["directory_clicked"] = True
-                        page.wait_for_timeout(700)
-                        break
-                    except Exception as exc:
-                        observation["errors"].append(
-                            "directory_click:"
-                            + type(exc).__name__ + ": " + str(exc)[:100]
+            # After a successful click, poll for the dropdowns without
+            # clicking the link repeatedly while VTEX is still rendering.
+            if not directory_clicked:
+                try:
+                    nodes = page.get_by_text("Directorio de tiendas", exact=False)
+                    observation["directory_text_matches"] = nodes.count()
+                    for index in range(min(nodes.count(), 25)):
+                        item = nodes.nth(index)
+                        if not item.is_visible():
+                            continue
+                        label = self._normalize(
+                            item.inner_text(timeout=1_000)
                         )
-            except Exception as exc:
-                observation["errors"].append(
-                    "directory_find:" + type(exc).__name__
-                )
+                        if not re.fullmatch(
+                            r"directorio de tiendas(?:\\s*[›»>])?",
+                            label,
+                        ):
+                            continue
+                        observation["directory_text_visible"] += 1
+                        try:
+                            item.click(timeout=3_000)
+                            directory_clicked = True
+                            directory_method = "visible_directory_text"
+                            observation["directory_clicked"] = True
+                            page.wait_for_timeout(700)
+                            break
+                        except Exception as exc:
+                            observation["errors"].append(
+                                "directory_click:"
+                                + type(exc).__name__ + ": " + str(exc)[:100]
+                            )
+                except Exception as exc:
+                    observation["errors"].append(
+                        "directory_find:" + type(exc).__name__
+                    )
 
             if directory_clicked and self._directory_selects_visible(page):
                 observation["directory_selects_visible"] = True
