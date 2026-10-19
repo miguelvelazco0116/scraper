@@ -432,10 +432,278 @@ class ChedrauiScraper(BaseChedrauiScraper):
                 return brand
         return None
 
-    def _store_specific_total(self, page) -> int | None:
-        """Read the displayed category count after Polanco has been selected."""
+    def _pagination_snapshot(self, page) -> dict:
+        """Read Chedraui's live paginator: Mostrando X-Y de Z Productos."""
         text = self._body_text(page)
-        match = re.search(r"\b([\d,]+)\s+Productos\b", text, flags=re.IGNORECASE)
+        match = re.search(
+            r"Mostrando\s+([\d,]+)\s*[-–]\s*([\d,]+)"
+            r"\s+de\s+([\d,]+)\s+Productos",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return {
+                "start": None,
+                "end": None,
+                "total": None,
+                "page_size": getattr(
+                    self,
+                    "_chedraui_paginator_page_size",
+                    None,
+                ),
+                "current_page": None,
+                "total_pages": None,
+                "next_available": self._paginator_next_available(
+                    page
+                ),
+            }
+
+        start = int(match.group(1).replace(",", ""))
+        end = int(match.group(2).replace(",", ""))
+        total = int(match.group(3).replace(",", ""))
+
+        page_size = getattr(
+            self,
+            "_chedraui_paginator_page_size",
+            None,
+        )
+        observed_size = max(end - start + 1, 1)
+
+        # The first page defines the stable shelf size. Never replace it with
+        # the shorter final-page range.
+        if start == 1 and observed_size > 0:
+            page_size = observed_size
+            self._chedraui_paginator_page_size = page_size
+        elif not page_size:
+            page_size = observed_size
+
+        current_page = (
+            ((start - 1) // page_size) + 1
+            if page_size
+            else None
+        )
+        total_pages = (
+            math.ceil(total / page_size)
+            if page_size and total > 0
+            else 0
+        )
+
+        return {
+            "start": start,
+            "end": end,
+            "total": total,
+            "page_size": page_size,
+            "current_page": current_page,
+            "total_pages": total_pages,
+            "next_available": self._paginator_next_available(page),
+        }
+
+    def _paginator_next_control(self, page):
+        """Return the visible native Siguiente control when present."""
+        try:
+            labels = page.get_by_text(
+                re.compile(r"^\s*Siguiente\s*$", re.IGNORECASE)
+            )
+            for index in range(min(labels.count(), 12)):
+                label = labels.nth(index)
+                try:
+                    if not label.is_visible():
+                        continue
+
+                    tag = (
+                        label.evaluate(
+                            "el => el.tagName.toLowerCase()"
+                        )
+                        or ""
+                    )
+                    control = label
+                    if tag not in ("a", "button"):
+                        parent = label.locator(
+                            "xpath=ancestor::*[self::a or self::button][1]"
+                        )
+                        if parent.count():
+                            control = parent.first
+
+                    aria_disabled = (
+                        control.get_attribute("aria-disabled")
+                        or ""
+                    ).strip().lower()
+                    disabled = (
+                        aria_disabled == "true"
+                        or control.get_attribute("disabled")
+                        is not None
+                    )
+                    classes = (
+                        control.get_attribute("class") or ""
+                    ).casefold()
+                    if "disabled" in classes:
+                        disabled = True
+
+                    return control, not disabled
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return None, False
+
+    def _paginator_next_available(self, page) -> bool:
+        _, available = self._paginator_next_control(page)
+        return available
+
+    def _click_paginator_next(
+        self,
+        page,
+        *,
+        expected_page: int,
+    ) -> tuple[bool, dict]:
+        """Advance one real UI page and prove that the displayed range moved."""
+        before = self._pagination_snapshot(page)
+        control, available = self._paginator_next_control(page)
+        info = {
+            "mode": "ui_next",
+            "expected_page": expected_page,
+            "before": before,
+            "clicked": False,
+            "advanced": False,
+        }
+        if control is None or not available:
+            info["reason"] = "next_not_available"
+            return False, info
+
+        try:
+            control.scroll_into_view_if_needed(timeout=3_000)
+        except Exception:
+            try:
+                page.evaluate(
+                    "window.scrollTo(0, document.body.scrollHeight)"
+                )
+            except Exception:
+                pass
+
+        try:
+            control.click(timeout=7_000)
+            info["clicked"] = True
+        except Exception as exc:
+            info["reason"] = (
+                f"next_click:{type(exc).__name__}"
+            )
+            return False, info
+
+        previous_start = before.get("start")
+        for _ in range(12):
+            try:
+                page.wait_for_timeout(500)
+            except Exception:
+                pass
+            after = self._pagination_snapshot(page)
+            after_page = after.get("current_page")
+            after_start = after.get("start")
+            moved = (
+                after_page == expected_page
+                or (
+                    previous_start is not None
+                    and after_start is not None
+                    and after_start > previous_start
+                )
+            )
+            if moved:
+                info["after"] = after
+                info["advanced"] = True
+                return True, info
+
+        info["after"] = self._pagination_snapshot(page)
+        info["reason"] = "range_did_not_advance"
+        return False, info
+
+    def _position_on_paginator_page(
+        self,
+        page,
+        category,
+        page_number: int,
+    ) -> tuple[bool, list[dict]]:
+        """Reach page N sequentially through Chedraui's native paginator."""
+        attempts: list[dict] = []
+
+        snapshot = self._pagination_snapshot(page)
+        current = snapshot.get("current_page")
+
+        # Category navigation always begins on page 1. If diagnostics cannot
+        # read the first paginator yet, give the catalogue a final settle.
+        if page_number == 1:
+            if current in (None, 1):
+                return True, attempts
+            response = page.goto(
+                category.url,
+                wait_until="domcontentloaded",
+                timeout=90_000,
+            )
+            self._assert_not_blocked(
+                page,
+                response.status if response else None,
+            )
+            self._wait_for_catalog_ready(
+                page,
+                selector_timeout=35_000,
+                settle_ms=max(self.wait_ms, 2_500),
+            )
+            snapshot = self._pagination_snapshot(page)
+            return (
+                snapshot.get("current_page") in (None, 1),
+                attempts,
+            )
+
+        if current is None:
+            attempts.append(
+                {
+                    "mode": "ui_next",
+                    "expected_page": page_number,
+                    "reason": "current_page_unknown",
+                }
+            )
+            return False, attempts
+
+        if current > page_number:
+            attempts.append(
+                {
+                    "mode": "ui_next",
+                    "expected_page": page_number,
+                    "reason": (
+                        f"current_page_ahead:{current}"
+                    ),
+                }
+            )
+            return False, attempts
+
+        while current < page_number:
+            ok, info = self._click_paginator_next(
+                page,
+                expected_page=current + 1,
+            )
+            attempts.append(info)
+            if not ok:
+                return False, attempts
+            current = (
+                info.get("after", {}).get("current_page")
+                or current + 1
+            )
+
+        return current == page_number, attempts
+
+    def _store_specific_total(self, page) -> int | None:
+        """Read the category total from Chedraui's live paginator."""
+        snapshot = self._pagination_snapshot(page)
+        total = snapshot.get("total")
+        if total is not None:
+            return int(total)
+
+        # Compatibility fallback if Chedraui temporarily omits the
+        # "Mostrando X-Y de Z" prefix but still publishes "Z Productos".
+        text = self._body_text(page)
+        match = re.search(
+            r"\b([\d,]+)\s+Productos\b",
+            text,
+            flags=re.IGNORECASE,
+        )
         if not match:
             return None
         try:
@@ -568,29 +836,57 @@ class ChedrauiScraper(BaseChedrauiScraper):
             info["reason"] = f"fallback_error:{type(exc).__name__}"
             return [], info
 
-    def _load_page_rows(self, page, category, location, page_number: int, target_rows: int | None):
-        """Retry a VTEX result page and retain the most complete render."""
-        url = self._paged_url(category.url, page_number)
-        best: dict[str, dict] = {}
-        attempts: list[dict] = []
+    def _load_page_rows(
+        self,
+        page,
+        category,
+        location,
+        page_number: int,
+        target_rows: int | None,
+    ):
+        """Read one page after reaching it through Chedraui's native UI."""
+        positioned, attempts = self._position_on_paginator_page(
+            page,
+            category,
+            page_number,
+        )
+        if not positioned:
+            self._save_diagnostics(
+                page,
+                f"pagination_ui_position_failed_{page_number}",
+            )
+            return page.url, [], attempts
 
+        best: dict[str, dict] = {}
         for attempt in range(1, 5):
             try:
-                response = page.goto(url, wait_until="domcontentloaded", timeout=90_000)
-                self._assert_not_blocked(page, response.status if response else None)
                 ready = self._wait_for_catalog_ready(
                     page,
                     selector_timeout=35_000,
-                    settle_ms=max(self.wait_ms, 2_500),
+                    settle_ms=(
+                        1_500
+                        if attempt == 1
+                        else min(1_500 * attempt, 4_500)
+                    ),
                 )
                 rows = (
-                    self._rows_from_current_page(page, category, location)
+                    self._rows_from_current_page(
+                        page,
+                        category,
+                        location,
+                    )
                     if ready
                     else []
                 )
             except Exception as exc:
                 attempts.append(
-                    {"attempt": attempt, "rows": 0, "reason": f"navigation:{type(exc).__name__}"}
+                    {
+                        "attempt": attempt,
+                        "rows": 0,
+                        "reason": (
+                            f"catalog_read:{type(exc).__name__}"
+                        ),
+                    }
                 )
                 continue
 
@@ -598,12 +894,14 @@ class ChedrauiScraper(BaseChedrauiScraper):
                 key = str(row.get("sku") or row.get("url"))
                 if key:
                     best[key] = row
+
             attempts.append(
                 {
                     "attempt": attempt,
                     "rows": len(rows),
                     "best": len(best),
                     "catalog_ready": bool(rows),
+                    "paginator": self._pagination_snapshot(page),
                 }
             )
 
@@ -613,54 +911,98 @@ class ChedrauiScraper(BaseChedrauiScraper):
             elif len(best) >= target_rows:
                 break
 
-            if attempt < 4:
-                try:
-                    page.wait_for_timeout(min(2_000 * attempt, 6_000))
-                except Exception:
-                    pass
-
-        if not best and page_number > 1:
-            recovered, fallback_info = self._recover_page_from_previous(
-                page, category, location, page_number
-            )
-            for row in recovered:
-                key = str(row.get("sku") or row.get("url"))
-                if key:
-                    best[key] = row
-            fallback_info["best"] = len(best)
-            attempts.append(fallback_info)
-
         if not best:
-            self._save_diagnostics(page, f"pagination_empty_page_{page_number}")
+            self._save_diagnostics(
+                page,
+                f"pagination_empty_page_{page_number}",
+            )
 
-        return url, list(best.values()), attempts
+        return page.url, list(best.values()), attempts
 
     def _collect_pages(self, page, category, location):
         rows_by_key: dict[str, dict] = {}
         max_pages = self.max_pages if self.max_pages > 0 else 100
+        self._chedraui_paginator_page_size = None
 
-        displayed_total = self._store_specific_total(page)
-        self.run_meta["displayed_category_products"] = displayed_total
-        page_size: int | None = None
-        expected_pages: int | None = None
-        consecutive_stale = 0
-        pending_empty_pages: list[int] = []
+        initial = self._pagination_snapshot(page)
+        displayed_total = initial.get("total")
+        page_size = initial.get("page_size")
+        dynamic_total_pages = initial.get("total_pages")
+
+        self.run_meta["pagination_method"] = (
+            "ui_next_dynamic_range"
+        )
+        self.run_meta["pagination_initial_snapshot"] = initial
+        self.run_meta["displayed_category_products"] = (
+            displayed_total
+        )
+        self.run_meta["page_size"] = page_size
+        self.run_meta["displayed_expected_pages"] = (
+            dynamic_total_pages
+        )
+
+        if not page_size:
+            # Let page 1 render fully once, then derive the category-specific
+            # shelf size from the live "Mostrando X-Y de Z" range.
+            self._wait_for_catalog_ready(
+                page,
+                selector_timeout=35_000,
+                settle_ms=max(self.wait_ms, 2_500),
+            )
+            initial = self._pagination_snapshot(page)
+            displayed_total = initial.get("total")
+            page_size = initial.get("page_size")
+            dynamic_total_pages = initial.get("total_pages")
+            self.run_meta["pagination_initial_snapshot"] = initial
+            self.run_meta["displayed_category_products"] = (
+                displayed_total
+            )
+            self.run_meta["page_size"] = page_size
+            self.run_meta["displayed_expected_pages"] = (
+                dynamic_total_pages
+            )
+
+        page_number = 1
         internal_gaps: list[int] = []
-        partial_page: int | None = None
 
-        for page_number in range(1, max_pages + 1):
-            if displayed_total is not None and len(rows_by_key) >= displayed_total:
+        while page_number <= max_pages:
+            before_snapshot = self._pagination_snapshot(page)
+
+            # Re-read the total on every page. Catalogue totals can vary by
+            # category/store and can even change during a long run.
+            live_total = before_snapshot.get("total")
+            live_total_pages = before_snapshot.get("total_pages")
+            if live_total is not None:
+                displayed_total = live_total
+                self.run_meta["displayed_category_products"] = (
+                    displayed_total
+                )
+            if live_total_pages is not None:
+                dynamic_total_pages = live_total_pages
+                self.run_meta["displayed_expected_pages"] = (
+                    dynamic_total_pages
+                )
+
+            if (
+                dynamic_total_pages is not None
+                and dynamic_total_pages > 0
+                and page_number > dynamic_total_pages
+            ):
                 break
 
             if page_size and displayed_total:
-                expected_pages = math.ceil(displayed_total / page_size)
-                self.run_meta["displayed_expected_pages"] = expected_pages
-                if page_number < expected_pages:
+                if (
+                    dynamic_total_pages
+                    and page_number < dynamic_total_pages
+                ):
                     target_rows = page_size
-                elif page_number == expected_pages:
+                elif (
+                    dynamic_total_pages
+                    and page_number == dynamic_total_pages
+                ):
                     target_rows = max(
                         displayed_total
-                        - (page_size * (expected_pages - 1)),
+                        - page_size * (dynamic_total_pages - 1),
                         1,
                     )
                 else:
@@ -669,15 +1011,28 @@ class ChedrauiScraper(BaseChedrauiScraper):
                 target_rows = None
 
             url, page_rows, attempts = self._load_page_rows(
-                page, category, location, page_number, target_rows
+                page,
+                category,
+                location,
+                page_number,
+                target_rows,
             )
 
-            if displayed_total is None and page_rows:
-                displayed_total = self._store_specific_total(page)
-                self.run_meta["displayed_category_products"] = displayed_total
-
-            if page_size is None and page_rows:
-                page_size = len(page_rows)
+            after_snapshot = self._pagination_snapshot(page)
+            live_total = after_snapshot.get("total")
+            live_total_pages = after_snapshot.get("total_pages")
+            if live_total is not None:
+                displayed_total = live_total
+                self.run_meta["displayed_category_products"] = (
+                    displayed_total
+                )
+            if live_total_pages is not None:
+                dynamic_total_pages = live_total_pages
+                self.run_meta["displayed_expected_pages"] = (
+                    dynamic_total_pages
+                )
+            if after_snapshot.get("page_size"):
+                page_size = after_snapshot["page_size"]
                 self.run_meta["page_size"] = page_size
 
             before = len(rows_by_key)
@@ -687,19 +1042,8 @@ class ChedrauiScraper(BaseChedrauiScraper):
                     rows_by_key[key] = row
             new_count = len(rows_by_key) - before
 
-            if page_rows:
-                if pending_empty_pages:
-                    internal_gaps.extend(pending_empty_pages)
-                    pending_empty_pages = []
-                if page_size and len(page_rows) < page_size:
-                    partial_page = page_number
-            else:
-                pending_empty_pages.append(page_number)
-
-            if new_count == 0:
-                consecutive_stale += 1
-            else:
-                consecutive_stale = 0
+            if not page_rows:
+                internal_gaps.append(page_number)
 
             self.run_meta.setdefault("pages", []).append(
                 {
@@ -707,44 +1051,79 @@ class ChedrauiScraper(BaseChedrauiScraper):
                     "url": page.url or url,
                     "rows": len(page_rows),
                     "new": new_count,
+                    "paginator_before": before_snapshot,
+                    "paginator_after": after_snapshot,
                     "attempts": attempts,
                 }
             )
 
-            # When the storefront publishes a total, reaching its expected
-            # last page is sufficient. Avoid a synthetic extra page request
-            # that can be misclassified as a missing structured-price page.
-            if (
-                expected_pages is not None
-                and page_number >= expected_pages
-                and page_rows
-            ):
+            on_last_page = (
+                dynamic_total_pages is not None
+                and dynamic_total_pages > 0
+                and page_number >= dynamic_total_pages
+            )
+            no_next = not after_snapshot.get("next_available")
+
+            if on_last_page:
                 break
 
-            # A partial last page followed by an empty page proves the listing
-            # is exhausted even if the displayed category count includes items
-            # that are not listable for the selected store.
-            if partial_page is not None and page_number > partial_page and new_count == 0:
+            # If the UI says there should be another page, absence of
+            # "Siguiente" is a structural pagination failure, not normal EOF.
+            if no_next:
+                internal_gaps.append(page_number + 1)
+                self.run_meta[
+                    "pagination_terminated_without_next"
+                ] = {
+                    "page": page_number,
+                    "expected_pages": dynamic_total_pages,
+                    "snapshot": after_snapshot,
+                }
                 break
 
-            # If there is no partial page, two consecutive pages without new
-            # products are the end-of-list guard.
-            if consecutive_stale >= 2:
-                break
+            page_number += 1
 
         self.run_meta["collected_products"] = len(rows_by_key)
-        self.run_meta["partial_last_page"] = partial_page
-        self.run_meta["internal_pagination_gaps"] = internal_gaps
-        self.run_meta["listing_exhausted"] = not internal_gaps
+        self.run_meta["internal_pagination_gaps"] = sorted(
+            set(internal_gaps)
+        )
+        self.run_meta["listing_exhausted"] = (
+            not internal_gaps
+            and (
+                dynamic_total_pages in (None, 0)
+                or page_number >= dynamic_total_pages
+            )
+        )
+        self.run_meta["pagination_final_snapshot"] = (
+            self._pagination_snapshot(page)
+        )
         if displayed_total is not None:
-            self.run_meta["displayed_count_coverage"] = round(
-                len(rows_by_key) / displayed_total, 4
-            ) if displayed_total else None
+            self.run_meta["displayed_count_coverage"] = (
+                round(
+                    len(rows_by_key) / displayed_total,
+                    4,
+                )
+                if displayed_total
+                else None
+            )
+
+        if page_number >= max_pages:
+            final_snapshot = self._pagination_snapshot(page)
+            final_pages = final_snapshot.get("total_pages")
+            if final_pages and final_pages > max_pages:
+                self.run_meta["pagination_safety_limit_hit"] = True
+                internal_gaps.append(max_pages + 1)
 
         if internal_gaps:
-            self._save_diagnostics(page, "pagination_internal_gap")
+            self.run_meta["internal_pagination_gaps"] = sorted(
+                set(internal_gaps)
+            )
+            self._save_diagnostics(
+                page,
+                "pagination_internal_gap",
+            )
             raise RuntimeError(
-                f"Chedraui dejó huecos internos de paginación sin recuperar: {internal_gaps}"
+                "Chedraui no pudo demostrar continuidad del "
+                f"paginador UI: {sorted(set(internal_gaps))}"
             )
 
         return list(rows_by_key.values())
