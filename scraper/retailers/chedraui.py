@@ -227,6 +227,60 @@ class ChedrauiScraper:
             pass
         return json.dumps(payload, ensure_ascii=False)
 
+    def _visible_store_control_text(self, page: Page) -> str:
+        selectors = (
+            "button.chedrauimx-locator-2-x-labelTextAddress",
+            '[class*="locator"][class*="labelTextAddress"]',
+            'button[aria-label*="tienda" i]',
+            'button[aria-label*="ubicaci" i]',
+            '[data-testid*="store" i]',
+            '[data-testid*="location" i]',
+        )
+        values: list[str] = []
+        for selector in selectors:
+            try:
+                nodes = page.locator(selector)
+                for index in range(min(nodes.count(), 12)):
+                    node = nodes.nth(index)
+                    try:
+                        if not node.is_visible():
+                            continue
+                        text = clean_text(
+                            node.inner_text(timeout=1_500)
+                        )
+                        if text:
+                            values.append(text)
+                        aria = clean_text(
+                            node.get_attribute("aria-label")
+                        )
+                        if aria:
+                            values.append(aria)
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+        return " | ".join(dict.fromkeys(values))
+
+    @classmethod
+    def _store_control_matches_location(
+        cls,
+        text: str,
+        location: Location,
+    ) -> bool:
+        if not text:
+            return False
+        normalized = cls._normalize(text)
+        if not normalized:
+            return False
+        if cls._location_name_matches(normalized, location):
+            return True
+
+        tokens = cls._location_store_tokens(location)
+        return bool(
+            tokens
+            and all(token in normalized for token in tokens)
+        )
+
     @classmethod
     def _store_context_in_text(cls, text: str, location: Location) -> bool:
         normalized = cls._normalize(text)
@@ -385,16 +439,42 @@ class ChedrauiScraper:
             self.run_meta["orderform_error"] = f"{type(exc).__name__}: {exc}"
             return None
 
-    def _verify_store_context(self, page: Page, location: Location) -> tuple[bool, str | None]:
-        if self._store_context_in_text(self._body_text(page), location):
-            return True, "page_text"
-        if self._store_context_in_state_blob(self._browser_state_blob(page), location):
+    def _verify_store_context(
+        self,
+        page: Page,
+        location: Location,
+    ) -> tuple[bool, str | None]:
+        control_text = self._visible_store_control_text(page)
+        self.run_meta["visible_store_control_text"] = control_text
+        if self._store_control_matches_location(
+            control_text,
+            location,
+        ):
+            return True, "visible_store_control"
+
+        state_blob = self._browser_state_blob(page)
+        if self._store_context_in_state_blob(
+            state_blob,
+            location,
+        ):
             return True, "browser_state"
 
         orderform = self._orderform_snapshot(page)
-        if self._orderform_matches_location(orderform, location):
+        if self._orderform_matches_location(
+            orderform,
+            location,
+        ):
             return True, "orderform"
 
+        # Whole-page text is intentionally diagnostic only. The store name can
+        # appear in hidden directory/modal content without governing the VTEX
+        # segment used by productSearchV3.
+        self.run_meta["page_text_store_hint"] = (
+            self._store_context_in_text(
+                self._body_text(page),
+                location,
+            )
+        )
         return False, None
 
     def _vtex_session_snapshot(self, page: Page) -> dict[str, Any] | None:
@@ -561,6 +641,61 @@ class ChedrauiScraper:
         if candidates:
             return True, "vtex_session+pickup_points"
         return updated, "vtex_session" if updated else None
+
+    def _establish_store_before_category(
+        self,
+        page: Page,
+        location: Location,
+    ) -> tuple[bool, str | None]:
+        """Preserve an exact selected store; regionalize only as fallback."""
+        verified, method = self._verify_store_context(
+            page,
+            location,
+        )
+        self.run_meta["preexisting_store_context_verified"] = (
+            bool(verified)
+        )
+        self.run_meta["preexisting_store_context_method"] = method
+
+        if verified:
+            self.run_meta["vtex_region_mutation_skipped"] = True
+            snapshot = self._vtex_session_snapshot(page)
+            if isinstance(snapshot, dict):
+                self.run_meta["vtex_session_before_category"] = snapshot
+            return True, method
+
+        # Postal-code regionalization is only a discovery aid when no exact
+        # store is selected. It must never overwrite a known exact store.
+        structured_ok, structured_method = (
+            self._prepare_structured_store_context(
+                page,
+                location,
+            )
+        )
+        self.run_meta["structured_store_context_ready"] = (
+            structured_ok
+        )
+        self.run_meta["structured_store_context_method"] = (
+            structured_method
+        )
+        self.run_meta["vtex_region_mutation_skipped"] = False
+
+        verified, method = self._try_select_store_ui(
+            page,
+            location,
+        )
+        if not verified:
+            return False, None
+
+        # The exact UI selection is the authority. Snapshot the resulting
+        # segment and do not post the postal code again afterward.
+        page.wait_for_timeout(1_200)
+        snapshot = self._vtex_session_snapshot(page)
+        if isinstance(snapshot, dict):
+            self.run_meta["vtex_session_after_store_selection"] = (
+                snapshot
+            )
+        return True, method or structured_method
 
     @staticmethod
     def _click_text(page: Page, labels: tuple[str, ...], timeout: int = 5_000) -> bool:
@@ -984,18 +1119,34 @@ class ChedrauiScraper:
                 self._assert_not_blocked(page, response.status if response else None)
                 page.wait_for_timeout(max(self.wait_ms, 2_000))
 
-                structured_ok, structured_method = (
-                    self._prepare_structured_store_context(page, location)
+                verified, method = (
+                    self._establish_store_before_category(
+                        page,
+                        location,
+                    )
                 )
-                self.run_meta["structured_store_context_ready"] = structured_ok
-                self.run_meta["structured_store_context_method"] = structured_method
+
+                if self.require_store_context and not verified:
+                    self.run_meta["store_context_verified"] = False
+                    self._save_diagnostics(
+                        page,
+                        "store_context_pre_category_error",
+                    )
+                    raise ChedrauiStoreContextError(
+                        f"No fue posible seleccionar y verificar "
+                        f"{location.store} (tienda {location.store_id}) "
+                        "antes de abrir la categoría."
+                    )
 
                 response = page.goto(
                     category.url,
                     wait_until="domcontentloaded",
                     timeout=120_000,
                 )
-                self._assert_not_blocked(page, response.status if response else None)
+                self._assert_not_blocked(
+                    page,
+                    response.status if response else None,
+                )
                 page.wait_for_timeout(3_000)
                 try:
                     page.wait_for_selector(
@@ -1006,21 +1157,51 @@ class ChedrauiScraper:
                 except Exception:
                     pass
 
-                verified, method = self._verify_store_context(page, location)
-                if not verified:
-                    verified, method = self._try_select_store_ui(page, location)
+                category_verified, category_method = (
+                    self._verify_store_context(
+                        page,
+                        location,
+                    )
+                )
+                if not category_verified:
+                    category_verified, category_method = (
+                        self._try_select_store_ui(
+                            page,
+                            location,
+                        )
+                    )
+                    if category_verified:
+                        # Exact store selection can change vtex_segment. Reload
+                        # the category once so productSearchV3 runs under the
+                        # newly selected store segment.
+                        response = page.goto(
+                            category.url,
+                            wait_until="domcontentloaded",
+                            timeout=120_000,
+                        )
+                        self._assert_not_blocked(
+                            page,
+                            response.status if response else None,
+                        )
+                        page.wait_for_timeout(2_500)
 
-                if self.require_store_context and not verified:
+                if (
+                    self.require_store_context
+                    and not category_verified
+                ):
                     self.run_meta["store_context_verified"] = False
-                    self._save_diagnostics(page, "store_context_error")
+                    self._save_diagnostics(
+                        page,
+                        "store_context_error",
+                    )
                     raise ChedrauiStoreContextError(
-                        f"No fue posible verificar {location.store} "
-                        f"(tienda {location.store_id})."
+                        f"No fue posible mantener {location.store} "
+                        f"(tienda {location.store_id}) en la categoría."
                     )
 
+                method = category_method or method
                 self._active_store_context_method = (
                     method
-                    or structured_method
                     or "persistent_profile"
                 )
                 self.run_meta["store_context_verified"] = True
