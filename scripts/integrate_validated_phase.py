@@ -580,6 +580,8 @@ def _validate_benavides_phase(
 def _validate_duero_retailer(
     frame: pd.DataFrame,
     summary: pd.DataFrame,
+    *,
+    allow_online_catalogue: bool = False,
 ) -> list[str]:
     notes: list[str] = []
     expected = {
@@ -645,12 +647,31 @@ def _validate_duero_retailer(
         frame["is_available"], errors="coerce"
     ).isin([0, 1]).all():
         notes.append("Duero filas sin is_available 1/0")
-    if not summary["store_context_verified"].eq(True).all():
-        notes.append("Duero contexto de tienda/código postal no verificado")
+    # Special integration scope: "online public catalogue", NEVER postal-
+    # code-specific price verification. Preserve source flags as False.
+    if allow_online_catalogue:
+        if "store_context_verified" not in frame.columns:
+            notes.append("Duero sin columna de contexto de tienda")
+        elif not frame["store_context_verified"].eq(False).all():
+            notes.append("Duero catálogo online requiere flags de tienda False originales")
+        if not summary["store_context_verified"].eq(False).all():
+            notes.append("Duero Resumen alterado: contexto de tienda debe ser False")
+        if "postal_code" not in frame or frame["postal_code"].notna().any():
+            notes.append("Duero online no debe atribuir precios a un CP")
+        if (
+            "store_context_method" not in frame
+            or not frame["store_context_method"].fillna("").eq(
+                "public_collection_api_no_postal_code"
+            ).all()
+        ):
+            notes.append("Duero sin procedencia API pública explícita")
+    else:
+        if not summary["store_context_verified"].eq(True).all():
+            notes.append("Duero contexto de tienda/código postal no verificado")
+        if "store_context_verified" not in frame.columns or not frame["store_context_verified"].eq(True).all():
+            notes.append("Duero filas sin contexto de tienda verificado")
     if summary["blocked_detected"].eq(True).any():
         notes.append("Duero bloqueado")
-    if "store_context_verified" not in frame.columns or not frame["store_context_verified"].eq(True).all():
-        notes.append("Duero filas sin contexto de tienda verificado")
     if not frame["price_current"].gt(0).all():
         notes.append("Duero precios no positivos")
     # A pack price cannot be converted to a unit price without reliable count.
