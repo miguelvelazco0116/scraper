@@ -343,3 +343,104 @@ def test_live_catalogue_consistency_beats_misleading_high_affinity_candidate():
     assert scraper.run_meta["product_search_template"][
         "records_filtered"
     ] == 376
+
+
+def _decoded_variables(url: str) -> dict:
+    from urllib.parse import parse_qs, urlsplit
+
+    parts = urlsplit(url)
+    qs = parse_qs(parts.query, keep_blank_values=True)
+    extensions = json.loads(qs["extensions"][0])
+    return json.loads(
+        base64.b64decode(
+            extensions["variables"]
+        ).decode("utf-8")
+    )
+
+
+def test_rewrite_forces_full_catalogue_and_keeps_category_facets():
+    source = _product_search_url(
+        {
+            "from": 0,
+            "to": 19,
+            "hideUnavailableItems": True,
+            "skusFilter": "ALL_AVAILABLE",
+            "simulationBehavior": "default",
+            "selectedFacets": [
+                {
+                    "key": "c",
+                    "value": "desodorantes-y-antitranspirantes",
+                }
+            ],
+        }
+    )
+
+    rewritten = ChedrauiScraper._rewrite_product_search_range(
+        source,
+        20,
+        39,
+    )
+    variables = _decoded_variables(rewritten)
+
+    assert variables["from"] == 20
+    assert variables["to"] == 39
+    assert variables["hideUnavailableItems"] is False
+    assert variables["skusFilter"] == "ALL"
+    assert variables["simulationBehavior"] == "default"
+    assert variables["selectedFacets"] == [
+        {
+            "key": "c",
+            "value": "desodorantes-y-antitranspirantes",
+        }
+    ]
+
+
+def test_filter_snapshot_surfaces_only_safe_search_controls():
+    source = _product_search_url(
+        {
+            "from": 0,
+            "to": 19,
+            "hideUnavailableItems": True,
+            "skusFilter": "FIRST_AVAILABLE",
+            "simulationBehavior": "default",
+            "selectedFacets": [{"key": "c", "value": "respiratorios"}],
+        }
+    )
+
+    snapshot = ChedrauiScraper._product_search_filter_snapshot(
+        source
+    )
+
+    assert snapshot["hideUnavailableItems"] is True
+    assert snapshot["skusFilter"] == "FIRST_AVAILABLE"
+    assert snapshot["simulationBehavior"] == "default"
+    assert snapshot["from"] == 0
+    assert snapshot["to"] == 19
+
+
+def test_rewrite_does_not_change_search_identity_fields():
+    source = _product_search_url(
+        {
+            "from": 0,
+            "to": 19,
+            "fullText": "prueba",
+            "selectedFacets": [{"key": "c", "value": "categoria-x"}],
+            "hideUnavailableItems": True,
+            "skusFilter": "ALL_AVAILABLE",
+        }
+    )
+    before = _decoded_variables(source)
+
+    rewritten = ChedrauiScraper._rewrite_product_search_range(
+        source,
+        40,
+        59,
+    )
+    after = _decoded_variables(rewritten)
+
+    assert after["fullText"] == before["fullText"]
+    assert after["selectedFacets"] == before["selectedFacets"]
+    assert after["from"] == 40
+    assert after["to"] == 59
+    assert after["hideUnavailableItems"] is False
+    assert after["skusFilter"] == "ALL"
