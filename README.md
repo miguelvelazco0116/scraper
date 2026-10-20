@@ -301,6 +301,55 @@ Genera respaldo anterior y checkpoint posterior. Verificar el mensaje
 INTEGRACIÓN COMPLETADA antes de afirmar que el master cambió.
 Las capturas de Puebla realizadas al día siguiente son de otra fecha:
 se deben mantener fechadas y no mezclarse sin definir un corte nuevo.
+### Chedraui: 20/20 pruebas validadas en dos fechas (2026-10-20)
+
+Se completaron 4 sucursales x 5 categorías, con 20 ejecuciones aisladas
+en estado COMPLETE, cobertura de productos publicada 100%, SKU, URL,
+precios requeridos y tienda visible verificada mediante el contrato
+`chedraui-directory-ui-v3`. Casos aprobados:
+
+| Sucursal | ID | Fecha de captura | Categorías | Filas | Precios requeridos |
+|---|---:|---|---:|---:|---:|
+| Polanco | 232 | 2026-10-19 | 5 | 1,271 | 1,251 |
+| Tepeyac | 173 | 2026-10-19 | 5 | 1,306 | 1,282 |
+| Cancún Kabah | 255 | 2026-10-19 | 5 | 1,294 | 1,260 |
+| Puebla Centro Sur | 76 | 2026-10-20 | 5 | 1,268 | 1,249 |
+| **Total** | | **Dos fechas** | **20** | **5,139** | **5,042** |
+
+Las cifras se guardaron en el manifiesto versionado
+`config/chedraui/validated_runs_20261019_20261020.json`.
+Los checkpoints `.xlsx` originales siguen en `output/checkpoints_validos/chedraui_cases/`
+de la computadora que ejecutó Playwright: no están incluidos en GitHub.
+El manifiesto no sustituye esos archivos ni prueba que el master esté actualizado.
+
+**Regla crítica:** las primeras 15 capturas son del 19 de octubre y
+las últimas 5 del 20 de octubre. El integrador diario no debe marcar
+todas las 20 como si fueran de una misma fecha. Se añadió una opción
+de exportación histórica verificable, separada del master productivo.
+
+```powershell
+cd C:\Proyectos\scraper
+git pull --ff-only origin main
+python -m unittest discover -s tests -p "test_export_chedraui_historico.py" -v
+
+# 1. Verificar 20/20 checkpoints contra su fecha, tienda y totales
+& .\scripts\export_chedraui_historico.ps1
+
+# 2. Crear solo el histórico independiente, nunca el master diario
+& .\scripts\export_chedraui_historico.ps1 -Commit
+```
+
+Salida: `output/historicos/chedraui_validado_2026-10-19_a_2026-10-20.xlsx`
+(hojas `Concentrado`, `Resumen`, `Retailers` y `Control`).
+El comando rechaza faltantes, duplicados, cambios de fecha, disponibilidad
+inconsistente o totales de productos/precios alterados; el archivo histórico
+es inmutable si ya existe. No modifica
+`output/concentrado_productivo_total_YYYY-MM-DD.xlsx` ni
+`output/checkpoints_validos/current_master.json`.
+
+**Para una captura productiva de Chedraui completa en un día nuevo**,
+se deben ejecutar sus 20 combinaciones ese mismo día o definir
+expresamente un corte multifecha distinto del master diario.
 ## Chedraui: diagnóstico de navegación visible y cierre Fase 1
 
 ### Fallo intermitente `location_button_opened=False` (2026-10-19)
