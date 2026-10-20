@@ -1,0 +1,180 @@
+{
+  "schema_version": "chedraui-validated-run-manifest-v1",
+  "snapshot_type": "multi_date_historical",
+  "description": "Evidence counts from 20 isolated COMPLETE Chedraui runs; source checkpoints remain local and are validated before building.",
+  "stores": [
+    {
+      "location_id": "chedraui-polanco",
+      "store_id": "232",
+      "capture_date": "2026-10-19",
+      "categories": [
+        {
+          "category_id": "higiene-bucal",
+          "products": 293,
+          "price_required": 289,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        },
+        {
+          "category_id": "lavanderia",
+          "products": 348,
+          "price_required": 334,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        },
+        {
+          "category_id": "desodorantes-y-antitranspirantes",
+          "products": 367,
+          "price_required": 366,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        },
+        {
+          "category_id": "depilacion",
+          "products": 45,
+          "price_required": 45,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        },
+        {
+          "category_id": "respiratorios",
+          "products": 218,
+          "price_required": 217,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        }
+      ]
+    },
+    {
+      "location_id": "chedraui-tepeyac",
+      "store_id": "173",
+      "capture_date": "2026-10-19",
+      "categories": [
+        {
+          "category_id": "higiene-bucal",
+          "products": 318,
+          "price_required": 313,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        },
+        {
+          "category_id": "lavanderia",
+          "products": 356,
+          "price_required": 342,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        },
+        {
+          "category_id": "desodorantes-y-antitranspirantes",
+          "products": 432,
+          "price_required": 430,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        },
+        {
+          "category_id": "depilacion",
+          "products": 42,
+          "price_required": 42,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        },
+        {
+          "category_id": "respiratorios",
+          "products": 158,
+          "price_required": 155,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        }
+      ]
+    },
+    {
+      "location_id": "chedraui-cancun-kabah",
+      "store_id": "255",
+      "capture_date": "2026-10-19",
+      "categories": [
+        {
+          "category_id": "higiene-bucal",
+          "products": 315,
+          "price_required": 302,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        },
+        {
+          "category_id": "lavanderia",
+          "products": 362,
+          "price_required": 348,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        },
+        {
+          "category_id": "desodorantes-y-antitranspirantes",
+          "products": 418,
+          "price_required": 412,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        },
+        {
+          "category_id": "depilacion",
+          "products": 43,
+          "price_required": 43,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        },
+        {
+          "category_id": "respiratorios",
+          "products": 156,
+          "price_required": 155,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        }
+      ]
+    },
+    {
+      "location_id": "chedraui-puebla-centro-sur",
+      "store_id": "76",
+      "capture_date": "2026-10-20",
+      "categories": [
+        {
+          "category_id": "higiene-bucal",
+          "products": 297,
+          "price_required": 293,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        },
+        {
+          "category_id": "lavanderia",
+          "products": 351,
+          "price_required": 337,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        },
+        {
+          "category_id": "desodorantes-y-antitranspirantes",
+          "products": 438,
+          "price_required": 438,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        },
+        {
+          "category_id": "depilacion",
+          "products": 26,
+          "price_required": 26,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        },
+        {
+          "category_id": "respiratorios",
+          "products": 156,
+          "price_required": 155,
+          "status": "COMPLETE",
+          "store_context_contract_version": "chedraui-directory-ui-v3"
+        }
+      ]
+    }
+  ],
+  "expected_total_categories": 20,
+  "expected_total_products": 5139,
+  "expected_total_required_prices": 5042,
+  "availability_contract": "is_available: 1 for AVAILABLE, 0 for UNAVAILABLE",
+  "daily_master_policy": "Multi-date data is NEVER published into a daily productive master by this export."
+}
