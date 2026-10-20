@@ -274,6 +274,33 @@ Si vuelve a fallar, revisar la sección
 'ULTIMOS INTENTOS DE CONFIRMAR RECOLECCION', y las capturas
 '06_tienda_seleccionada' y '07_confirmacion_no_lograda'.
 Solo ejecutar -Category all cuando higiene bucal alcance COMPLETE.
+### Cierre Chedraui de hoy: 19 de octubre de 2026
+
+Al terminar la jornada, Polanco 232 (1,271 filas), Tepeyac 173
+(1,306 filas) y Cancún Kabah 255 (1,294 filas) tienen cinco
+categorías COMPLETE cada una: **15 casos / 3,871 filas**.
+Puebla 76 sigue pendiente: no se certifica ni se completa artificialmente.
+
+El cierre por lotes valida TODOS los 15 checkpoints del 19 de octubre,
+verifica totales exactos, disponibilidad 1/0, SKU, URL, precios,
+tiendas verificadas, no modifica los otros retailers y conserva
+FASE 1 = PARTIAL_VALIDATED. Se escribe el master diario una sola vez.
+Requiere un master del 19 ya existente y seleccionado por current_master.json.
+No crea un nuevo master si falta. Rechaza cierres de otro día.
+
+```powershell
+cd C:\Proyectos\scraper
+git pull --ff-only origin main
+python -m unittest discover -s tests -p "test_cierre_chedraui_20261019.py" -v
+& .\scripts\cierre_chedraui_20261019.ps1
+# Solamente después de confirmar '15/20' y '3871' en el preview:
+& .\scripts\cierre_chedraui_20261019.ps1 -Commit
+```
+
+Genera respaldo anterior y checkpoint posterior. Verificar el mensaje
+INTEGRACIÓN COMPLETADA antes de afirmar que el master cambió.
+Las capturas de Puebla realizadas al día siguiente son de otra fecha:
+se deben mantener fechadas y no mezclarse sin definir un corte nuevo.
 ## Chedraui: diagnóstico de navegación visible y cierre Fase 1
 
 ### Fallo intermitente `location_button_opened=False` (2026-10-19)
