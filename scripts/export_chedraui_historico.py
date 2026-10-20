@@ -143,6 +143,9 @@ def build_historical_export(manifest: dict, snapshots_by_date: dict):
                 raise ValueError(f"Disponibilidad desconocida: {store_id}/{category_id}")
             if not available.eq(status.eq("AVAILABLE").astype(int)).all():
                 raise ValueError(f"Disponibilidad 1/0 incorrecta: {store_id}/{category_id}")
+            observed_required = int(status.eq("AVAILABLE").sum())
+            if observed_required != item["price_required"]:
+                raise ValueError(f"Precio requerido no concuerda con el stock: {store_id}/{category_id}")
 
             # Preempt duplicates within and between files for the same store.
             if frame.duplicated(subset=["sku", "url"]).any():
@@ -222,7 +225,7 @@ def main() -> int:
         )
 
         print("=" * 70)
-        print("CEDHRAUI HISTÓRICO VALIDADO | 20 CASOS | 5,139 FILAS")
+        print("CHEDRAUI HISTÓRICO VALIDADO | 20 CASOS | 5,139 FILAS")
         print("=" * 70)
         for store in manifest["stores"]:
             print(
