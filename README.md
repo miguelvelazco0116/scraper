@@ -786,6 +786,18 @@ Esto agrega exclusivamente Bodega Aurrera + Walmart al concentrado fechado activ
 
 ## Fase 4 — Farmacias San Pablo + Farmacias Benavides
 
+### Ejecución integral del día
+
+Con la pestaña de Farmacias San Pablo abierta en Chrome y CDP habilitado:
+
+```powershell
+& .\scripts\run_phase4_production.ps1
+```
+
+El runner captura secuencialmente las 4 categorías de San Pablo mediante el Chrome existente y las 3 categorías de Benavides mediante Playwright. Reutiliza los casos correctos del día, ejecuta **una única integración incremental de Fase 4** (solo retailers completos y de la misma fecha) y termina con `audit_master_phases.py`, mostrando estados de todas las fases y retailers. Si uno de los retailers queda pendiente, el otro aún puede integrarse. La salida y el detalle se guardan en `diagnostics\phase4_production\` y `output\reportes_integracion\`.
+
+Para capturar y auditar sin integrar al master: `& .\scripts\run_phase4_production.ps1 -SkipIntegration`.
+
 Estado: **VALIDADO**
 
 Fase 4 contiene dos retailers y siete categorías:
