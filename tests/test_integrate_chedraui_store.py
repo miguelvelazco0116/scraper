@@ -27,7 +27,8 @@ def setup_data():
         }])
         summary = {
             "category_id": category, "status": "COMPLETE", "products": 1,
-            "target_products": 1, "price_required": 1, "price_required_complete": 1,
+            "target_products": 1, "coverage": 1.0,
+            "price_required": 1, "price_required_complete": 1,
             "store_context_verified": True, "store_context_method": "visible_store_control",
             "store_context_contract_version": CONTRACT,
             "pagination_gaps": 0, "structured_price_missing_pages": 0,
