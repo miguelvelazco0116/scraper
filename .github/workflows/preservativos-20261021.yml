@@ -17,6 +17,7 @@ jobs:
           cat tmp_preservativos_20261016/part_* > /tmp/runner.b64
           base64 -d /tmp/runner.b64 > /tmp/runner.tgz
           tar -xzf /tmp/runner.tgz -C runner
+          cp tmp_preservativos_20261016/run_daily.mjs runner/run_daily.mjs
           echo "Payload reconstructed"
       - name: Run canonical daily route
         id: scraper
