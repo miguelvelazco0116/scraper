@@ -6,6 +6,10 @@ param(
     [string]$ProfileDir = "",
     [ValidateRange(0, 600)]
     [int]$CategoryDelaySeconds = 0,
+    [ValidateRange(0, 4)]
+    [int]$StoreContextRetries = 2,
+    [ValidateRange(0, 120)]
+    [int]$StoreContextRetryDelaySeconds = 10,
     [switch]$Headed,
     [string]$PythonExe = ""
 )
@@ -36,7 +40,9 @@ $ArgsList = @(
     ".\scripts\test_chedraui.py",
     "--category", $Category,
     "--store", $Store,
-    "--category-delay-seconds", $CategoryDelaySeconds
+    "--category-delay-seconds", $CategoryDelaySeconds,
+    "--store-context-retries", $StoreContextRetries,
+    "--store-context-retry-delay-seconds", $StoreContextRetryDelaySeconds
 )
 
 if (-not [string]::IsNullOrWhiteSpace($ProfileDir)) {
