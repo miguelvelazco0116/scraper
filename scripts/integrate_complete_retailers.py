@@ -39,7 +39,7 @@ from duero_online_integration_evidence import (
 EXPECTED = {
     1: {"Farmacias del Ahorro": 6, "Ibarra Mayoreo": 4, "Chedraui": 20},
     2: {"Farmacias Guadalajara": 4, "Soriana": 6},
-    3: {"Bodega Aurrera": 2, "Walmart": 3},
+    3: {"Bodega Aurrera": 3, "Walmart": 3},
     4: {"Farmacias San Pablo": 4, "Farmacias Benavides": 3},
     5: {"Farmacias Similares": 2, "HEB": 2, "Sam's Club": 3, "Mayorista Duero": 6},
 }
