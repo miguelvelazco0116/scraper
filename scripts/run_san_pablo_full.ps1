@@ -3,7 +3,8 @@ param(
     [string]$PythonExe = "",
     [string]$Category = "all",
     [int]$MaxPages = 20,
-    [string]$CdpUrl = ""
+    [string]$CdpUrl = "",
+    [switch]$SkipIntegration
 )
 
 $ErrorActionPreference = "Stop"
@@ -87,7 +88,7 @@ if ($code -ne 0) {
     Write-Warning "El test termino con observaciones (exit_code=$code). Revisa la hoja Resumen; el archivo de salida se conserva."
 }
 
-if ($Category -eq "all") {
+if ($Category -eq "all" -and -not $SkipIntegration) {
     Write-Host ""
     Write-Host "Evaluando retailers completos de Fase 4; parciales quedan pendientes..."
     & ".\scripts\integrate_complete_retailers.ps1" `
@@ -100,6 +101,10 @@ if ($Category -eq "all") {
         Write-Warning "No se pudo actualizar el master de Fase 4."
         if ($code -eq 0) { $code = $integrationCode }
     }
+}
+
+if ($SkipIntegration) {
+    Write-Host "Integracion al master: OMITIDA por -SkipIntegration."
 }
 
 exit $code
