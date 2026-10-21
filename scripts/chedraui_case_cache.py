@@ -16,6 +16,7 @@ from main import COLUMNS
 from scraper.io_utils import atomic_output_path
 
 CONTRACT = "chedraui-directory-ui-v3"
+MIN_COVERAGE = 0.90  # MVP: eligible snapshots need >=90% published coverage.
 
 
 def _boolean(value) -> bool:
@@ -39,14 +40,20 @@ def validate_case(frame: pd.DataFrame, case: dict, *, category_id: str,
         issues.append("status no COMPLETE")
     if int(pd.to_numeric(pd.Series([case.get("products")]), errors="coerce").fillna(-1).iloc[0]) != len(frame):
         issues.append("conteo de productos no coincide")
-    # A historically written COMPLETE label is not proof of full coverage:
-    # reject stale 90%-threshold snapshots on EVERY path (persist/seed/load).
+    # The MVP accepts >=90%, not exactly 100%. Check actual row counts
+    # and never trust a COMPLETE label or unverified coverage in summaries.
     target = pd.to_numeric(pd.Series([case.get("target_products")]), errors="coerce").iloc[0]
-    if pd.isna(target) or target <= 0 or int(target) != target or int(target) != len(frame):
-        issues.append("cobertura incompleta: productos capturados != total publicado")
-    coverage = pd.to_numeric(pd.Series([case.get("coverage")]), errors="coerce").iloc[0]
-    if not pd.isna(coverage) and abs(float(coverage) - 1.0) > 1e-8:
-        issues.append("cobertura reportada diferente de 100%")
+    observed_coverage = None
+    if pd.isna(target) or target <= 0 or int(target) != target:
+        issues.append("total publicado ausente o inválido")
+    else:
+        observed_coverage = len(frame) / int(target)
+        if not (MIN_COVERAGE <= observed_coverage <= 1.0):
+            issues.append(f"cobertura fuera del umbral 90%-100%: {observed_coverage:.2%}")
+    reported_coverage = pd.to_numeric(pd.Series([case.get("coverage")]), errors="coerce").iloc[0]
+    if (not pd.isna(reported_coverage) and observed_coverage is not None
+        and abs(float(reported_coverage) - observed_coverage) > 1e-6):
+        issues.append("cobertura reportada inconsistente con productos/target")
     if case.get("store_context_contract_version") != CONTRACT:
         issues.append("contrato de tienda incorrecto")
     if not _boolean(case.get("store_context_verified")):
