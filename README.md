@@ -350,6 +350,38 @@ es inmutable si ya existe. No modifica
 **Para una captura productiva de Chedraui completa en un día nuevo**,
 se deben ejecutar sus 20 combinaciones ese mismo día o definir
 expresamente un corte multifecha distinto del master diario.
+### Chedraui: corrección de integridad del 21 de octubre de 2026
+
+La prueba aislada de Polanco (232), `higiene-bucal`, publicó **299**
+productos, pero capturó solo **297**. La versión anterior etiquetaba
+equivocadamente el resultado como `COMPLETE` porque permitía >=90%
+de cobertura; incluso escribió un checkpoint `ISOLATED_VALIDATED`
+aunque la cobertura real fue **99.33%**.
+
+Corrección de seguridad:
+- `scripts/test_chedraui.py` exige **capturados = total publicado**;
+  si no puede leerse el total o difiere aunque sea por 1, devuelve `PARTIAL`.
+- `scripts/chedraui_case_cache.py` vuelve a comprobar el target en
+  persistencia, recuperación y carga, y rechaza también checkpoints
+  antiguos con menos del 100%. Los archivos de evidencia existentes
+  permanecen intactos, pero no se utilizarán en una integración posterior.
+- Pruebas de regresión en `tests/test_chedraui_strict_coverage.py` y
+  `tests/test_chedraui_case_cache.py`.
+
+```powershell
+cd C:\Proyectos\scraper
+git pull --ff-only origin main
+python -m unittest discover -s tests -p "test_chedraui_strict_coverage.py" -v
+python -m unittest discover -s tests -p "test_chedraui_case_cache.py" -v
+
+# Reintentar solamente el caso incompleto
+& .\scripts\test_chedraui.ps1 -Category higiene-bucal -Store chedraui-polanco -Headed
+```
+
+No marcar `COMPLETE` ni integrar hasta obtener 100% de cobertura
+y checkpoint independiente validado. La cifra 299 del frontend no
+identifica los 2 SKU que faltan; si continúa PARTIAL, revisar
+paginación, deduplicación y diagnósticos de la corrida.
 ## Chedraui: diagnóstico de navegación visible y cierre Fase 1
 
 ### Fallo intermitente `location_button_opened=False` (2026-10-19)
