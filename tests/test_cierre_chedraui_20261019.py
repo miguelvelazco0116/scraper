@@ -42,7 +42,7 @@ def fixtures():
                 {
                     "category_id": category, "status": "COMPLETE",
                     "products": count, "target_products": count,
-                    "price_required": count,
+                    "coverage": 1.0, "price_required": count,
                     "price_required_complete": count,
                     "store_context_verified": True,
                     "store_context_method": "visible_store_control",
