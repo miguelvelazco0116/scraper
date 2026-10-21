@@ -39,6 +39,14 @@ def validate_case(frame: pd.DataFrame, case: dict, *, category_id: str,
         issues.append("status no COMPLETE")
     if int(pd.to_numeric(pd.Series([case.get("products")]), errors="coerce").fillna(-1).iloc[0]) != len(frame):
         issues.append("conteo de productos no coincide")
+    # A historically written COMPLETE label is not proof of full coverage:
+    # reject stale 90%-threshold snapshots on EVERY path (persist/seed/load).
+    target = pd.to_numeric(pd.Series([case.get("target_products")]), errors="coerce").iloc[0]
+    if pd.isna(target) or target <= 0 or int(target) != target or int(target) != len(frame):
+        issues.append("cobertura incompleta: productos capturados != total publicado")
+    coverage = pd.to_numeric(pd.Series([case.get("coverage")]), errors="coerce").iloc[0]
+    if not pd.isna(coverage) and abs(float(coverage) - 1.0) > 1e-8:
+        issues.append("cobertura reportada diferente de 100%")
     if case.get("store_context_contract_version") != CONTRACT:
         issues.append("contrato de tienda incorrecto")
     if not _boolean(case.get("store_context_verified")):
