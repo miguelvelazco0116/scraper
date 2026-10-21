@@ -53,7 +53,7 @@ PHASES = {
             "Bodega Aurrera",
             "Walmart",
         },
-        "categories": 5,
+        "categories": 6,
         "require_fg_names": False,
     },
     4: {
@@ -83,7 +83,7 @@ PHASES = {
 PHASE3_RETAILER_SOURCES = {
     "Bodega Aurrera": {
         "source": ROOT / "output" / "bodega_aurrera_test.xlsx",
-        "categories": 2,
+        "categories": 3,
     },
     "Walmart": {
         "source": ROOT / "output" / "walmart_phase3_test.xlsx",
@@ -174,8 +174,8 @@ def _validate_bodega_retailer(
 
     if frame.empty:
         notes.append("Concentrado Bodega vacío")
-    if len(summary) != 2:
-        notes.append(f"Bodega categorías {len(summary)}/2")
+    if len(summary) != 3:
+        notes.append(f"Bodega categorías {len(summary)}/3")
         return notes
 
     retailers = set(summary["retailer"].dropna().astype(str))
@@ -1505,8 +1505,8 @@ def _validate_phase(
                         "Walmart coverage/pagination gate incompleto"
                     )
 
-        if len(bodega) != 2:
-            notes.append(f"Bodega Aurrera categorías={len(bodega)}/2")
+        if len(bodega) != 3:
+            notes.append(f"Bodega Aurrera categorías={len(bodega)}/3")
         else:
             if "price_validation_errors" not in bodega.columns:
                 notes.append(
