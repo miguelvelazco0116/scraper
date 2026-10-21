@@ -21,3 +21,13 @@ categories:
       - https://www.bodegaaurrera.com.mx/browse/cuidado-de-la-ropa/detergente/detergente-en-polvo/3680083_3570057_3570059
       - https://www.bodegaaurrera.com.mx/browse/cuidado-de-la-ropa/detergente/detergente-liquido/3680083_3570057_3570058
     enabled: true
+
+  - id: desodorantes
+    department: Cuidado personal
+    name: Cuidado corporal
+    subcategory: Desodorantes
+    sub_subcategory: null
+    url: https://www.bodegaaurrera.com.mx/browse/cuidado-personal/cuidado-corporal/desodorantes/264479_950004_264503
+    source_urls:
+      - https://www.bodegaaurrera.com.mx/browse/cuidado-personal/cuidado-corporal/desodorantes/264479_950004_264503
+    enabled: true
