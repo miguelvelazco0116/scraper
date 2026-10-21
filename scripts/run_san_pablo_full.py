@@ -728,6 +728,21 @@ def main() -> int:
             else:
                 status = "SUCCESS"
 
+            # A valid DOM/fallback capture is diagnostic only. Production
+            # integration requires the real storefront OCC response.
+            if (
+                status == "SUCCESS"
+                and str(meta.get("occ_transport") or "").strip()
+                != "captured_storefront_response"
+            ):
+                status = "PARTIAL"
+                print(
+                    f"OCC_REQUIRED [{category.id}]: "
+                    f"transport={meta.get('occ_transport') or '-'} "
+                    f"fallback={meta.get('occ_fallback_reason') or '-'}",
+                    flush=True,
+                )
+
         summaries.append(
             {
                 "category_id": category.id,
@@ -786,7 +801,14 @@ def main() -> int:
     print(f"Archivo de prueba : {OUTPUT_PATH}")
     print(f"Consolidado global: {ROOT / CONSOLIDATED_PATH}")
 
-    successful = all(
+    successful = bool(
+        len(summaries) == len(configured_categories)
+        and all(
+            str(item.get("occ_transport") or "").strip()
+            == "captured_storefront_response"
+            for item in summaries
+        )
+    ) and all(
         item["status"] == "SUCCESS"
         and meets_rate(
             int(item["price_complete"]),
