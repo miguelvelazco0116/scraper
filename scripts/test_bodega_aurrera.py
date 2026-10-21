@@ -16,6 +16,7 @@ from playwright.sync_api import sync_playwright
 
 from main import COLUMNS
 from scraper.config import load_categories, load_locations
+from scraper.io_utils import atomic_output_path
 from scraper.quality_rules import meets_rate, valid_after_errors
 from scraper.retailers.bodega_aurrera import (
     BodegaAurreraBlocked,
@@ -488,14 +489,16 @@ def _write_results(
             {
                 "status": (
                     "PRODUCTIVE"
-                    if summaries
+                    if len(summary_df) == len(category_order)
+                    and summaries
                     and all(_summary_is_acceptable(item) for item in summaries)
                     else "PARTIAL"
                 ),
                 "products": len(concentrated),
                 "categories": len(summary_df),
                 "all_categories_complete": bool(
-                    summaries
+                    len(summary_df) == len(category_order)
+                    and summaries
                     and all(_summary_is_acceptable(item) for item in summaries)
                 ),
             }
@@ -503,37 +506,38 @@ def _write_results(
     )
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with pd.ExcelWriter(OUTPUT_PATH, engine="openpyxl") as writer:
-        concentrated.to_excel(
-            writer,
-            index=False,
-            sheet_name="Concentrado",
-        )
-        summary_df.to_excel(
-            writer,
-            index=False,
-            sheet_name="Resumen",
-        )
-        control.to_excel(
-            writer,
-            index=False,
-            sheet_name="Control",
-        )
-        pd.DataFrame(sources).to_excel(
-            writer,
-            index=False,
-            sheet_name="Fuentes",
-        )
-        pd.DataFrame(extraction).to_excel(
-            writer,
-            index=False,
-            sheet_name="Extraccion",
-        )
-        price_audit_df.to_excel(
-            writer,
-            index=False,
-            sheet_name="ValidacionPrecios",
-        )
+    with atomic_output_path(OUTPUT_PATH) as temporary:
+        with pd.ExcelWriter(temporary, engine="openpyxl") as writer:
+            concentrated.to_excel(
+                writer,
+                index=False,
+                sheet_name="Concentrado",
+            )
+            summary_df.to_excel(
+                writer,
+                index=False,
+                sheet_name="Resumen",
+            )
+            control.to_excel(
+                writer,
+                index=False,
+                sheet_name="Control",
+            )
+            pd.DataFrame(sources).to_excel(
+                writer,
+                index=False,
+                sheet_name="Fuentes",
+            )
+            pd.DataFrame(extraction).to_excel(
+                writer,
+                index=False,
+                sheet_name="Extraccion",
+            )
+            price_audit_df.to_excel(
+                writer,
+                index=False,
+                sheet_name="ValidacionPrecios",
+            )
 
     return concentrated, summary_df
 
@@ -564,16 +568,17 @@ def main() -> int:
         print("ERROR: --retry-failed-at-end debe ser >= 0")
         return 12
 
-    categories = [
+    configured_categories = [
         x
         for x in load_categories(
             ROOT / "config" / "bodega-aurrera" / "categories.yaml"
         )
     ]
+    categories = configured_categories
     if args.category:
         categories = [
             item
-            for item in categories
+            for item in configured_categories
             if item.id == args.category
         ]
         if not categories:
@@ -601,12 +606,14 @@ def main() -> int:
     print("Si aparece 'Verifica tu identidad', completa manualmente la")
     print("verificación en Chrome. El scraper NO la evade.")
 
-    category_order = [category.id for category in categories]
-    results: dict[str, tuple] = (
-        _load_existing_valid_results(categories)
-        if not args.category
-        else {}
+    # Preserve all same-day successful categories, even for an isolated test.
+    # An isolated test refreshes only its selected category.
+    category_order = [category.id for category in configured_categories]
+    results: dict[str, tuple] = _load_existing_valid_results(
+        configured_categories
     )
+    if args.category:
+        results.pop(args.category, None)
     if results:
         print("")
         print("CATEGORÍAS BODEGA YA VÁLIDAS HOY:")
@@ -744,21 +751,33 @@ def main() -> int:
     print(f"Archivo: {OUTPUT_PATH}")
     print("Diagnósticos: diagnostics\\bodega_aurrera_*")
 
-    acceptable = bool(
-        len(summary_df) == len(categories)
-        and not summary_df.empty
+    run_acceptable = bool(
+        categories
         and all(
-            _summary_is_acceptable(results[item.id][1])
+            item.id in results
+            and _summary_is_acceptable(results[item.id][1])
             for item in categories
         )
     )
-
-    if acceptable:
+    all_acceptable = bool(
+        len(summary_df) == len(configured_categories)
+        and all(
+            item.id in results
+            and _summary_is_acceptable(results[item.id][1])
+            for item in configured_categories
+        )
+    )
+    if all_acceptable:
         print("Resultado Bodega: TODAS LAS CATEGORÍAS VÁLIDAS.")
+    elif run_acceptable and args.category:
+        print(
+            f"Resultado Bodega: {args.category} VÁLIDA. "
+            "Se preservaron las demás categorías del día."
+        )
     else:
         failed = [
             item.id
-            for item in categories
+            for item in configured_categories
             if item.id not in results
             or not _summary_is_acceptable(results[item.id][1])
         ]
@@ -767,7 +786,7 @@ def main() -> int:
             + ", ".join(failed)
         )
 
-    return 0 if acceptable else 2
+    return 0 if run_acceptable else 2
 
 
 if __name__ == "__main__":
