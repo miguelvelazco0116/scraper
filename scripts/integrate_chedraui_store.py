@@ -19,7 +19,7 @@ if str(ROOT) not in sys.path:
 
 import pandas as pd
 
-from chedraui_case_cache import _store_id, load_valid_snapshots, validate_case
+from chedraui_case_cache import MIN_COVERAGE, _store_id, load_valid_snapshots, validate_case
 from integrate_complete_retailers import _control
 from integrate_validated_phase import (
     CHECKPOINT_DIR, CURRENT_MASTER_POINTER, _canonical,
@@ -98,8 +98,9 @@ def prepare_integration(
             raise ValueError(category_id + ": disponibilidad 1/0 inconsistente")
 
         target = pd.to_numeric(pd.Series([case.get("target_products")]), errors="coerce").iloc[0]
-        if pd.isna(target) or int(target) != len(subset):
-            raise ValueError(category_id + ": total publicado no coincide con capturado")
+        if (pd.isna(target) or target <= 0 or int(target) != target
+            or not (MIN_COVERAGE <= len(subset) / int(target) <= 1.0)):
+            raise ValueError(category_id + ": cobertura inferior a 90%, superior al total o target inválido")
         required = pd.to_numeric(pd.Series([case.get("price_required")]), errors="coerce").iloc[0]
         complete = pd.to_numeric(pd.Series([case.get("price_required_complete")]), errors="coerce").iloc[0]
         if pd.isna(required) or pd.isna(complete) or int(required) != int(complete):
