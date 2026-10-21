@@ -83,7 +83,7 @@ Write-Host "====================================================================
 Write-Host "SCRAPER PRODUCTIVO - FASE 3"
 Write-Host "========================================================================"
 Write-Host "Retailers : Bodega Aurrera + Walmart"
-Write-Host "Categorias: 2 + 3 = 5"
+Write-Host "Categorias: 3 + 3 = 6"
 Write-Host "Python    : $PythonExe"
 Write-Host "Chrome    : SESION EXISTENTE"
 Write-Host "CDP       : $CdpUrl"
