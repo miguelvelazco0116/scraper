@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import sys
 import time
@@ -173,6 +174,139 @@ def _quality(frame: pd.DataFrame, meta: dict) -> tuple[str, dict]:
     }
 
 
+def _preserve_retry_diagnostics(
+    *, category, location, attempt: int, reason: str, error: str | None,
+    meta: dict, started_at: float, diagnostics_dir: Path,
+) -> Path:
+    """Preserve per-attempt evidence before a later attempt overwrites it."""
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    folder = (diagnostics_dir / "chedraui_retries" / str(location.store_id)
+              / category.id)
+    folder.mkdir(parents=True, exist_ok=True)
+    prefix = f"{stamp}_attempt{attempt}_{reason.lower()}"
+    payload = {
+        "category": category.id, "store_id": str(location.store_id),
+        "attempt": attempt, "reason": reason, "error": error,
+        "timestamp": datetime.now().astimezone().isoformat(),
+        "run_meta": meta,
+    }
+    destination = folder / f"{prefix}.json"
+    destination.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
+    names = ["chedraui_run_meta.json"]
+    if reason == "STORE_CONTEXT_ERROR":
+        names += [
+            f"chedraui_{name}.{extension}"
+            for name in ("store_context_pre_category_error", "store_context_error")
+            for extension in ("png", "html")
+        ]
+    elif reason == "CATALOG_COUNT_OVERFLOW":
+        names += [
+            f"chedraui_success_{category.id}.{extension}"
+            for extension in ("png", "html")
+        ]
+    for name in names:
+        source = diagnostics_dir / name
+        try:
+            # Do not copy stale screenshots from previous categories.
+            if source.is_file() and source.stat().st_mtime >= started_at - 2:
+                shutil.copy2(source, folder / f"{prefix}_{name}")
+        except OSError:
+            pass
+    return destination
+
+
+def _scrape_category_with_retries(
+    category, location, *, profile_dir: str, max_pages: int,
+    store_context_retries: int = 2, retry_delay_seconds: int = 10,
+    scraper_factory=None, sleep_fn=None, diagnostics_dir: Path | None = None,
+):
+    """Retry only store context failures and impossible overcount.
+
+    Every retry creates a new scraper/browser session, repeats the verified
+    directory UI contract, and discards rows from failed attempts. BLOCKED
+    and unrelated errors are never retried.
+    """
+    if scraper_factory is None:
+        scraper_factory = ChedrauiScraper
+    if sleep_fn is None:
+        sleep_fn = time.sleep
+    if diagnostics_dir is None:
+        diagnostics_dir = ROOT / "diagnostics"
+    if store_context_retries < 0 or store_context_retries > 4:
+        raise ValueError("store_context_retries debe estar entre 0 y 4")
+    if retry_delay_seconds < 0 or retry_delay_seconds > 120:
+        raise ValueError("retry_delay_seconds debe estar entre 0 y 120")
+
+    history = []
+    attempts = store_context_retries + 1
+    for number in range(1, attempts + 1):
+        print(f"  Intento {number}/{attempts}: {category.id} / tienda {location.store_id}")
+        scraper = scraper_factory(
+            headless=False, browser_channel="chrome",
+            profile_dir=profile_dir, max_pages=max_pages,
+        )
+        started_at = time.time()
+        rows = []
+        error = None
+        reason = None
+        try:
+            rows = scraper.scrape_category(category, location)
+        except ChedrauiBlocked as exc:
+            error = f"BLOCKED: {exc}"
+            print(error)
+        except ChedrauiStoreContextError as exc:
+            error = f"STORE_CONTEXT_ERROR: {exc}"
+            reason = "STORE_CONTEXT_ERROR"
+            print(error)
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            print(f"ERROR: {error}")
+
+        if not error and rows:
+            # Only overcount is retried: it may result from a shifting
+            # category counter or pagination. Never silently discard rows.
+            observed = pd.DataFrame(rows, columns=COLUMNS)
+            observed = observed.drop_duplicates(
+                subset=["sku", "url"], keep="last"
+            )
+            published = (scraper.run_meta or {}).get("displayed_category_products")
+            try:
+                published = int(published) if published is not None else None
+            except (ValueError, TypeError):
+                published = None
+            if published and len(observed) > published:
+                reason = "CATALOG_COUNT_OVERFLOW"
+                print(f"  Conteo inconsistente: {len(observed)}/{published} (>100%)")
+
+        entry = {"attempt": number, "status": reason or (error or "SCRAPED"),
+                 "error": error, "rows": len(rows), "diagnostic": None}
+        if reason:
+            try:
+                diagnostic = _preserve_retry_diagnostics(
+                    category=category, location=location,
+                    attempt=number, reason=reason, error=error,
+                    meta=dict(scraper.run_meta or {}),
+                    started_at=started_at, diagnostics_dir=diagnostics_dir,
+                )
+                entry["diagnostic"] = str(diagnostic)
+                print(f"  Diagnóstico conservado: {diagnostic}")
+            except OSError as exc:
+                print(f"  ADVERTENCIA: no se pudo conservar el diagnóstico: {exc}")
+        history.append(entry)
+
+        if reason and number < attempts:
+            print(f"  Reintento automático en {retry_delay_seconds} segundos...")
+            sleep_fn(retry_delay_seconds)
+            continue
+        if number > 1 and not reason and not error:
+            print(f"  Categoría recuperada en intento {number}/{attempts}")
+        return scraper, rows, error, history
+
+    raise AssertionError("El bucle de reintentos debe regresar en el último intento")
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Prueba aislada de Chedraui por tienda."
@@ -220,6 +354,22 @@ def main() -> int:
         type=int,
         default=0,
         help="Pausa entre categorías dentro de la misma tienda.",
+    )
+    parser.add_argument(
+        "--store-context-retries",
+        type=int,
+        choices=range(0, 5),
+        default=2,
+        metavar="{0..4}",
+        help="Reintentos por categoría para STORE_CONTEXT_ERROR o sobreconteo (default: 2).",
+    )
+    parser.add_argument(
+        "--store-context-retry-delay-seconds",
+        type=int,
+        choices=range(0, 121),
+        default=10,
+        metavar="{0..120}",
+        help="Segundos entre reintentos de la misma categoría (default: 10).",
     )
     args = parser.parse_args()
 
@@ -302,6 +452,8 @@ def main() -> int:
     print(f"CP         : {location.postal_code}")
     print(f"Profile    : {profile_dir}")
     print(f"Delay cat. : {args.category_delay_seconds} segundos")
+    print(f"Reintentos : {args.store_context_retries} por categoría")
+    print(f"Delay retr.: {args.store_context_retry_delay_seconds} segundos")
     print("Consolidado: sin cambios")
     print("")
 
@@ -311,32 +463,12 @@ def main() -> int:
         print(category.url)
         print("-" * 72)
 
-        scraper = ChedrauiScraper(
-            # Store certification uses the visible directory UI:
-            # State -> City/Zone -> exact store.
-            headless=False,
-            browser_channel="chrome",
-            profile_dir=profile_dir,
+        scraper, rows, error, retry_history = _scrape_category_with_retries(
+            category, location, profile_dir=profile_dir,
             max_pages=args.max_pages,
+            store_context_retries=args.store_context_retries,
+            retry_delay_seconds=args.store_context_retry_delay_seconds,
         )
-
-        rows: list[dict] = []
-        error = None
-
-        try:
-            rows = scraper.scrape_category(
-                category,
-                location,
-            )
-        except ChedrauiBlocked as exc:
-            error = f"BLOCKED: {exc}"
-            print(error)
-        except ChedrauiStoreContextError as exc:
-            error = f"STORE_CONTEXT_ERROR: {exc}"
-            print(error)
-        except Exception as exc:
-            error = f"{type(exc).__name__}: {exc}"
-            print(f"ERROR: {error}")
 
         frame = pd.DataFrame(rows, columns=COLUMNS)
         if not frame.empty:
@@ -416,6 +548,8 @@ def main() -> int:
                 or []
             ),
             "error": error,
+            "attempts": len(retry_history),
+            "retry_history": json.dumps(retry_history, ensure_ascii=False),
         }
         summaries.append(summary)
         if status == "COMPLETE":
@@ -438,6 +572,7 @@ def main() -> int:
             "products",
             "target_products",
             "coverage",
+            "attempts",
             "sku_complete",
             "url_complete",
             "price_required",
