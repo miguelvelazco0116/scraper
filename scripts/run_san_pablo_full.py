@@ -387,12 +387,57 @@ class _BrowserOccSanPabloScraper(FarmaciasSanPabloScraper):
         return rows
 
 def _find_san_pablo_page(browser):
+    """Reuse an existing San Pablo tab or create one in the CDP Chrome.
+
+    Chrome remote debugging may point at a browser instance with no San Pablo
+    tab, even if another Chrome window displays that retailer. Never discard
+    the session or use a different browser/profile silently.
+    """
     candidates = []
-    for context in browser.contexts:
+    for index, context in enumerate(browser.contexts):
         for page in context.pages:
-            if "farmaciasanpablo.com.mx" in (page.url or "").casefold():
+            url = str(page.url or "")
+            print(f"  CDP_TAB context={index}: {url}", flush=True)
+            if "farmaciasanpablo.com.mx" in url.casefold():
                 candidates.append(page)
-    return candidates[-1] if candidates else None
+    if candidates:
+        print("  CDP_TAB: reutilizando pestaña de San Pablo.", flush=True)
+        return candidates[-1]
+
+    if not browser.contexts:
+        print(
+            "ERROR: Chrome CDP no expone contextos. "
+            "Verifica la instancia de Chrome conectada.",
+            flush=True,
+        )
+        return None
+
+    print(
+        "  CDP_TAB: no se encontró San Pablo en la instancia conectada. "
+        "Se abrirá una pestaña nueva en esa misma sesión.",
+        flush=True,
+    )
+    try:
+        page = browser.contexts[0].new_page()
+        page.goto(
+            "https://www.farmaciasanpablo.com.mx/",
+            wait_until="commit",
+            timeout=45_000,
+        )
+        if "farmaciasanpablo.com.mx" not in (page.url or "").casefold():
+            print(
+                f"ERROR: la pestaña nueva no llegó a San Pablo: {page.url}",
+                flush=True,
+            )
+            return None
+        print(f"  CDP_TAB: nueva pestaña lista: {page.url}", flush=True)
+        return page
+    except Exception as exc:
+        print(
+            f"ERROR CDP_TAB: {type(exc).__name__}: {exc}",
+            flush=True,
+        )
+        return None
 
 
 def _write_test_output(
@@ -605,8 +650,8 @@ def main() -> int:
     if page is None:
         playwright.stop()
         print(
-            "ERROR: abre una pestaña de Farmacias San Pablo "
-            "antes de ejecutar el test."
+            "ERROR: no se encontró ni se pudo abrir la pestaña de "
+            "Farmacias San Pablo en la instancia CDP conectada."
         )
         return 11
 
