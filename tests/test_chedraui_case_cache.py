@@ -26,6 +26,8 @@ class ChedrauiCaseCheckpointTests(unittest.TestCase):
             "category_id": "higiene-bucal",
             "status": "COMPLETE",
             "products": 1,
+            "target_products": 1,
+            "coverage": 1.0,
             "store_context_verified": True,
             "store_context_contract_version": CONTRACT,
             "pagination_gaps": 0,
@@ -57,6 +59,43 @@ class ChedrauiCaseCheckpointTests(unittest.TestCase):
             pd.read_excel(target, sheet_name="Control").iloc[0]["status"],
             "ISOLATED_VALIDATED",
         )
+
+    def test_partial_297_of_299_is_never_validated(self):
+        incomplete = dict(self.case, target_products=299, coverage=297 / 299)
+        many_rows = pd.concat(
+            [self.rows.assign(sku=str(i),
+                              url="https://www.chedraui.com.mx/test/" + str(i))
+             for i in range(297)],
+            ignore_index=True,
+        )
+        incomplete["products"] = 297
+        with self.assertRaisesRegex(ValueError, "cobertura incompleta"):
+            persist_case(self.root, many_rows, incomplete,
+                         store_id="232", day=self.day)
+
+    def test_old_incomplete_checkpoint_not_reloaded(self):
+        checkpoint = persist_case(
+            self.root, self.rows, self.case,
+            store_id="232", day=self.day,
+        )
+        # Reproduce a checkpoint stamped ISOLATED_VALIDATED by the old rule.
+        with pd.ExcelFile(checkpoint) as excel:
+            rows = pd.read_excel(excel, "Concentrado")
+            summary = pd.read_excel(excel, "Resumen")
+            control = pd.read_excel(excel, "Control")
+        summary.loc[0, "target_products"] = 2
+        summary.loc[0, "coverage"] = 0.5
+        with pd.ExcelWriter(checkpoint, engine="openpyxl") as writer:
+            rows.to_excel(writer, "Concentrado", index=False)
+            summary.to_excel(writer, "Resumen", index=False)
+            control.to_excel(writer, "Control", index=False)
+        self.assertEqual(load_valid_snapshots(self.root, day=self.day), {})
+
+    def test_missing_published_target_does_not_validate(self):
+        missing = dict(self.case, target_products=None)
+        with self.assertRaisesRegex(ValueError, "cobertura incompleta"):
+            persist_case(self.root, self.rows, missing,
+                         store_id="232", day=self.day)
 
     def test_unknown_availability_never_validated(self):
         self.rows.loc[0, "is_available"] = None
