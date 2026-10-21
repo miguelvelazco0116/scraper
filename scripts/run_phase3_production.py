@@ -30,7 +30,7 @@ WALMART_OUTPUT = ROOT / "output" / "walmart_phase3_test.xlsx"
 DIAG_DIR = ROOT / "diagnostics" / "phase3_production"
 DIAG_PATH = DIAG_DIR / "last_run.json"
 
-EXPECTED_BODEGA_CATEGORIES = 2
+EXPECTED_BODEGA_CATEGORIES = 3
 EXPECTED_WALMART_CATEGORIES = 3
 
 
@@ -277,7 +277,7 @@ def _create_baseline(
                         "products": products,
                         "bodega_aurrera_products": bodega_products,
                         "walmart_products": walmart_products,
-                        "categories": 5,
+                        "categories": 6,
                         "retailers": [
                             "Bodega Aurrera",
                             "Walmart",
@@ -316,7 +316,7 @@ def main() -> int:
     print("SCRAPER PRODUCTIVO - FASE 3")
     print("=" * 84)
     print("Retailers : Bodega Aurrera + Walmart")
-    print("Categorías: 2 + 3 = 5")
+    print("Categorías: 3 + 3 = 6")
     print("Navegador : Chrome abierto manualmente")
     print(f"CDP       : {args.cdp_url}")
     print(f"Salida    : {OUTPUT_PATH}")
