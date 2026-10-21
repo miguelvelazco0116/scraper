@@ -744,6 +744,16 @@ Bodega Aurrera se conecta por CDP
 
 ### Bodega Aurrera — conservación de éxitos y consolidación
 
+Categorías activas: `cuidado-bucal`, `cuidado-de-la-ropa` y `desodorantes`.
+
+Para probar la nueva categoría de desodorantes **sin integrar todavía al master**:
+
+```powershell
+& .\scripts\test_bodega_aurrera.ps1 -Category desodorantes -RetryFailedAtEnd 2
+```
+
+La prueba aislada preserva en `output\bodega_aurrera_test.xlsx` las demás categorías `SUCCESS` capturadas en la misma fecha; solo actualiza desodorantes. El archivo Excel se escribe de forma atómica para proteger la versión previa si falla la escritura. El banner patrocinado no cuenta como ficha y no se pulsa su botón `Ver más`. La paginación se controla por el componente numérico visible, verificando que cada página avanza hasta que termina.
+
 En la corrida completa de Bodega:
 
 1. cada categoría se ejecuta una sola vez en la primera pasada;
