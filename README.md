@@ -699,6 +699,7 @@ output\concentrado_fase3.xlsx
 con:
 - Bodega Aurrera / cuidado-bucal
 - Bodega Aurrera / cuidado-de-la-ropa
+- Bodega Aurrera / desodorantes
 - Walmart / cuidado-bucal
 - Walmart / cuidado-de-la-ropa
 - Walmart / depilacion-y-rasurado
@@ -737,7 +738,7 @@ Bodega Aurrera se conecta por CDP
 → termina child process, Chrome permanece abierto
 → Walmart se conecta por CDP
 → termina child process, Chrome permanece abierto
-→ validar 5 categorías
+→ validar 6 categorías
 → publicar output\concentrado_fase3.xlsx
 ```
 
@@ -750,7 +751,7 @@ En la corrida completa de Bodega:
 3. las categorías `SUCCESS` se conservan y no vuelven a descargarse;
 4. las categorías fallidas se acumulan y se reintentan únicamente al final;
 5. por defecto se hace 1 reintento final, configurable con `-RetryFailedAtEnd`;
-6. si las 2 categorías terminan válidas, el wrapper agrega automáticamente la partición de Bodega al master diario mediante el mismo integrador de fases;
+6. si las 3 categorías terminan válidas, el wrapper agrega automáticamente la partición de Bodega al master diario mediante el mismo integrador de fases;
 7. esa integración parcial no marca Fase 3 como completa: `completed_phases` permanece en `1|2` hasta que toda Fase 3 quede cerrada.
 
 Integración manual de una muestra Bodega ya validada, sin volver a scrapear:
@@ -763,7 +764,7 @@ Integración manual de una muestra Bodega ya validada, sin volver a scrapear:
 
 Bodega Aurrera y Walmart reutilizan el mismo Chrome abierto manualmente mediante remote debugging. Deben quedar abiertas una pestaña de Bodega Aurrera y otra de Walmart. En Walmart debe estar seleccionado SC Toreo, tienda 2344, CP 11220. El runner no abre ni cierra Chrome y no resuelve verificaciones de identidad.
 
-Bodega Aurrera usa las rutas `/browse/` directas de Pasta Dental, Enjuagues Bucales, Detergente en Polvo y Detergente Líquido. En Bodega se ignoran banners patrocinados y nunca se pulsa el `Ver más` de esos bloques: el scraper hace scroll hasta el paginador numérico `1 2 3 … N >` y lo recorre una página a la vez. Tanto Bodega como Walmart trabajan secuencialmente, con pausas de 2.5 s entre páginas y 4 s entre categorías. Si el sitio publica un target confiable, una cobertura de **>=90%** es válida; sin target se exige demostrar fin de paginación. La completitud de SKU/precio/URL de las filas extraídas sigue siendo 100%.
+Bodega Aurrera usa las rutas `/browse/` directas de Pasta Dental, Enjuagues Bucales, Detergente en Polvo, Detergente Líquido y Desodorantes. En Bodega se ignoran banners patrocinados y nunca se pulsa el `Ver más` de esos bloques: el scraper hace scroll hasta el paginador numérico `1 2 3 … N >` y lo recorre una página a la vez. Tanto Bodega como Walmart trabajan secuencialmente, con pausas de 2.5 s entre páginas y 4 s entre categorías. Si el sitio publica un target confiable, una cobertura de **>=90%** es válida; sin target se exige demostrar fin de paginación. La completitud de SKU/precio/URL de las filas extraídas sigue siendo 100%.
 
 Cuando Fase 3 pase sus gates:
 
