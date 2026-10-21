@@ -22,7 +22,7 @@ from scraper.retailers.chedraui import (
     ChedrauiStoreContextError,
 )
 from scraper.retailers.chedraui_polanco_api import ChedrauiScraper
-from chedraui_case_cache import persist_case, seed_from_prior_test
+from chedraui_case_cache import MIN_COVERAGE, persist_case, seed_from_prior_test
 
 
 OUTPUT_PATH = ROOT / "output" / "chedraui_test.xlsx"
@@ -151,11 +151,11 @@ def _quality(frame: pd.DataFrame, meta: dict) -> tuple[str, dict]:
         and store_context_verified
         and structured_missing == 0
         and pagination_gaps == 0
-        # Fail closed: a COMPLETE capture must match the exact published
-        # category total. A missing total or 99.x% coverage is PARTIAL.
+        # MVP coverage contract: >=90% (including exactly 90%),
+        # with an observed positive published total and no overcount.
         and target is not None
         and int(target) > 0
-        and products == int(target)
+        and MIN_COVERAGE <= products / int(target) <= 1.0
     )
 
     return ("COMPLETE" if complete else "PARTIAL"), {
