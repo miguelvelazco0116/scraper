@@ -50,6 +50,22 @@ Farmacias Guadalajara ya está validado y productivo dentro de Fase 2.
 
 La Comer está implementado pero sigue fuera del runner principal hasta completar validación live.
 
+## Ejecución integral de Fase 5 (4 retailers, 13 categorías)
+
+La corrida del día se realiza desde PowerShell tras abrir **dos pestañas en el mismo Chrome conectado por CDP**: `https://www.heb.com.mx/` con una tienda concreta seleccionada y `https://www.sams.com.mx/`. Si una tienda requiere una verificación manual, no se evade. Las fases 1-4 deben figurar como `COMPLETE` en el master fechado activo.
+
+```powershell
+cd C:\Proyectos\scraper
+git pull --ff-only origin main
+& .\scripts\run_phase5_production.ps1
+```
+
+`scripts/run_phase5_production.ps1` captura secuencialmente Farmacias Similares (2), HEB (2), Sam's Club (3) y Mayorista Duero (6), reutiliza los checkpoints del día cuando los respectivos scrapers lo permiten, audita paginación Shopify 50/250 y empaque/conteos storefront de Duero, previsualiza la integración, añade **solo retailers completos de hoy** y emite la auditoría de fases y retailers. Si un retailer falla, los otros siguen ejecutándose; la Fase 5 queda `PARTIAL_VALIDATED` hasta integrarlos todos. `-SkipIntegration` limita la operación a capturas, vista previa y auditoría; ninguna fase previa se vuelve a ejecutar.
+
+**Duero no se aprueba como precio/stock por código postal automáticamente:** la corrida nunca pasa `-ApproveDueroOnline`. Para incorporarlo solamente como **catálogo online público**, el operador debe revisar los reportes y autorizar expresamente esa modalidad, por separado. Sin aprobación ni contexto de tienda certificado, el integrador lo mantiene `PENDIENTE`, incluso cuando los seis catálogos se extrajeron con éxito.
+
+El log queda en `diagnostics/phase5_production/phase5_*.log`, las pruebas en `output/*phase5_test.xlsx` y los reportes de integración/auditoría en `output/reportes_integracion/`. El runner bloquea un master de otra fecha o que aún no tenga completas las fases 1-4.
+
 ## Auditoría de Mayorista Duero (Fase 5)
 
 **Paginación reforzada:** una respuesta de Shopify con menos de 250
