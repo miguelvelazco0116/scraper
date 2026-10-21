@@ -73,6 +73,7 @@ $sanCode = 99
 $benCode = 99
 $integrateCode = 99
 $auditCode = 99
+$phase4Complete = $false
 
 try {
     Write-Host "========================================================================"
@@ -123,6 +124,13 @@ try {
     & $PythonExe ".\scripts\audit_master_phases.py"
     $auditCode = $LASTEXITCODE
 
+    if (-not $SkipIntegration -and $auditCode -eq 0) {
+        # Exit code 0 from the integrator can also mean partial success.
+        # Only the current master pointer can confirm Fase 4 is closed.
+        $updatedPointer = Get-Content -LiteralPath $pointerPath -Raw | ConvertFrom-Json
+        $phase4Complete = @( $updatedPointer.completed_phases | Where-Object { $_ -eq 4 } ).Count -gt 0
+    }
+
     Write-Host ""
     Write-Host "========================================================================"
     Write-Host "RESUMEN EJECUCION FASE 4"
@@ -131,12 +139,13 @@ try {
     Write-Host "Benavides  : $benCode"
     Write-Host "Integracion: $integrateCode"
     Write-Host "Auditoria  : $auditCode"
+    Write-Host "Fase 4    : $(if ($SkipIntegration) { 'SIN INTEGRACION (-SkipIntegration)' } elseif ($phase4Complete) { 'COMPLETE' } else { 'PARTIAL_VALIDATED/PENDING' })"
     Write-Host "Log        : $log"
 } finally {
     try { Stop-Transcript | Out-Null } catch {}
 }
 
-if ($sanCode -eq 0 -and $benCode -eq 0 -and $integrateCode -eq 0 -and $auditCode -eq 0) {
+if ($sanCode -eq 0 -and $benCode -eq 0 -and $integrateCode -eq 0 -and $auditCode -eq 0 -and ($phase4Complete -or $SkipIntegration)) {
     exit 0
 }
 Write-Warning "Fase 4 con pendientes u observaciones. Revisa el reporte; no se integran retailers incompletos."
