@@ -384,6 +384,44 @@ python -m unittest discover -s tests -p "test_integrate_chedraui_store.py" -v
 
 No es necesario repetir la captura 297/299 solo por no llegar a 100%;
 la brecha queda registrada para seguimiento y eventual recuperación.
+### Chedraui: reintentos automáticos por categoría (2026-10-21)
+
+En la captura aislada `scripts/test_chedraui.ps1` cada categoría dispone de
+**un intento inicial más 2 reintentos**, configurables. El runner intenta
+recuperar estos errores observados en Polanco:
+
+- `STORE_CONTEXT_ERROR`: vuelve a iniciar el scraper/Chrome y ejecuta
+  nuevamente la selección visible de estado, ciudad y sucursal exacta,
+  conservando el contrato de verificación (sin asumir que el perfil es prueba).
+- `CATALOG_COUNT_OVERFLOW`: si se capturan más filas únicas que productos
+  publicados (como 386/384 en desodorantes), repite la categoría desde cero.
+  Nunca recorta productos ni modifica el objetivo publicado para forzar éxito.
+
+**Seguridad y consistencia:** no mezcla filas de intentos previos, no reintenta
+bloqueos `BLOCKED` ni excepciones ajenas, no cambia el umbral aceptable
+de **90%**; mantiene todos los demás controles de precios, SKU, URL,
+disponibilidad 1/0 y sucursal verificada. Sólo se guarda un checkpoint
+independiente si el último resultado es `COMPLETE` y pasa `persist_case`.
+En caso de que los 3 intentos sigan sin verificar la tienda, permanece
+`STORE_CONTEXT_ERROR` y la secuencia de `all` se detiene de forma segura.
+
+Por cada intento fallido se conserva JSON con metadatos locales en
+`diagnostics/chedraui_retries/<store_id>/<category_id>/`, junto con
+archivos de diagnóstico disponibles del intento. La hoja `Resumen`
+del test incluye `attempts` y `retry_history`.
+
+```powershell
+cd C:\Proyectos\scraper
+git pull --ff-only origin main
+python -m unittest discover -s tests -p "test_chedraui_category_retries.py" -v
+
+# Sólo las categorías pendientes de Polanco, usando 2 reintentos automáticos
+& .\scripts\test_chedraui.ps1 -Category respiratorios -Store chedraui-polanco -Headed
+& .\scripts\test_chedraui.ps1 -Category desodorantes-y-antitranspirantes -Store chedraui-polanco -Headed
+
+# Personalizable: 3 reintentos extra y pausa de 15 segundos
+& .\scripts\test_chedraui.ps1 -Category all -Store chedraui-polanco -StoreContextRetries 3 -StoreContextRetryDelaySeconds 15 -CategoryDelaySeconds 10 -Headed
+```
 ## Chedraui: diagnóstico de navegación visible y cierre Fase 1
 
 ### Fallo intermitente `location_button_opened=False` (2026-10-19)
