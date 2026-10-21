@@ -151,13 +151,11 @@ def _quality(frame: pd.DataFrame, meta: dict) -> tuple[str, dict]:
         and store_context_verified
         and structured_missing == 0
         and pagination_gaps == 0
-        and (
-            target is None
-            or (
-                int(target) > 0
-                and products / int(target) >= 0.90
-            )
-        )
+        # Fail closed: a COMPLETE capture must match the exact published
+        # category total. A missing total or 99.x% coverage is PARTIAL.
+        and target is not None
+        and int(target) > 0
+        and products == int(target)
     )
 
     return ("COMPLETE" if complete else "PARTIAL"), {
