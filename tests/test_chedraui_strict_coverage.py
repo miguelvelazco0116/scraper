@@ -29,13 +29,23 @@ def metadata(total):
     }
 
 
-class ChedrauiStrictCoverageTests(unittest.TestCase):
-    def test_297_of_299_is_partial_not_complete(self):
+class ChedrauiMvpCoverageTests(unittest.TestCase):
+    def test_297_of_299_is_complete_under_90_percent_policy(self):
         status, metrics = _quality(product_frame(297), metadata(299))
-        self.assertEqual(status, "PARTIAL")
+        self.assertEqual(status, "COMPLETE")
         self.assertEqual(metrics["products"], 297)
         self.assertEqual(metrics["target_products"], 299)
         self.assertAlmostEqual(metrics["coverage"], 297 / 299)
+
+    def test_exactly_90_percent_is_complete(self):
+        status, metrics = _quality(product_frame(270), metadata(300))
+        self.assertEqual(status, "COMPLETE")
+        self.assertAlmostEqual(metrics["coverage"], 0.90)
+
+    def test_just_below_90_percent_is_partial(self):
+        status, metrics = _quality(product_frame(269), metadata(300))
+        self.assertEqual(status, "PARTIAL")
+        self.assertLess(metrics["coverage"], 0.90)
 
     def test_exact_count_is_complete(self):
         status, metrics = _quality(product_frame(299), metadata(299))
@@ -53,7 +63,7 @@ class ChedrauiStrictCoverageTests(unittest.TestCase):
         self.assertIsNone(metrics["coverage"])
 
     def test_low_coverage_is_partial(self):
-        status, metrics = _quality(product_frame(270), metadata(299))
+        status, metrics = _quality(product_frame(260), metadata(299))
         self.assertEqual(status, "PARTIAL")
         self.assertLess(metrics["coverage"], 1)
 
