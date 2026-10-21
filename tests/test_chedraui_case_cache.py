@@ -60,17 +60,37 @@ class ChedrauiCaseCheckpointTests(unittest.TestCase):
             "ISOLATED_VALIDATED",
         )
 
-    def test_partial_297_of_299_is_never_validated(self):
-        incomplete = dict(self.case, target_products=299, coverage=297 / 299)
+    def test_297_of_299_is_validated_at_9933_percent(self):
+        accepted = dict(self.case, target_products=299, coverage=297 / 299)
         many_rows = pd.concat(
             [self.rows.assign(sku=str(i),
                               url="https://www.chedraui.com.mx/test/" + str(i))
              for i in range(297)],
             ignore_index=True,
         )
-        incomplete["products"] = 297
-        with self.assertRaisesRegex(ValueError, "cobertura incompleta"):
+        accepted["products"] = 297
+        path = persist_case(self.root, many_rows, accepted,
+                            store_id="232", day=self.day)
+        self.assertTrue(path.exists())
+        self.assertEqual(len(load_valid_snapshots(self.root, day=self.day)), 1)
+
+    def test_under_90_percent_is_never_validated(self):
+        incomplete = dict(self.case, target_products=10, coverage=0.80)
+        many_rows = pd.concat(
+            [self.rows.assign(sku=str(i),
+                              url="https://www.chedraui.com.mx/test/" + str(i))
+             for i in range(8)],
+            ignore_index=True,
+        )
+        incomplete["products"] = 8
+        with self.assertRaisesRegex(ValueError, "umbral 90%"):
             persist_case(self.root, many_rows, incomplete,
+                         store_id="232", day=self.day)
+
+    def test_coverage_summary_mismatch_is_rejected(self):
+        mismatch = dict(self.case, target_products=2, coverage=1.0)
+        with self.assertRaisesRegex(ValueError, "cobertura reportada inconsistente"):
+            persist_case(self.root, self.rows, mismatch,
                          store_id="232", day=self.day)
 
     def test_old_incomplete_checkpoint_not_reloaded(self):
@@ -93,7 +113,7 @@ class ChedrauiCaseCheckpointTests(unittest.TestCase):
 
     def test_missing_published_target_does_not_validate(self):
         missing = dict(self.case, target_products=None)
-        with self.assertRaisesRegex(ValueError, "cobertura incompleta"):
+        with self.assertRaisesRegex(ValueError, "total publicado ausente"):
             persist_case(self.root, self.rows, missing,
                          store_id="232", day=self.day)
 
