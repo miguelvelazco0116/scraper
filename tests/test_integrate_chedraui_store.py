@@ -76,6 +76,49 @@ class SingleStoreIntegrationTests(unittest.TestCase):
             prepare_integration(before, before_summary, evidence,
                                 store_id="232", day=DAY, category_ids=CATEGORIES)
 
+    def test_accepts_90_percent_checkpoint_for_single_category(self):
+        before, before_summary, evidence = setup_data()
+        category = "higiene-bucal"
+        original, summary = evidence[("Chedraui", category, "232")]
+        nine = pd.concat([
+            original.assign(sku=f"SKU{i}",
+                            url=f"https://www.chedraui.com.mx/sku{i}")
+            for i in range(9)
+        ], ignore_index=True)
+        evidence[("Chedraui", category, "232")] = (
+            nine,
+            {**summary, "products": 9, "target_products": 10,
+             "coverage": 0.9, "price_required": 9,
+             "price_required_complete": 9},
+        )
+        combined, _, report = prepare_integration(
+            before, before_summary, evidence,
+            store_id="232", day=DAY, category_ids=CATEGORIES,
+        )
+        self.assertEqual(report["incoming_rows"], 13)
+        self.assertEqual(len(combined), 15)
+
+    def test_rejects_checkpoint_below_90_percent(self):
+        before, before_summary, evidence = setup_data()
+        category = "higiene-bucal"
+        original, summary = evidence[("Chedraui", category, "232")]
+        eight = pd.concat([
+            original.assign(sku=f"SKU{i}",
+                            url=f"https://www.chedraui.com.mx/sku{i}")
+            for i in range(8)
+        ], ignore_index=True)
+        evidence[("Chedraui", category, "232")] = (
+            eight,
+            {**summary, "products": 8, "target_products": 10,
+             "coverage": 0.8, "price_required": 8,
+             "price_required_complete": 8},
+        )
+        with self.assertRaisesRegex(ValueError, "umbral 90%"):
+            prepare_integration(
+                before, before_summary, evidence,
+                store_id="232", day=DAY, category_ids=CATEGORIES,
+            )
+
     def test_replaces_only_matching_partition(self):
         before, before_summary, evidence = setup_data()
         before.loc[len(before)] = {
