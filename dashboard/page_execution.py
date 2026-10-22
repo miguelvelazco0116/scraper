@@ -72,6 +72,27 @@ def render(root: Path):
                                .agg(casos=("estado", "size"), completos=("completo", "sum"),
                                     productos=("productos_validados", "sum")))
             st.dataframe(retailer_totals, hide_index=True, use_container_width=True)
+            # Capture success and integration are different states.
+            # Use the authoritative master auditor, never the job exit code.
+            from dashboard.data import active_master, inventory_for_master
+            master_path, master_pointer = active_master(root)
+            if master_path is not None and str(master_pointer.get("capture_date")) == local_day():
+                try:
+                    master_phases, master_retailers, _, _ = inventory_for_master(root, master_path)
+                    phase_row = master_phases.loc[master_phases["fase"].eq(1)]
+                    if not phase_row.empty:
+                        state = str(phase_row.iloc[0]["estado_calculado"])
+                        actual_rows = int(phase_row.iloc[0]["filas_master"])
+                        st.caption(f"**Integración real del día** — Fase 1: {state} · "
+                                   f"{actual_rows:,} productos en master.")
+                        with st.expander("Retailers de Fase 1 integrados al master"):
+                            st.dataframe(master_retailers.loc[master_retailers["fase"].eq(1)],
+                                         hide_index=True, use_container_width=True)
+                except Exception:
+                    st.warning("No se pudo verificar el estado del master; "
+                               "consulta el Resumen ejecutivo. No se infiere COMPLETE.")
+            else:
+                st.caption("No hay master activo del día para certificar integración de Fase 1.")
             if target == "Chedraui":
                 st.success("Chedraui ejecutará únicamente los casos **REINTENTAR**. "
                            "Los COMPLETE del día se omiten sin abrir sus categorías.")
