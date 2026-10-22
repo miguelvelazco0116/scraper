@@ -1,5 +1,6 @@
 """Offline Phase 1 dashboard coverage (no capture is started)."""
 from pathlib import Path
+import sys
 from unittest.mock import patch
 
 import pandas as pd
@@ -7,6 +8,8 @@ import pandas as pd
 from dashboard.phase1_state import phase1_inventory
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts"))
 
 def test_phase1_inventory_has_all_30_expected_cases():
     with patch("run_phase1_production._read_phase1_snapshot", return_value={}), \
