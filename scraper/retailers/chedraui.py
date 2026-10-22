@@ -242,15 +242,21 @@ class ChedrauiScraper:
         return json.dumps(payload, ensure_ascii=False)
 
     def _visible_store_control_text(self, page: Page) -> str:
+        """Read ONE current selected-store control, never a mix of widgets.
+
+        Combining an address header with hidden/mobile directory controls could
+        produce a false positive for another store still visible on the page.
+        """
         selectors = (
             "button.chedrauimx-locator-2-x-labelTextAddress",
+            'button[class*="locator"][class*="labelTextAddress"]',
             '[class*="locator"][class*="labelTextAddress"]',
             'button[aria-label*="tienda" i]',
             'button[aria-label*="ubicaci" i]',
             '[data-testid*="store" i]',
             '[data-testid*="location" i]',
         )
-        values: list[str] = []
+        observations = []
         for selector in selectors:
             try:
                 nodes = page.locator(selector)
@@ -259,21 +265,27 @@ class ChedrauiScraper:
                     try:
                         if not node.is_visible():
                             continue
-                        text = clean_text(
-                            node.inner_text(timeout=1_500)
+                        text = clean_text(node.inner_text(timeout=1_500))
+                        aria = clean_text(node.get_attribute("aria-label"))
+                        value = " | ".join(dict.fromkeys(
+                            part for part in (text, aria) if part
+                        ))
+                        if value:
+                            self.run_meta["visible_store_control_selector"] = selector
+                            self.run_meta["visible_store_control_index"] = index
+                            self.run_meta["visible_store_control_observations"] = (
+                                observations[-10:]
+                            )
+                            return value
+                        observations.append(
+                            {"selector": selector, "index": index, "empty": True}
                         )
-                        if text:
-                            values.append(text)
-                        aria = clean_text(
-                            node.get_attribute("aria-label")
-                        )
-                        if aria:
-                            values.append(aria)
                     except Exception:
                         continue
             except Exception:
                 continue
-        return " | ".join(dict.fromkeys(values))
+        self.run_meta["visible_store_control_observations"] = observations[-10:]
+        return ""
 
     @classmethod
     def _store_control_matches_location(
