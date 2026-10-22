@@ -47,3 +47,5 @@ Write-Host "Diagnosticos: $ProjectDir\diagnostics\farmacias_similares_*"
 if ($code -ne 0) {
     Write-Warning "El test termino con observaciones (exit_code=$code)."
 }
+
+exit $code
