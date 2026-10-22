@@ -18,9 +18,11 @@ jobs:
           base64 -d /tmp/runner.b64 > /tmp/runner.tgz
           tar -xzf /tmp/runner.tgz -C runner
           cp tmp_preservativos_20261016/run_daily.mjs runner/run_daily.mjs
-          base64 -d tmp_preservativos_20261016/history_patch_19_21.b64 > /tmp/history_patch.tgz
+          cat tmp_preservativos_20261016/history_patch_parts_* > /tmp/history_patch.b64
+          base64 -d /tmp/history_patch.b64 > /tmp/history_patch.tgz
           tar -xzf /tmp/history_patch.tgz -C runner/data
           echo "Payload + missing history reconstructed"
+          ls -l runner/data/*2026-10-19* runner/data/*2026-10-21*
       - name: Run canonical daily route
         id: scraper
         working-directory: runner
