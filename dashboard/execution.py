@@ -182,6 +182,8 @@ def prepare_run(root: Path, phase: int, target: str, mode: str):
         args.append("-SkipIntegration")
     if not full and target == "Farmacias San Pablo":
         args.append("-SkipIntegration")
+    if not full and target == "Chedraui":
+        args.append("-Headed")
     return {
         "phase": phase, "target": target, "mode": mode,
         "runner": RUNNERS[phase][target], "command": args,
@@ -193,7 +195,7 @@ def public_command(root: Path, phase: int, target: str, mode: str):
     if not script:
         return ""
     skip = mode == "solo_captura" and (target == "Farmacias San Pablo" or target == ALL and phase in (2, 3, 4, 5))
-    return f"& .\\scripts\\{script}" + (" -SkipIntegration" if skip else "")
+    return f"& .\\scripts\\{script}" + (" -SkipIntegration" if skip else "") + (" -Headed" if target == "Chedraui" else "")
 
 def start_run(root: Path, phase: int, target: str, mode: str):
     spec = prepare_run(root, phase, target, mode)
