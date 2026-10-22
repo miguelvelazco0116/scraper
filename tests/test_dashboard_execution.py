@@ -24,7 +24,7 @@ class DashboardExecutionTests(unittest.TestCase):
         base = Path("C:/Proyectos/scraper")
         self.assertIn("test_sams_club.ps1", public_command(base, 5, "Sam's Club", "solo_captura"))
         self.assertIn("-SkipIntegration", public_command(base, 4, ALL, "solo_captura"))
-        self.assertIn("-Category all", public_command(base, 1, "Farmacias del Ahorro", "solo_captura"))
+        self.assertIn("test_farmacias_del_ahorro_all.ps1", public_command(base, 1, "Farmacias del Ahorro", "solo_captura"))
         self.assertEqual(public_command(base, 2, "Retailer inexistente", "solo_captura"), "")
 
     def test_integration_not_available_for_individual_retailer(self):
