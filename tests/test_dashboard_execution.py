@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from dashboard.execution import (
     ALL, RUNNERS, _atomic_json, current_active_job, job_path,
-    latest_jobs, public_command, prepare_run, start_run,
+    latest_jobs, public_command, prepare_run, start_run, request_stop, stop_requested,
 )
 from dashboard.worker import exclusive_lock
 
@@ -73,6 +73,38 @@ class DashboardExecutionTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     start_run(root, 5, "HEB", "solo_captura")
                 process.assert_not_called()
+
+    def test_chedraui_uses_incremental_runner(self):
+        command = public_command(Path("C:/Proyectos/scraper"), 1, "Chedraui", "solo_captura")
+        self.assertIn("run_chedraui_incremental.ps1", command)
+        self.assertNotIn("multistore", command)
+        self.assertIn("-Headed", command)
+
+    def test_stop_request_creates_durable_signal(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            job_id = "a" * 32
+            from dashboard.execution import now
+            _atomic_json(job_path(root, job_id), {
+                "run_id": job_id, "phase": 1, "target": "Chedraui",
+                "status": "RUNNING", "heartbeat_at": now(), "child_pid": 1234,
+            })
+            with patch("dashboard.execution.stop_process_tree") as kill:
+                self.assertTrue(request_stop(root, job_id))
+                kill.assert_called_once_with(1234)
+                self.assertTrue(stop_requested(root, job_id))
+            with self.assertRaises(ValueError):
+                request_stop(root, "no-es-id")
+
+    def test_finished_job_cannot_be_stopped(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            job_id = "b" * 32
+            _atomic_json(job_path(root, job_id), {
+                "run_id": job_id, "status": "SUCCESS",
+            })
+            with self.assertRaises(ValueError):
+                request_stop(root, job_id)
 
     def test_exclusive_lock_rejects_a_second_worker(self):
         with TemporaryDirectory() as temp:
