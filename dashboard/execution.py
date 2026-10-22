@@ -17,7 +17,7 @@ from pathlib import Path
 RUNNERS = {
     1: {
         "Todas las tiendas": "run_phase1_production.ps1",
-        "Farmacias del Ahorro": "test_farmacias_del_ahorro.ps1",
+        "Farmacias del Ahorro": "test_farmacias_del_ahorro_all.ps1",
         "Ibarra Mayoreo": "test_ibarra_mayoreo.ps1",
         "Chedraui": "test_chedraui_multistore.ps1",
     },
@@ -48,7 +48,7 @@ ALL = "Todas las tiendas"
 RUNS_DIR = Path("diagnostics") / "dashboard_runs"
 RUN_STATUS = {"PENDING", "RUNNING", "SUCCESS", "ERROR", "REJECTED"}
 BACKUP_SOURCE = {
-    "Farmacias del Ahorro": "farmacias_del_ahorro_test.xlsx",
+    "Farmacias del Ahorro": "farmacias_del_ahorro_all_test.xlsx",
     "Ibarra Mayoreo": "ibarra_mayoreo_test.xlsx",
     "Farmacias Guadalajara": "farmacias_guadalajara_phase2_test.xlsx",
     "Soriana": "soriana_manual_phase2_test.xlsx",
@@ -182,8 +182,6 @@ def prepare_run(root: Path, phase: int, target: str, mode: str):
         args.append("-SkipIntegration")
     if not full and target == "Farmacias San Pablo":
         args.append("-SkipIntegration")
-    if not full and target == "Farmacias del Ahorro":
-        args.extend(["-Category", "all"])
     return {
         "phase": phase, "target": target, "mode": mode,
         "runner": RUNNERS[phase][target], "command": args,
@@ -195,7 +193,7 @@ def public_command(root: Path, phase: int, target: str, mode: str):
     if not script:
         return ""
     skip = mode == "solo_captura" and (target == "Farmacias San Pablo" or target == ALL and phase in (2, 3, 4, 5))
-    return f"& .\\scripts\\{script}" + (" -SkipIntegration" if skip else "") + (" -Category all" if target == "Farmacias del Ahorro" else "")
+    return f"& .\\scripts\\{script}" + (" -SkipIntegration" if skip else "")
 
 def start_run(root: Path, phase: int, target: str, mode: str):
     spec = prepare_run(root, phase, target, mode)
