@@ -519,6 +519,25 @@ class ChedrauiScraper(BaseChedrauiScraper):
         if self._click_store_radio_by_id(page, location):
             return True
 
+        # Fail closed when VTEX exposes pickup radios but none matches or
+        # confirms the exact configured ID. Name-only fallbacks must never
+        # select a similarly named store in that situation.
+        try:
+            radio_count = page.locator(
+                'input[name="pickup-point-list"][type="radio"]'
+            ).count()
+        except Exception:
+            radio_count = 0
+        self.run_meta["directory_store_total_radios"] = radio_count
+        if radio_count > 0:
+            self.run_meta["directory_store_match_method"] = (
+                "exact_store_radio_not_verified"
+            )
+            self.run_meta["directory_selection_failure"] = (
+                "store_radio_value_or_check_mismatch"
+            )
+            return False
+
         # First prefer an exact/full-name text node when the storefront exposes
         # one. This is the cheapest and least ambiguous path.
         for label in labels:
