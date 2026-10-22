@@ -8,6 +8,41 @@ El proyecto se desarrolla y ejecuta **localmente en Windows**. GitHub se usa par
 
 No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadir controles de acceso.
 
+## Panel Streamlit de operación (MVP previo a Azure SQL)
+
+**Modo pruebas: solo lectura**. Se mantienen todos los scrapers por PowerShell/CLI; los botones de ejecución en Streamlit están deliberadamente desactivados hasta completar el control de concurrencia, ejecución y autorización.
+
+### Arranque en Windows
+
+```powershell
+cd C:\Proyectos\scraper
+git pull --ff-only origin main
+& C:\Proyectos\venvs\scraper\Scripts\python.exe -m pip install -r .\requirements-dashboard.txt
+& .\scripts\run_dashboard.ps1
+```
+
+Abrir http://127.0.0.1:8501 en el equipo. El launcher escucha solo en 127.0.0.1 (loopback); no publicar el puerto sin autenticación/TLS.
+
+### Módulos
+
+- **Resumen**: las cinco fases, 13 retailers y sus casos COMPLETE, reconciliación real entre resumen, datos y Control. Fuente: auditor existente `scripts/audit_master_phases.py`.
+- **Calidad**: SKU, precio, URL, disponibilidad 1/0, contexto de tienda y hallazgos informativos por retailer con CSV. N/D significa sin evidencia, no es una falla automática; se mantienen los gates productivos por retailer.
+- **Fallas**: histórico de errores y últimos logs de `diagnostics/`, con ocultación básica de secretos y lecturas acotadas. El estado del master determina qué está integrado realmente.
+- **Ejecución**: selector de fases y retailers, comando PowerShell copiable, checklist y botón deshabilitado mientras operamos por CLI.
+- **Azure SQL**: servidor `*.database.windows.net`, base, puerto, identidad y autenticación SQL/Entra Interactive; configuración no secreta en `config/local/azure_sql.json`, ignorada por Git. No guarda contraseñas. Prueba opcional por `pyodbc` con ODBC Driver 18 y consulta SELECT; `Encrypt=yes` y `TrustServerCertificate=no` obligatorios. **No migra datos, no crea tablas.**
+- **Trazabilidad**: selector de masters históricos `concentrado_productivo_total_*.xlsx`, fechas reales, alcance por categoría, checkpoints y backups.
+
+Conservamos `PUBLIC_ONLINE_CATALOGUE_NO_POSTAL_PRICE_CERTIFICATION` en Mayorista Duero: ninguna información se etiqueta como precio o inventario verificado por CP.
+
+Pruebas del panel:
+
+```powershell
+& C:\Proyectos\venvs\scraper\Scripts\python.exe -m unittest discover -s tests -p "test_dashboard_helpers.py" -v
+```
+
+Antes de la migración productiva: definir esquema, historial, cargas idempotentes, privilegios mínimos, respaldos y rollback.
+
+
 ## Estado actual
 
 Última actualización: **13 de octubre de 2026**.
