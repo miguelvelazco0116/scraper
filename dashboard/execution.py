@@ -15,8 +15,17 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 RUNNERS = {
-    1: {"Todas las tiendas": "run_phase1_production.ps1"},
-    2: {"Todas las tiendas": "run_phase2_production.ps1"},
+    1: {
+        "Todas las tiendas": "run_phase1_production.ps1",
+        "Farmacias del Ahorro": "test_farmacias_del_ahorro.ps1",
+        "Ibarra Mayoreo": "test_ibarra_mayoreo.ps1",
+        "Chedraui": "test_chedraui_multistore.ps1",
+    },
+    2: {
+        "Todas las tiendas": "run_phase2_production.ps1",
+        "Farmacias Guadalajara": "test_farmacias_guadalajara_phase2.ps1",
+        "Soriana": "test_soriana_manual_phase2.ps1",
+    },
     3: {
         "Todas las tiendas": "run_phase3_production.ps1",
         "Bodega Aurrera": "test_bodega_aurrera.ps1",
@@ -39,6 +48,10 @@ ALL = "Todas las tiendas"
 RUNS_DIR = Path("diagnostics") / "dashboard_runs"
 RUN_STATUS = {"PENDING", "RUNNING", "SUCCESS", "ERROR", "REJECTED"}
 BACKUP_SOURCE = {
+    "Farmacias del Ahorro": "farmacias_del_ahorro_test.xlsx",
+    "Ibarra Mayoreo": "ibarra_mayoreo_test.xlsx",
+    "Farmacias Guadalajara": "farmacias_guadalajara_phase2_test.xlsx",
+    "Soriana": "soriana_manual_phase2_test.xlsx",
     "Farmacias San Pablo": "farmacias_san_pablo_test.xlsx",
     "Farmacias Benavides": "benavides_test.xlsx",
     "Farmacias Similares": "farmacias_similares_test.xlsx",
@@ -138,7 +151,7 @@ def prepare_run(root: Path, phase: int, target: str, mode: str):
     full = target == ALL
     if not full and mode != "solo_captura":
         raise ValueError("Los runners por retailer son pruebas aisladas: no integran automáticamente")
-    if phase == 1 and mode != "captura_integracion":
+    if phase == 1 and full and mode != "captura_integracion":
         raise ValueError("Fase 1 siempre realiza integración incremental. No existe modo solo captura.")
     if mode == "captura_integracion" and not full:
         raise ValueError("Integración restringida a runners de fase")
@@ -169,6 +182,8 @@ def prepare_run(root: Path, phase: int, target: str, mode: str):
         args.append("-SkipIntegration")
     if not full and target == "Farmacias San Pablo":
         args.append("-SkipIntegration")
+    if not full and target == "Farmacias del Ahorro":
+        args.extend(["-Category", "all"])
     return {
         "phase": phase, "target": target, "mode": mode,
         "runner": RUNNERS[phase][target], "command": args,
@@ -180,7 +195,7 @@ def public_command(root: Path, phase: int, target: str, mode: str):
     if not script:
         return ""
     skip = mode == "solo_captura" and (target == "Farmacias San Pablo" or target == ALL and phase in (2, 3, 4, 5))
-    return f"& .\\scripts\\{script}" + (" -SkipIntegration" if skip else "")
+    return f"& .\\scripts\\{script}" + (" -SkipIntegration" if skip else "") + (" -Category all" if target == "Farmacias del Ahorro" else "")
 
 def start_run(root: Path, phase: int, target: str, mode: str):
     spec = prepare_run(root, phase, target, mode)
