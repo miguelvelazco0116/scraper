@@ -7,6 +7,7 @@ store-context and data-quality gates. Never overwrite the productive master.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -34,6 +35,7 @@ def main():
     print(f"Casos que requieren captura: {len(pending)}", flush=True)
     print(pending[["tienda", "store_id", "categoria", "estado"]].to_string(index=False), flush=True)
     print("Master e integración: SIN CAMBIOS", flush=True)
+    print("Evidencia selección de tienda: diagnostics/chedraui_store_steps/", flush=True)
     print("=" * 72, flush=True)
     if args.dry_run:
         return 0
@@ -65,7 +67,9 @@ def main():
             cmd.append("--headed")
         print(f"\nCAPTURANDO {store}/{category}", flush=True)
         attempted += 1
-        code = subprocess.call(cmd, cwd=ROOT)
+        env = os.environ.copy()
+        env["CHEDRAUI_TRACE_STORE"] = "1"
+        code = subprocess.call(cmd, cwd=ROOT, env=env)
         refreshed, _ = phase1_inventory(ROOT, day)
         result = refreshed.loc[refreshed["tienda"].eq(store) & refreshed["categoria"].eq(category)]
         success = not result.empty and result.iloc[0]["estado"] == "COMPLETE"
