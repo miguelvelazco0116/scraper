@@ -19,7 +19,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from dashboard.execution import (
     RUNS_DIR, active_pointer, job_folder, job_path, load_job, local_day,
-    now, prepare_run, update_job,
+    now, prepare_run, update_job, stop_requested, stop_process_tree,
 )
 
 @contextmanager
@@ -92,6 +92,10 @@ def backup_validated_inputs(root: Path, run_id: str, target: str, mode: str):
     return saved
 
 def _run_child(spec, log, run_id: str):
+    if stop_requested(ROOT, run_id):
+        log.write(b"PARO SOLICITADO: captura no iniciada.\n")
+        log.flush()
+        return 130, True
     cmd = spec["command"]
     log.write(("\n===== INICIO: " + now() + " =====\n" +
                "Script: " + spec["runner"] + "\n" +
@@ -106,15 +110,26 @@ def _run_child(spec, log, run_id: str):
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     update_job(ROOT, run_id, child_pid=proc.pid)
+    cancelled = False
     while True:
         code = proc.poll()
+        if stop_requested(ROOT, run_id):
+            cancelled = True
+            if code is None:
+                stop_process_tree(proc.pid)
+                try:
+                    code = proc.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    code = proc.wait(timeout=5)
+            break
         update_job(ROOT, run_id, heartbeat_at=now())
         if code is not None:
             break
         time.sleep(2)
-    log.write(("\n===== TERMINO: " + now() + f"; exit_code={code} =====\n").encode("utf-8"))
+    log.write(("\n===== TERMINO: " + now() + f"; exit_code={code}; cancelled={cancelled} =====\n").encode("utf-8"))
     log.flush()
-    return code
+    return code, cancelled
 
 def main(run_id):
     job = load_job(ROOT, run_id)
@@ -123,6 +138,10 @@ def main(run_id):
         try:
             with exclusive_lock(ROOT):
                 # Re-check allowlist and master-date constraints inside the lock.
+                if stop_requested(ROOT, run_id):
+                    update_job(ROOT, run_id, status="STOPPED", finished_at=now(), exit_code=130)
+                    log.write(b"Paro aceptado antes de iniciar.\n")
+                    return 0
                 spec = prepare_run(ROOT, int(job["phase"]), job["target"], job["mode"])
                 if job["capture_date"] != local_day():
                     raise ValueError("La fecha cambió desde que se solicitó la captura. No se ejecuta.")
@@ -131,13 +150,13 @@ def main(run_id):
                 backups = backup_validated_inputs(ROOT, run_id, job["target"], job["mode"])
                 update_job(ROOT, run_id, backups=backups, master_before=str(master_before or ""),
                            master_sha256_before=hash_before, master_date_before=master_date_before)
-                code = _run_child(spec, log, run_id)
+                code, cancelled = _run_child(spec, log, run_id)
                 master_after, hash_after, master_date_after = master_reference(ROOT)
                 integrity_warning = None
                 if job["mode"] == "solo_captura":
                     if master_before != master_after or hash_before != hash_after or master_date_before != master_date_after:
                         integrity_warning = "ALERTA: cambió el master durante un job de solo captura. Revisar concurrencia externa."
-                if code == 0 and job["mode"] == "captura_integracion":
+                if not cancelled and code == 0 and job["mode"] == "captura_integracion":
                     log.write(b"\n===== AUDITORIA POST-EJECUCION (SOLO LECTURA) =====\n")
                     log.flush()
                     audit = subprocess.run(
@@ -153,7 +172,7 @@ def main(run_id):
                     log.write(("\n" + integrity_warning + "\n").encode("utf-8"))
                     log.flush()
                 update_job(
-                    ROOT, run_id, status="SUCCESS" if code == 0 and not integrity_warning else "ERROR",
+                    ROOT, run_id, status=("STOPPED" if cancelled else ("SUCCESS" if code == 0 and not integrity_warning else "ERROR")),
                     finished_at=now(), exit_code=code, integrity_warning=integrity_warning,
                     master_after=str(master_after or ""), master_sha256_after=hash_after,
                     master_date_after=master_date_after,
