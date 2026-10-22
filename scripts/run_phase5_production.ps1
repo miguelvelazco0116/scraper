@@ -191,6 +191,20 @@ try {
     try { Stop-Transcript | Out-Null } catch {}
 }
 
+# Exit code for -SkipIntegration must reflect capture quality, not phase closure.
+# Fase 5 cannot become COMPLETE without integration, by design.
+if ($SkipIntegration) {
+    $captureOk = $true
+    foreach ($key in @("similares", "heb", "sams", "duero", "duero_packaging", "duero_storefront", "preview", "audit")) {
+        if ($codes[$key] -ne 0) { $captureOk = $false }
+    }
+    if ($captureOk) {
+        Write-Host "Captura completa validada; integración omitida por solicitud."
+        exit 0
+    }
+    Write-Warning "Captura Fase 5 con observaciones; el master no fue modificado por el integrador."
+    exit 2
+}
 if ($phase5Complete -and $codes["audit"] -eq 0) { exit 0 }
 Write-Warning "Fase 5 tiene pendientes u observaciones. Los retailers completos se conservan; consulta la auditoria."
 exit 2
