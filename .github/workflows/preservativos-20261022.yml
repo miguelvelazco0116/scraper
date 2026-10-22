@@ -1,0 +1,57 @@
+name: preservativos-20261022
+on:
+  push:
+    branches:
+      - chatgpt/preservativos-2026-10-22
+jobs:
+  capture22:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct extraction package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p runner
+          cat tmp_preservativos_20261016/part_* > /tmp/runner.b64
+          base64 -d /tmp/runner.b64 > /tmp/runner.tgz
+          tar -xzf /tmp/runner.tgz -C runner
+          cp tmp_preservativos_20261016/run_daily.mjs runner/run_daily.mjs
+          echo "Payload reconstructed"
+      - name: Run canonical daily route
+        id: scraper
+        working-directory: runner
+        continue-on-error: true
+        env:
+          SCRAPER_CAPTURE_DATE: "2026-10-22"
+          SCRAPER_PROJECT_DIR: ${{ github.workspace }}/runner
+          SCRAPER_OUTPUT_DIR: ${{ github.workspace }}/runner/outputs
+        shell: bash
+        run: |
+          set -o pipefail
+          node --max-old-space-size=4096 run_daily.mjs 2>&1 | tee run_2026-10-22.log
+          echo ${PIPESTATUS[0]} > run_daily_exit_code.txt
+          exit $(cat run_daily_exit_code.txt)
+      - name: Show generated state
+        if: always()
+        working-directory: runner
+        shell: bash
+        run: |
+          echo "=== exit code ==="
+          cat run_daily_exit_code.txt 2>/dev/null || true
+          echo "=== generated files ==="
+          find data -maxdepth 1 -type f -name '*2026-10-22*' -printf '%f %s bytes\n' | sort || true
+          echo "=== state ==="
+          cat data/estado_cobertura_2026-10-22.json 2>/dev/null || true
+      - name: Upload capture artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preservativos-2026-10-22
+          if-no-files-found: warn
+          retention-days: 2
+          path: |
+            runner/data/*2026-10-22*
+            runner/run_2026-10-22.log
+            runner/run_daily_exit_code.txt
