@@ -18,7 +18,9 @@ jobs:
           base64 -d /tmp/runner.b64 > /tmp/runner.tgz
           tar -xzf /tmp/runner.tgz -C runner
           cp tmp_preservativos_20261016/run_daily.mjs runner/run_daily.mjs
-          echo "Payload reconstructed"
+          base64 -d tmp_preservativos_20261016/history_patch_19_21.b64 > /tmp/history_patch.tgz
+          tar -xzf /tmp/history_patch.tgz -C runner/data
+          echo "Payload + missing history reconstructed"
       - name: Run canonical daily route
         id: scraper
         working-directory: runner
@@ -42,16 +44,19 @@ jobs:
           cat run_daily_exit_code.txt 2>/dev/null || true
           echo "=== generated files ==="
           find data -maxdepth 1 -type f -name '*2026-10-22*' -printf '%f %s bytes\n' | sort || true
+          find outputs -maxdepth 1 -type f -printf '%f %s bytes\n' | sort || true
           echo "=== state ==="
           cat data/estado_cobertura_2026-10-22.json 2>/dev/null || true
-      - name: Upload capture artifacts
+      - name: Upload final artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: preservativos-2026-10-22
+          name: preservativos-2026-10-22-final
           if-no-files-found: warn
           retention-days: 2
           path: |
             runner/data/*2026-10-22*
+            runner/data/Farmacias_Preservativos_2026-08-17.xlsx
+            runner/outputs/Farmacias_Preservativos_2026-08-17.xlsx
             runner/run_2026-10-22.log
             runner/run_daily_exit_code.txt
