@@ -8,7 +8,7 @@ import streamlit as st
 
 from dashboard.execution import (
     ALL, RUNNERS, active_pointer, current_active_job, latest_jobs, local_day,
-    prepare_run, public_command, read_run_log, start_run,
+    prepare_run, public_command, read_run_log, start_run, request_stop, stop_requested,
 )
 
 def render(root: Path):
@@ -55,6 +55,38 @@ def render(root: Path):
         st.caption("Para los retailers con CDP, habilita remote debugging en Chrome y abre los sitios "
                    "correspondientes antes de iniciar.")
 
+    if phase == 1:
+        st.subheader("Fase 1 · Estado real de captura de hoy")
+        st.caption("Combina progreso productivo y checkpoints de tienda/categoría validados del mismo día. "
+                   "Solo los casos que superan controles se muestran como COMPLETE.")
+        try:
+            from dashboard.phase1_state import phase1_inventory
+            inventory, verified_cases = phase1_inventory(root)
+            completed = inventory.loc[inventory["estado"].eq("COMPLETE")]
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Casos COMPLETE", f"{len(completed)}/{len(inventory)}")
+            c2.metric("Por reintentar", len(inventory) - len(completed))
+            c3.metric("Productos validados", f"{int(completed['productos_validados'].sum()):,}")
+            retailer_totals = (inventory.assign(completo=inventory["estado"].eq("COMPLETE").astype(int))
+                               .groupby("retailer", as_index=False)
+                               .agg(casos=("estado", "size"), completos=("completo", "sum"),
+                                    productos=("productos_validados", "sum")))
+            st.dataframe(retailer_totals, hide_index=True, use_container_width=True)
+            if target == "Chedraui":
+                st.success("Chedraui ejecutará únicamente los casos **REINTENTAR**. "
+                           "Los COMPLETE del día se omiten sin abrir sus categorías.")
+            elif target == ALL:
+                st.info("La fase completa reutiliza los casos validados del día y procesa únicamente pendientes.")
+            with st.expander("Ver los 30 casos por tienda y categoría", expanded=target == "Chedraui"):
+                filtered = inventory if target == ALL else inventory.loc[inventory["retailer"].eq(target)]
+                st.dataframe(filtered, hide_index=True, use_container_width=True, height=350)
+        except Exception as exc:
+            st.error("No fue posible consultar el avance de Fase 1. No recomendamos ejecutar "
+                     "hasta validar el progreso/checkpoints. Detalle: " + str(exc))
+            inventory = None
+    else:
+        inventory = None
+
     st.subheader("Comando que se ejecutará")
     st.code(public_command(root, phase, target, mode), language="powershell")
 
@@ -86,7 +118,7 @@ def render(root: Path):
         allow_write = True
 
     if st.button("▶ Iniciar ejecución", type="primary",
-                 disabled=spec is None or active is not None or not confirmation or not allow_write,
+                 disabled=spec is None or active is not None or not confirmation or not allow_write or (phase == 1 and inventory is None),
                  use_container_width=True):
         try:
             job = start_run(root, phase, target, mode)
@@ -129,15 +161,29 @@ def render(root: Path):
             key="execution_detail_id",
         )
         run = next(j for j in jobs if j["run_id"] == selected)
+        if run["status"] in ("RUNNING", "PENDING"):
+            if stop_requested(root, selected):
+                st.warning("Paro solicitado. Espera a que el proceso libere el bloqueo antes de iniciar otro.")
+            elif st.button("⏹ Detener ejecución", key="stop_" + selected,
+                           type="secondary", use_container_width=True):
+                try:
+                    request_stop(root, selected)
+                    st.warning("Orden de paro enviada. El árbol de procesos se detendrá; "
+                               "los checkpoints COMPLETE anteriores se conservan.")
+                    st.rerun()
+                except (ValueError, RuntimeError, OSError) as exc:
+                    st.error("No se logró solicitar el paro: " + str(exc))
         if run.get("integrity_warning"):
             st.error(run["integrity_warning"])
         elif run["status"] == "SUCCESS":
             st.success("Script finalizado con código cero. **Verifica la auditoría** antes de considerar la fase COMPLETE.")
+        elif run["status"] == "STOPPED":
+            st.warning("Ejecución detenida por el operador. Revisa qué casos quedaron validados antes de reanudar.")
         elif run["status"] == "ERROR":
             st.error("El script terminó con un error. Revisa el log.")
         elif run["status"] == "REJECTED":
             st.warning("Intento rechazado: " + str(run.get("error", "Sin detalle")))
-        elif run.get("display_status"):
+        elif run.get("display_status") and "SIN LATIDO" in run["display_status"]:
             st.error("Worker sin latido reciente. Verifica procesos antes de lanzar otra captura.")
         log = read_run_log(root, selected)
         st.code(log[-16000:], language="text")
