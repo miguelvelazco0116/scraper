@@ -25,3 +25,8 @@ walmart_session.secret.txt
 .soriana_profile/
 diagnostics/
 output/
+
+# Streamlit/Azure SQL dashboard: local connection settings and secrets
+config/local/
+.streamlit/secrets.toml
+.streamlit/.secrets.toml
