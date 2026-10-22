@@ -35,7 +35,7 @@ def load_report(path, mtime):
 
 @st.cache_data(ttl=90, show_spinner=False)
 def load_quality(path, mtime):
-    from scripts.integrate_complete_retailers import EXPECTED
+    from integrate_complete_retailers import EXPECTED
     frame = load_master_rows(Path(path))
     return metrics_by_retailer(frame, EXPECTED), quality_findings(frame, EXPECTED)
 
@@ -149,7 +149,7 @@ elif section == "Fallas y diagnósticos":
     st.caption("La auditoría del master es autoritativa. Exit code 0 no significa que todos los retailers se hayan integrado.")
 
 elif section == "Ejecución por fase y retailer":
-    from scripts.integrate_complete_retailers import EXPECTED
+    from integrate_complete_retailers import EXPECTED
     st.header("Ejecución por fase y retailer")
     st.info("**Etapa de pruebas:** la ejecución sigue siendo por PowerShell. Los botones de Streamlit están desactivados deliberadamente para evitar corridas accidentales.")
     a, b = st.columns([1, 2])
