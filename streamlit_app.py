@@ -48,7 +48,7 @@ def csv_bytes(frame):
 st.sidebar.title("Centro de control")
 section = st.sidebar.radio("Módulo", [
     "Resumen ejecutivo", "Calidad de datos", "Fallas y diagnósticos",
-    "Ejecución por fase y retailer", "Azure SQL", "Trazabilidad e histórico",
+    "Nueva ejecución", "Guía de comandos CLI", "Azure SQL", "Trazabilidad e histórico",
 ])
 active, pointer = active_master(ROOT)
 masters = available_masters(ROOT)
@@ -61,7 +61,7 @@ selected = (st.sidebar.selectbox(
 if st.sidebar.button("Actualizar tablero"):
     st.cache_data.clear()
     st.rerun()
-st.sidebar.caption("**Modo pruebas: solo lectura.** Ejecutar scrapers desde PowerShell.")
+st.sidebar.caption("Captura local con confirmación. Calidad, histórico y Azure SQL siguen independientes.")
 if pointer:
     st.sidebar.caption("Fecha del puntero activo: " + str(pointer.get("capture_date", "N/D")))
 
@@ -70,13 +70,13 @@ st.caption("Calidad, fallas, operación e integración futura con Azure SQL")
 
 phases = retailers = cases = rows = pd.DataFrame()
 facts = {"warnings": []}
-if selected:
+if selected and section in ("Resumen ejecutivo", "Calidad de datos", "Trazabilidad e histórico"):
     try:
         phases, retailers, cases, facts, rows = load_report(str(selected), selected.stat().st_mtime_ns)
     except Exception as error:
         st.error("No se pudo leer el master. Revisa las hojas Concentrado, Resumen y Control.")
         st.code(str(error))
-elif section not in ("Azure SQL", "Ejecución por fase y retailer"):
+elif not selected and section in ("Resumen ejecutivo", "Calidad de datos", "Trazabilidad e histórico"):
     st.warning("No hay master disponible; captura las fases desde CLI y vuelve a abrir el panel.")
 
 if section == "Resumen ejecutivo":
@@ -148,18 +148,20 @@ elif section == "Fallas y diagnósticos":
         st.info("Aún no hay logs locales dentro de diagnostics/.")
     st.caption("La auditoría del master es autoritativa. Exit code 0 no significa que todos los retailers se hayan integrado.")
 
-elif section == "Ejecución por fase y retailer":
+elif section == "Nueva ejecución":
+    from dashboard.page_execution import render
+    render(ROOT)
+
+elif section == "Guía de comandos CLI":
     from integrate_complete_retailers import EXPECTED
-    st.header("Ejecución por fase y retailer")
-    st.info("**Etapa de pruebas:** la ejecución sigue siendo por PowerShell. Los botones de Streamlit están desactivados deliberadamente para evitar corridas accidentales.")
+    st.header("Guía de comandos CLI")
+    st.info("Estos comandos siguen disponibles. Para lanzar procesos desde la interfaz utiliza **Nueva ejecución**.")
     a, b = st.columns([1, 2])
     phase = a.selectbox("Fase", sorted(EXPECTED))
     retailer = b.selectbox("Retailer", ["Toda la fase"] + list(EXPECTED[phase]))
     choice = None if retailer == "Toda la fase" else retailer
     st.subheader("Comando preparado para CLI")
     st.code(safe_cli_command(ROOT, phase, choice), language="powershell")
-    st.button("Ejecutar desde Streamlit", disabled=True,
-              help="Se habilitará tras validar seguridad, gestión de sesiones y bloqueo de concurrencia.")
     if choice is not None and phase in (1, 2) and "No hay runner" in safe_cli_command(ROOT, phase, choice):
         st.caption("Se recomienda utilizar el runner integral correspondiente para este retailer.")
     st.subheader("Auditoría de integración sin escrituras")
