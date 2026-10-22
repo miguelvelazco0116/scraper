@@ -19,7 +19,7 @@ RUNNERS = {
         "Todas las tiendas": "run_phase1_production.ps1",
         "Farmacias del Ahorro": "test_farmacias_del_ahorro_all.ps1",
         "Ibarra Mayoreo": "test_ibarra_mayoreo.ps1",
-        "Chedraui": "test_chedraui_multistore.ps1",
+        "Chedraui": "run_chedraui_incremental.ps1",
     },
     2: {
         "Todas las tiendas": "run_phase2_production.ps1",
@@ -46,7 +46,7 @@ RUNNERS = {
 }
 ALL = "Todas las tiendas"
 RUNS_DIR = Path("diagnostics") / "dashboard_runs"
-RUN_STATUS = {"PENDING", "RUNNING", "SUCCESS", "ERROR", "REJECTED"}
+RUN_STATUS = {"PENDING", "RUNNING", "SUCCESS", "ERROR", "REJECTED", "STOPPED"}
 BACKUP_SOURCE = {
     "Farmacias del Ahorro": "farmacias_del_ahorro_all_test.xlsx",
     "Ibarra Mayoreo": "ibarra_mayoreo_test.xlsx",
@@ -95,6 +95,54 @@ def update_job(root: Path, run_id: str, **values):
     payload.update(values)
     _atomic_json(path, payload)
 
+def stop_request_path(root: Path, run_id: str):
+    return job_path(root, run_id).with_suffix(".stop")
+
+def stop_requested(root: Path, run_id: str):
+    return stop_request_path(root, run_id).is_file()
+
+def stop_process_tree(pid: int):
+    """Windows: terminate only the recorded PowerShell PID and descendants."""
+    if os.name != "nt" or not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        result = subprocess.run(
+            ["taskkill.exe", "/PID", str(pid), "/T", "/F"],
+            capture_output=True, timeout=15, check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+def request_stop(root: Path, run_id: str):
+    job = load_job(root, run_id)
+    if job.get("status") not in {"PENDING", "RUNNING"}:
+        raise ValueError("Esta ejecución ya terminó; no hay proceso que detener.")
+    # Restrict immediate process killing to fresh, heartbeating workers; a
+    # stale PID may have been recycled by Windows and must not be touched.
+    heartbeat = job.get("heartbeat_at")
+    recent = False
+    if heartbeat:
+        try:
+            recent = (datetime.now().astimezone() -
+                      datetime.fromisoformat(heartbeat)) < timedelta(seconds=20)
+        except (ValueError, TypeError):
+            pass
+    path = stop_request_path(root, run_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with path.open("x", encoding="utf-8") as out:
+            out.write(now() + "\n")
+    except FileExistsError:
+        pass
+    pid = job.get("child_pid")
+    # Immediate cancellation also works for jobs started by older worker code.
+    # In new workers the same request is noticed on their next 2s poll.
+    if recent and isinstance(pid, int) and pid > 0:
+        stop_process_tree(pid)
+    return True
+
 def latest_jobs(root: Path, limit=25):
     folder = job_folder(root)
     if not folder.is_dir():
@@ -104,13 +152,16 @@ def latest_jobs(root: Path, limit=25):
     for path in files:
         try:
             job = json.loads(path.read_text(encoding="utf-8"))
+            if stop_requested(root, job["run_id"]) and job.get("status") in ("RUNNING", "PENDING"):
+                job["display_status"] = "PARO SOLICITADO"
             if job.get("status") == "RUNNING":
                 heartbeat = job.get("heartbeat_at")
                 if heartbeat:
                     try:
                         age = datetime.now().astimezone() - datetime.fromisoformat(heartbeat)
                         if age > timedelta(minutes=2):
-                            job["display_status"] = "SIN LATIDO - REVISAR"
+                            if not job.get("display_status"):
+                                job["display_status"] = "SIN LATIDO - REVISAR"
                     except (ValueError, TypeError):
                         pass
             out.append(job)
