@@ -10,7 +10,7 @@ No se automatizan CAPTCHAs, verificaciones de identidad ni mecanismos para evadi
 
 ## Panel Streamlit de operación (MVP previo a Azure SQL)
 
-**Modo pruebas: solo lectura**. Se mantienen todos los scrapers por PowerShell/CLI; los botones de ejecución en Streamlit están deliberadamente desactivados hasta completar el control de concurrencia, ejecución y autorización.
+**Modo de ejecución local controlada**. Ahora existe la pantalla **Nueva ejecución** con botones reales por fase y retailer. El centro de control sigue consultando el master en modo lectura; únicamente los runners existentes pueden modificarlo cuando se escoge y confirma **Captura + integración**. La línea de comandos continúa disponible como alternativa.
 
 ### Arranque en Windows
 
@@ -28,7 +28,9 @@ Abrir http://127.0.0.1:8501 en el equipo. El launcher escucha solo en 127.0.0.1 
 - **Resumen**: las cinco fases, 13 retailers y sus casos COMPLETE, reconciliación real entre resumen, datos y Control. Fuente: auditor existente `scripts/audit_master_phases.py`.
 - **Calidad**: SKU, precio, URL, disponibilidad 1/0, contexto de tienda y hallazgos informativos por retailer con CSV. N/D significa sin evidencia, no es una falla automática; se mantienen los gates productivos por retailer.
 - **Fallas**: histórico de errores y últimos logs de `diagnostics/`, con ocultación básica de secretos y lecturas acotadas. El estado del master determina qué está integrado realmente.
-- **Ejecución**: selector de fases y retailers, comando PowerShell copiable, checklist y botón deshabilitado mientras operamos por CLI.
+- **Nueva ejecución**: botones reales para las cinco fases y pruebas aisladas de los 13 retailers, confirmación explícita de alcance/fecha e integración, un solo proceso a la vez, ejecución local en Windows, folio, log y seguimiento periódico. **Solo captura** es el modo inicial donde el runner permite `-SkipIntegration`. Fase 1 completa siempre integra por diseño; las pruebas por retailer nunca integran automáticamente.
+- **Guía de comandos CLI**: sigue ofreciendo los comandos para ejecución manual y auditoría `-Preview`.
+- **Protección de capturas**: se respalda el master/puntero antes de ejecutar una integración; las salidas existentes de prueba aislada se respaldan antes de sobrescribirse. Los SHA-256 del master antes/después quedan registrados en `diagnostics/dashboard_runs/*.json`. La ausencia de un master del día bloquea fases 4/5 completas, y las integraciones de fase 2/3/4/5 si no hay fases previas cerradas.
 - **Azure SQL**: servidor `*.database.windows.net`, base, puerto, identidad y autenticación SQL/Entra Interactive; configuración no secreta en `config/local/azure_sql.json`, ignorada por Git. No guarda contraseñas. Prueba opcional por `pyodbc` con ODBC Driver 18 y consulta SELECT; `Encrypt=yes` y `TrustServerCertificate=no` obligatorios. **No migra datos, no crea tablas.**
 - **Trazabilidad**: selector de masters históricos `concentrado_productivo_total_*.xlsx`, fechas reales, alcance por categoría, checkpoints y backups.
 
@@ -38,7 +40,12 @@ Pruebas del panel:
 
 ```powershell
 & C:\Proyectos\venvs\scraper\Scripts\python.exe -m unittest discover -s tests -p "test_dashboard_helpers.py" -v
+& C:\Proyectos\venvs\scraper\Scripts\python.exe -m unittest discover -s tests -p "test_dashboard_execution.py" -v
 ```
+
+**Fecha y seguridad:** la captura de hoy nunca debe interpretarse como integrada en un master de ayer. Si el puntero conserva la fecha anterior, comienza por preparar la fase 1 del día; los runners restantes preservan los gates de fecha propios. El monitor de Streamlit no evade CAPTCHAs ni verifica precios/stock Duero por código postal; la opción `-ApproveDueroOnline` permanece fuera de la ejecución automática.
+
+**Lanzamiento local:** solo escucha en `127.0.0.1`; no desplegar como servicio público sin autenticación, aislamiento de usuarios y autorización por acción. No ejecutar simultáneamente scripts por CLI mientras trabaja Streamlit: el bloqueo cubre **solo los jobs lanzados por el panel**. Los procesos independientes de PowerShell no comparten ese bloqueo. En Windows, la ejecución se realiza como el usuario de Windows que inició Streamlit.
 
 Antes de la migración productiva: definir esquema, historial, cargas idempotentes, privilegios mínimos, respaldos y rollback.
 
