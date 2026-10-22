@@ -18,6 +18,50 @@ def render(root: Path):
     st.info("Se permite **una sola ejecución a la vez**. Los runners que usan Chrome "
             "requieren que las pestañas y las tiendas estén preparadas manualmente.")
 
+    @st.fragment(run_every="3s")
+    def stop_control():
+        # Always visible near the page title, independently of the selected
+        # historical log. Frequent refresh never reruns the capture itself.
+        jobs = latest_jobs(root, limit=100)
+        running = next(
+            (job for job in jobs if job.get("status") in ("PENDING", "RUNNING")),
+            None,
+        )
+        if running is None:
+            st.caption("Sin ejecuciones activas desde Streamlit.")
+            return
+
+        run_id = running["run_id"]
+        with st.container(border=True):
+            st.markdown("**Ejecución activa · Control de paro**")
+            st.caption(
+                f"Fase {running.get('phase')} · {running.get('target')} · "
+                f"{running.get('status')} · Folio {run_id[:12]}"
+            )
+            if running.get("display_status") == "SIN LATIDO - REVISAR":
+                st.error(
+                    "Sin señales recientes del worker. Verifica los procesos en "
+                    "PowerShell antes de solicitar otro intento."
+                )
+                return
+            if stop_requested(root, run_id):
+                st.warning("Paro solicitado. No inicies otra ejecución hasta que aparezca STOPPED.")
+                return
+            if st.button(
+                "⏹ Detener ejecución activa",
+                key="active_stop_" + run_id,
+                type="secondary",
+                use_container_width=True,
+            ):
+                try:
+                    request_stop(root, run_id)
+                    st.warning("Paro solicitado. Se detendrá el árbol de procesos de esta ejecución.")
+                    st.rerun()
+                except (OSError, RuntimeError, ValueError) as exc:
+                    st.error("No se pudo detener: " + str(exc))
+
+    stop_control()
+
     left, right = st.columns([1, 2])
     phase = left.selectbox("Fase a ejecutar", sorted(RUNNERS), key="exec_phase")
     target = right.selectbox("Alcance", list(RUNNERS[phase]), key="exec_target")
@@ -151,7 +195,7 @@ def render(root: Path):
 
     st.divider()
     st.subheader("Seguimiento e historial")
-    st.caption("Se actualiza automáticamente. El proceso continúa aunque cambies de sección.")
+    st.caption("Se actualiza automáticamente. Para detener un trabajo activo usa el control visible al principio de esta pantalla o selecciona el folio.")
 
     @st.fragment(run_every="4s")
     def monitor():
