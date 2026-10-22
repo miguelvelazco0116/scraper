@@ -53,3 +53,5 @@ Write-Host "Diagnosticos: $ProjectDir\diagnostics\ibarra_mayoreo_*"
 if ($code -ne 0) {
     Write-Warning "El test termino con observaciones (exit_code=$code)."
 }
+
+exit $code
