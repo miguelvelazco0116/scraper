@@ -28,7 +28,7 @@ Abrir http://127.0.0.1:8501 en el equipo. El launcher escucha solo en 127.0.0.1 
 - **Resumen**: las cinco fases, 13 retailers y sus casos COMPLETE, reconciliación real entre resumen, datos y Control. Fuente: auditor existente `scripts/audit_master_phases.py`.
 - **Calidad**: SKU, precio, URL, disponibilidad 1/0, contexto de tienda y hallazgos informativos por retailer con CSV. N/D significa sin evidencia, no es una falla automática; se mantienen los gates productivos por retailer.
 - **Fallas**: histórico de errores y últimos logs de `diagnostics/`, con ocultación básica de secretos y lecturas acotadas. El estado del master determina qué está integrado realmente.
-- **Nueva ejecución**: botones reales para las cinco fases y pruebas aisladas de los 13 retailers, confirmación explícita de alcance/fecha e integración, un solo proceso a la vez, ejecución local en Windows, folio, log y seguimiento periódico. **Solo captura** es el modo inicial donde el runner permite `-SkipIntegration`. Fase 1 completa siempre integra por diseño; las pruebas por retailer nunca integran automáticamente.
+- **Nueva ejecución**: botones reales para las cinco fases y pruebas aisladas de los 13 retailers, confirmación explícita, botón Detener, un solo proceso a la vez, folio, log y seguimiento periódico. **Solo captura** es el modo inicial donde el runner permite `-SkipIntegration`. Fase 1 completa siempre integra por diseño; las pruebas por retailer nunca integran automáticamente.
 - **Guía de comandos CLI**: sigue ofreciendo los comandos para ejecución manual y auditoría `-Preview`.
 - **Protección de capturas**: se respalda el master/puntero antes de ejecutar una integración; las salidas existentes de prueba aislada se respaldan antes de sobrescribirse. Los SHA-256 del master antes/después quedan registrados en `diagnostics/dashboard_runs/*.json`. La ausencia de un master del día bloquea fases 4/5 completas, y las integraciones de fase 2/3/4/5 si no hay fases previas cerradas.
 - **Azure SQL**: servidor `*.database.windows.net`, base, puerto, identidad y autenticación SQL/Entra Interactive; configuración no secreta en `config/local/azure_sql.json`, ignorada por Git. No guarda contraseñas. Prueba opcional por `pyodbc` con ODBC Driver 18 y consulta SELECT; `Encrypt=yes` y `TrustServerCertificate=no` obligatorios. **No migra datos, no crea tablas.**
@@ -46,6 +46,55 @@ Pruebas del panel:
 **Fecha y seguridad:** la captura de hoy nunca debe interpretarse como integrada en un master de ayer. Si el puntero conserva la fecha anterior, comienza por preparar la fase 1 del día; los runners restantes preservan los gates de fecha propios. El monitor de Streamlit no evade CAPTCHAs ni verifica precios/stock Duero por código postal; la opción `-ApproveDueroOnline` permanece fuera de la ejecución automática.
 
 **Lanzamiento local:** solo escucha en `127.0.0.1`; no desplegar como servicio público sin autenticación, aislamiento de usuarios y autorización por acción. No ejecutar simultáneamente scripts por CLI mientras trabaja Streamlit: el bloqueo cubre **solo los jobs lanzados por el panel**. Los procesos independientes de PowerShell no comparten ese bloqueo. En Windows, la ejecución se realiza como el usuario de Windows que inició Streamlit.
+
+### Fase 1: no duplicar capturas; ejecutar solo pendientes Chedraui
+
+La pantalla **Nueva ejecución → Fase 1** muestra una matriz de **30 casos**
+(6 Ahorro + 4 Ibarra + 20 Chedraui: 4 tiendas × 5 categorías). El estado
+se calcula con `fase1_progress.xlsx` y los checkpoints independientes
+`output/checkpoints_validos/chedraui_cases/`, exclusivamente **del día**.
+Los registros Chedraui se revalidan por tienda, categoría, fecha, contrato
+de contexto, SKU, precios y paginación. Un `COMPLETE` textual por sí solo
+no autoriza reutilización. **COMPLETE de captura no implica integrado.**
+
+El botón individual **Chedraui** ahora utiliza
+`scripts/run_chedraui_incremental.ps1` en modo solo captura: omite los casos
+COMPLETE, ejecuta `test_chedraui.py` solo para combinaciones pendientes y
+conserva checkpoints que podrá reutilizar el runner productivo Fase 1.
+No modifica el master.
+
+Previsualizar sin navegar:
+
+```powershell
+& .\scripts\run_chedraui_incremental.ps1 -Preview
+```
+
+Ejecutar pendientes desde PowerShell (alternativa al botón):
+
+```powershell
+& .\scripts\run_chedraui_incremental.ps1 -Headed
+```
+
+**Detener desde Streamlit:** en Nueva ejecución → Seguimiento e historial →
+selecciona el folio activo → `⏹ Detener ejecución`. La orden registra una
+solicitud local de paro y termina el proceso PowerShell del folio y sus
+descendientes; puede interrumpir archivos de prueba en curso, por lo que
+solo se reutilizan casos ya certificados. Los checkpoints anteriores
+se conservan. El paro no detiene programas externos iniciados por CLI.
+
+**Worker anterior:** un worker que ya estaba corriendo no se actualiza
+automáticamente al hacer `git pull`. Para solicitar su paro desde PowerShell
+**después de actualizar el repositorio**, sin reiniciar primero la aplicación:
+
+```powershell
+python -c "from pathlib import Path; from dashboard.execution import current_active_job, request_stop; r=Path.cwd(); j=current_active_job(r); print('Folio activo:', j['run_id'] if j else 'ninguno'); request_stop(r,j['run_id']) if j else None"
+```
+
+Pruebas auxiliares:
+
+```powershell
+python -m pytest -q tests/test_dashboard_phase1.py tests/test_dashboard_execution.py
+```
 
 Antes de la migración productiva: definir esquema, historial, cargas idempotentes, privilegios mínimos, respaldos y rollback.
 
