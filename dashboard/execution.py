@@ -170,20 +170,17 @@ def latest_jobs(root: Path, limit=25):
     return out
 
 def current_active_job(root: Path):
+    """Fail closed: an unfinished job always prevents another scraper job.
+
+    A delayed/missing heartbeat is *not* proof the child has exited. Windows
+    processes must be inspected and the job explicitly reconciled before a
+    replacement may run.
+    """
     for job in latest_jobs(root, limit=100):
         if job.get("status") in ("PENDING", "RUNNING"):
-            start = job.get("started_at") or job.get("created_at")
-            if start:
-                try:
-                    age = datetime.now().astimezone() - datetime.fromisoformat(start)
-                    if job["status"] == "PENDING" and age <= timedelta(minutes=2):
-                        return job
-                    heartbeat = job.get("heartbeat_at")
-                    if heartbeat and datetime.now().astimezone() - datetime.fromisoformat(heartbeat) <= timedelta(minutes=2):
-                        return job
-                except (ValueError, TypeError):
-                    pass
+            return job
     return None
+
 
 def active_pointer(root: Path):
     path = root / "output" / "checkpoints_validos" / "current_master.json"
