@@ -172,7 +172,9 @@ elif section == "Guía de comandos CLI":
     st.subheader("Auditoría de integración sin escrituras")
     st.code(f"& .\\scripts\\integrate_complete_retailers.ps1 -Phase {phase} -Preview", language="powershell")
     if phase == 5:
-        st.warning("Duero online: nunca se aprueba automáticamente desde el panel. La aprobación exige revisar evidencia y autorizarla por separado.")
+        st.warning("Duero online: se permite integrar el catálogo público verificado "
+                   "sin contexto de tienda ni código postal. No equivale a precios "
+                   "o existencias certificados para una ubicación.")
     st.subheader("Checklist de operador (informativo)")
     st.checkbox("Confirmé la fecha y el master activo", key="check_master")
     st.checkbox("Confirmé Chrome/CDP y contexto de las tiendas", key="check_chrome")
