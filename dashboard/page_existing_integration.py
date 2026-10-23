@@ -30,6 +30,8 @@ def render(root: Path) -> None:
     if st.session_state.get("existing_selected") != selected:
         st.session_state["existing_selected"] = selected
         st.session_state["existing_preview"] = None
+        # Authorisation must be renewed for each retailer/date selection.
+        st.session_state["existing_import_consent"] = False
 
     if retailer == "Mayorista Duero":
         st.warning(
