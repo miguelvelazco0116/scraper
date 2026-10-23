@@ -109,29 +109,44 @@ def _run_child(spec, log, run_id: str):
         env=env, close_fds=True,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
-    update_job(ROOT, run_id, child_pid=proc.pid)
-    cancelled = False
-    while True:
-        code = proc.poll()
-        if stop_requested(ROOT, run_id):
-            cancelled = True
-            if code is None:
-                stop_process_tree(proc.pid)
-                try:
-                    code = proc.wait(timeout=15)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    code = proc.wait(timeout=5)
-            break
-        # Do not contend with Streamlit JSON readers on every poll.
-        # Metadata remains atomic and is changed only on state transitions.
-        update_heartbeat(ROOT, run_id)
-        if code is not None:
-            break
-        time.sleep(2)
-    log.write(("\n===== TERMINO: " + now() + f"; exit_code={code}; cancelled={cancelled} =====\n").encode("utf-8"))
-    log.flush()
-    return code, cancelled
+    try:
+        update_job(ROOT, run_id, child_pid=proc.pid)
+        cancelled = False
+        while True:
+            code = proc.poll()
+            if stop_requested(ROOT, run_id):
+                cancelled = True
+                if code is None:
+                    stop_process_tree(proc.pid)
+                    try:
+                        code = proc.wait(timeout=15)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        code = proc.wait(timeout=5)
+                break
+            # Keep heartbeat separate from job JSON. This is best effort:
+            # a locked heartbeat marker must not orphan a running scraper.
+            try:
+                update_heartbeat(ROOT, run_id)
+            except OSError:
+                pass
+            if code is not None:
+                break
+            time.sleep(2)
+        log.write(("\n===== TERMINO: " + now() + f"; exit_code={code}; cancelled={cancelled} =====\n").encode("utf-8"))
+        log.flush()
+        return code, cancelled
+    except BaseException:
+        # If metadata writing fails after Popen, never leave an orphan
+        # PowerShell/browser child capturing while the UI says REJECTED.
+        if proc.poll() is None:
+            stop_process_tree(proc.pid)
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+        raise
 
 def main(run_id):
     job = load_job(ROOT, run_id)
