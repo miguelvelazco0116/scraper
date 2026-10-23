@@ -574,25 +574,19 @@ def _run_chedraui(
         print("-" * 72)
         print(f"CHEDRAUI [{index}/{len(categories)}] {category.id}")
         print(category.url)
-        scraper = ChedrauiScraper(
-            # Chedraui production deliberately runs visible so the exact
-            # State -> City/Zone -> Store directory path is auditable.
-            headless=False,
-            browser_channel="chrome",
-            profile_dir=profile_dir,
+        # Same bounded category retry rule as the isolated Chedraui runner:
+        # up to 3 fresh-browser attempts for store, pagination and quality.
+        # Successful rows must come from one COMPLETE attempt only.
+        from test_chedraui import _scrape_category_with_retries
+        scraper, rows, error, retry_history = _scrape_category_with_retries(
+            category,
+            location,
+            profile_dir=str(profile_dir),
             max_pages=100,
-            low_memory=low_memory,
+            store_context_retries=2,
+            retry_delay_seconds=10,
         )
-        rows: list[dict[str, Any]] = []
         notes: list[str] = []
-        error: str | None = None
-
-        try:
-            rows = scraper.scrape_category(category, location)
-        except (ChedrauiBlocked, ChedrauiStoreContextError) as exc:
-            error = f"{type(exc).__name__}: {exc}"
-        except Exception as exc:
-            error = f"{type(exc).__name__}: {exc}"
 
         frame = _canonical_frame(rows)
         meta = dict(getattr(scraper, "run_meta", {}) or {})
@@ -718,6 +712,7 @@ def _run_chedraui(
             store_id=location.store_id,
             city=location.city,
             state=location.state,
+            attempts=len(retry_history),
         )
         summaries.append(summary)
         print(
@@ -726,6 +721,9 @@ def _run_chedraui(
             f"structured_missing={structured_missing} gaps={pagination_gaps}"
         )
         _release_between_cases(low_memory)
+        if error and error.startswith("BLOCKED:"):
+            print("Acceso bloqueado; se detiene Chedraui para esta tienda sin reintentos adicionales.", flush=True)
+            break
         if index < len(categories) and category_delay_seconds > 0:
             print(
                 f"  pausa Chedraui: {category_delay_seconds}s "
