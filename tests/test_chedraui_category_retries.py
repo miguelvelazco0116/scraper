@@ -77,6 +77,7 @@ class RetryCategoryTests(unittest.TestCase):
             max_pages=100, store_context_retries=retries,
             retry_delay_seconds=delay, scraper_factory=factory,
             sleep_fn=self.delays.append, diagnostics_dir=self.diagnostics,
+            validate_quality=False,
         )
         return factory, value
 
@@ -121,12 +122,39 @@ class RetryCategoryTests(unittest.TestCase):
         self.assertEqual(self.delays, [])
         self.assertEqual(len(history), 1)
 
-    def test_unrelated_error_never_retries(self):
-        factory, (_, _, error, _) = self.run_fake([
+    def test_unrelated_error_retries_three_times_then_moves_on(self):
+        factory, (_, rows, error, history) = self.run_fake([
             ("other_error", [], None),
-        ])
-        self.assertEqual(factory.calls, 1)
+            ("other_error", [], None),
+            ("other_error", [], None),
+        ], delay=4)
+        self.assertEqual(factory.calls, 3)
+        self.assertEqual(rows, [])
+        self.assertEqual(self.delays, [4, 4])
         self.assertTrue(error.startswith("RuntimeError:"))
+        self.assertEqual(len(history), 3)
+
+    def test_page_closed_retried_and_recovers_same_category(self):
+        factory = MockScraperFactory([
+            ("other_error", [], None),
+            ("success", _records(297), 297),
+        ])
+        with tempfile.TemporaryDirectory() as temp:
+            result = _scrape_category_with_retries(
+                self.category, self.store,
+                profile_dir=".chedraui_profile", max_pages=100,
+                store_context_retries=2,
+                retry_delay_seconds=0, scraper_factory=factory,
+                sleep_fn=lambda _: None, diagnostics_dir=Path(temp),
+                validate_quality=False,
+            )
+        _, rows, error, history = result
+        self.assertEqual(factory.calls, 2)
+        self.assertEqual(len(rows), 297)
+        self.assertIsNone(error)
+        self.assertEqual([item["status"] for item in history], [
+            "CAPTURE_ERROR", "SCRAPED",
+        ])
 
     def test_overcount_is_retried_but_not_truncated(self):
         factory, (_, rows, error, history) = self.run_fake([
