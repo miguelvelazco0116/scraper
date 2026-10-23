@@ -55,6 +55,8 @@ class MockScraperFactory:
                     raise RuntimeError("unexpected")
                 if kind == "page_closed":
                     raise RuntimeError("TargetClosedError: Target page, context or browser has been closed")
+                if kind == "pagination_error":
+                    raise RuntimeError("Chedraui no pudo demostrar continuidad del paginador UI: [1, 2]")
                 return rows
 
         return FakeScraper()
@@ -135,6 +137,19 @@ class RetryCategoryTests(unittest.TestCase):
         self.assertEqual(self.delays, [4, 4])
         self.assertTrue(error.startswith("RuntimeError:"))
         self.assertEqual(len(history), 3)
+
+    def test_pagination_error_retries_then_recovers_same_category(self):
+        factory, (scraper, rows, error, history) = self.run_fake([
+            ("pagination_error", [], 361),
+            ("pagination_error", [], 361),
+            ("success", _records(361), 361),
+        ], delay=2)
+        self.assertEqual(factory.calls, 3)
+        self.assertEqual(self.delays, [2, 2])
+        self.assertEqual(len(rows), 361)
+        self.assertIsNone(error)
+        self.assertEqual([i["status"] for i in history],
+                         ["CAPTURE_ERROR", "CAPTURE_ERROR", "SCRAPED"])
 
     def test_page_closed_retried_and_recovers_same_category(self):
         factory = MockScraperFactory([
