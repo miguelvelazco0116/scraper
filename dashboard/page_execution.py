@@ -100,63 +100,128 @@ def render(root: Path):
                    "correspondientes antes de iniciar.")
 
     if phase == 1:
-        st.subheader("Fase 1 · Estado real de captura de hoy")
-        st.caption("Combina progreso productivo y checkpoints de tienda/categoría validados del mismo día. "
-                   "Solo los casos que superan controles se muestran como COMPLETE.")
-        try:
-            from dashboard.phase1_state import phase1_inventory
-            inventory, verified_cases = phase1_inventory(root)
-            completed = inventory.loc[inventory["estado"].eq("COMPLETE")]
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Casos COMPLETE", f"{len(completed)}/{len(inventory)}")
-            c2.metric("Por reintentar", len(inventory) - len(completed))
-            c3.metric("Productos validados", f"{int(completed['productos_validados'].sum()):,}")
-            retailer_totals = (inventory.assign(completo=inventory["estado"].eq("COMPLETE").astype(int))
-                               .groupby("retailer", as_index=False)
-                               .agg(casos=("estado", "size"), completos=("completo", "sum"),
-                                    productos=("productos_validados", "sum")))
-            st.dataframe(retailer_totals, hide_index=True, use_container_width=True)
-            # Capture success and integration are different states.
-            # Use the authoritative master auditor, never the job exit code.
-            from dashboard.data import active_master, inventory_for_master
-            master_path, master_pointer = active_master(root)
-            if master_path is not None and str(master_pointer.get("capture_date")) == local_day():
-                try:
-                    master_phases, master_retailers, _, _ = inventory_for_master(root, master_path)
-                    phase_row = master_phases.loc[master_phases["fase"].eq(1)]
-                    if not phase_row.empty:
-                        state = str(phase_row.iloc[0]["estado_calculado"])
-                        actual_rows = int(phase_row.iloc[0]["filas_master"])
-                        st.caption(f"**Integración real del día** — Fase 1: {state} · "
-                                   f"{actual_rows:,} productos en master.")
-                        if state == "COMPLETE" and len(completed) != len(inventory):
-                            st.warning(
-                                "La Fase 1 está integrada, pero "
-                                f"{len(inventory) - len(completed)} casos no tienen "
-                                "evidencia individual suficiente para presentarse "
-                                "como COMPLETE. Revisa la fecha y los controles de "
-                                "cada tienda/categoría antes de recapturar."
+        @st.fragment(run_every="20s")
+        def phase1_status():
+            # Display refreshes independently from the 4-second job monitor.
+            # Neither this fragment nor the master view controls actual retries.
+            st.subheader("Fase 1 · Estado actualizado de hoy")
+            try:
+                from dashboard.phase1_state import phase1_inventory
+                from dashboard.data import (
+                    active_master, inventory_for_master, phase1_master_view,
+                )
+                inventory, _ = phase1_inventory(root)
+                display = inventory
+                master_verified = False
+                integration_text = "No hay master activo del día para certificar integración de Fase 1."
+                master_retailers = pd.DataFrame()
+
+                master_path, master_pointer = active_master(root)
+                if (master_path is not None
+                        and str(master_pointer.get("capture_date")) == local_day()):
+                    try:
+                        phases, master_retailers, _, _ = inventory_for_master(root, master_path)
+                        phase_row = phases.loc[phases["fase"].eq(1)]
+                        if not phase_row.empty:
+                            report = phase_row.iloc[0]
+                            state = str(report["estado_calculado"])
+                            actual_rows = int(report["filas_master"])
+                            integration_text = (
+                                f"**Integración real del día** — Fase 1: {state} · "
+                                f"{actual_rows:,} productos en master."
                             )
-                        with st.expander("Retailers de Fase 1 integrados al master"):
-                            st.dataframe(master_retailers.loc[master_retailers["fase"].eq(1)],
-                                         hide_index=True, use_container_width=True)
-                except Exception:
-                    st.warning("No se pudo verificar el estado del master; "
-                               "consulta el Resumen ejecutivo. No se infiere COMPLETE.")
-            else:
-                st.caption("No hay master activo del día para certificar integración de Fase 1.")
-            if target == "Chedraui":
-                st.success("Chedraui ejecutará únicamente los casos **REINTENTAR**. "
-                           "Los COMPLETE del día se omiten sin abrir sus categorías.")
-            elif target == ALL:
-                st.info("La fase completa reutiliza los casos validados del día y procesa únicamente pendientes.")
-            with st.expander("Ver los 30 casos por tienda y categoría", expanded=target == "Chedraui"):
-                filtered = inventory if target == ALL else inventory.loc[inventory["retailer"].eq(target)]
-                st.dataframe(filtered, hide_index=True, use_container_width=True, height=350)
-        except Exception as exc:
-            st.error("No fue posible consultar el avance de Fase 1. No recomendamos ejecutar "
-                     "hasta validar el progreso/checkpoints. Detalle: " + str(exc))
-            inventory = None
+                            audited_view = phase1_master_view(
+                                master_path, inventory, report,
+                                master_retailers, local_day(),
+                            )
+                            if audited_view is not None:
+                                display = audited_view
+                                master_verified = True
+                            elif state == "COMPLETE":
+                                st.warning(
+                                    "La auditoría indica COMPLETE, pero la relación exacta "
+                                    "de los 30 casos del master no pudo reconciliarse. "
+                                    "Se muestra el progreso de checkpoints sin inventar "
+                                    "casos COMPLETE."
+                                )
+                    except (OSError, ValueError, KeyError, TypeError) as exc:
+                        st.warning(
+                            "No fue posible reconciliar el master del día. "
+                            "Se muestran los checkpoints: " + str(exc)
+                        )
+
+                completed = display.loc[display["estado"].eq("COMPLETE")]
+                st.caption(
+                    "Fuente: master productivo auditado del día."
+                    if master_verified else
+                    "Fuente: progreso y checkpoints validados del día. "
+                    "La integración del master se informa aparte."
+                )
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Casos COMPLETE", f"{len(completed)}/{len(display)}")
+                c2.metric(
+                    "Pendientes en master" if master_verified else "Por reintentar",
+                    len(display) - len(completed),
+                )
+                c3.metric(
+                    "Productos validados",
+                    f"{int(completed['productos_validados'].sum()):,}",
+                )
+                retailer_totals = (
+                    display.assign(completo=display["estado"].eq("COMPLETE").astype(int))
+                    .groupby("retailer", as_index=False)
+                    .agg(
+                        casos=("estado", "size"),
+                        completos=("completo", "sum"),
+                        productos=("productos_validados", "sum"),
+                    )
+                )
+                st.dataframe(retailer_totals, hide_index=True, use_container_width=True)
+                st.caption(integration_text)
+                if not master_retailers.empty:
+                    with st.expander("Retailers de Fase 1 integrados al master"):
+                        st.dataframe(
+                            master_retailers.loc[master_retailers["fase"].eq(1)],
+                            hide_index=True, use_container_width=True,
+                        )
+                if master_verified:
+                    st.info(
+                        "Los indicadores muestran los casos integrados en el master "
+                        "validado. Los runners de captura y sus reglas de reintento "
+                        "siguen utilizando sus propios checkpoints, sin cambios."
+                    )
+                elif target == "Chedraui":
+                    st.success(
+                        "Chedraui ejecutará únicamente los casos REINTENTAR según "
+                        "sus checkpoints válidos. Los COMPLETE de la captura se omiten."
+                    )
+                elif target == ALL:
+                    st.info(
+                        "La fase completa reutiliza los casos validados del día y "
+                        "procesa únicamente pendientes."
+                    )
+                with st.expander(
+                    "Ver los 30 casos por tienda y categoría",
+                    expanded=target == "Chedraui",
+                ):
+                    filtered = (
+                        display if target == ALL
+                        else display.loc[display["retailer"].eq(target)]
+                    )
+                    st.dataframe(
+                        filtered, hide_index=True, use_container_width=True,
+                        height=350,
+                    )
+                return inventory
+            except Exception as exc:
+                st.error(
+                    "No fue posible consultar el avance de Fase 1. "
+                    "No recomendamos ejecutar hasta validar progreso y checkpoints. "
+                    "Detalle: " + str(exc)
+                )
+                return None
+
+        inventory = phase1_status()
     else:
         inventory = None
 
