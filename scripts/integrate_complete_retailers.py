@@ -229,6 +229,7 @@ def _phase3_candidates(day: str):
 def _phase4_5_candidates(
     phase: int, day: str, *,
     approve_duero_online: bool = False,
+    only_retailer: str | None = None,
 ):
     sources = PHASE4_RETAILER_SOURCES if phase == 4 else PHASE5_RETAILER_SOURCES
     validators = {
@@ -240,6 +241,8 @@ def _phase4_5_candidates(
         "Mayorista Duero": _validate_duero_retailer,
     }
     for retailer in EXPECTED[phase]:
+        if only_retailer is not None and retailer != only_retailer:
+            continue
         cfg = sources.get(retailer)
         if not cfg:
             yield retailer, pd.DataFrame(), pd.DataFrame(), Path(""), ["Sin fuente configurada"]
@@ -252,14 +255,18 @@ def _phase4_5_candidates(
                 raise ValueError("Retailer del archivo incorrecto")
             if "status" not in summary.columns or not summary["status"].astype(str).str.upper().isin(["COMPLETE", "SUCCESS"]).all():
                 raise ValueError("Retailer con categorías no completas")
-            if retailer == "Mayorista Duero" and approve_duero_online:
+            # Duero uses a public online catalogue. An unverified storefront
+            # must not prevent a catalogue-only import, but price/stock may
+            # never be attributed to a store or postal code.
+            if retailer == "Mayorista Duero":
                 errors = _validate_duero_retailer(
                     frame, summary, allow_online_catalogue=True
                 )
                 if errors:
                     raise ValueError("; ".join(errors))
-                evidence = validate_duero_online_evidence(
-                    frame, summary, day, REPORT_DIR
+                evidence = (
+                    validate_duero_online_evidence(frame, summary, day, REPORT_DIR)
+                    if approve_duero_online else None
                 )
             else:
                 errors = validators[retailer](frame, summary)
@@ -269,17 +276,21 @@ def _phase4_5_candidates(
             summary = summary.copy()
             summary["source_status"] = summary["status"].astype(str)
             summary["status"] = "COMPLETE"
-            if evidence is not None:
+            if retailer == "Mayorista Duero":
                 summary["integration_scope"] = ONLINE_SCOPE
-                summary["manual_delivery_cp"] = MANUAL_DELIVERY_CP
-                summary["manual_delivery_checked"] = True
-                summary["manual_price_sample_checked"] = True
-                summary["manual_price_sample_scope"] = "ONE_RETAILER_LEVEL_SAMPLE_UNIDENTIFIED"
                 summary["postal_price_verified"] = False
-                summary["online_catalogue_approval"] = "OPERATOR_EXPLICIT"
-                summary["evidence_pagination_json"] = evidence["evidence_files"]["pagination"]
-                summary["evidence_storefront_json"] = evidence["evidence_files"]["storefront"]
-                summary["evidence_packaging_json"] = evidence["evidence_files"]["packaging"]
+                summary["manual_delivery_checked"] = evidence is not None
+                summary["manual_price_sample_checked"] = evidence is not None
+                summary["online_catalogue_approval"] = (
+                    "OPERATOR_EXPLICIT" if evidence is not None
+                    else "CATALOGUE_ONLY_NO_STORE_CERTIFICATION"
+                )
+                if evidence is not None:
+                    summary["manual_delivery_cp"] = MANUAL_DELIVERY_CP
+                    summary["manual_price_sample_scope"] = "ONE_RETAILER_LEVEL_SAMPLE_UNIDENTIFIED"
+                    summary["evidence_pagination_json"] = evidence["evidence_files"]["pagination"]
+                    summary["evidence_storefront_json"] = evidence["evidence_files"]["storefront"]
+                    summary["evidence_packaging_json"] = evidence["evidence_files"]["packaging"]
             if retailer == "Farmacias San Pablo":
                 summary["products"] = pd.to_numeric(summary["products_extracted"], errors="coerce")
             yield retailer, frame, summary, path, []
@@ -290,15 +301,24 @@ def _phase4_5_candidates(
 def _candidates(
     phase: int, day: str, *,
     approve_duero_online: bool = False,
+    only_retailer: str | None = None,
 ):
+    # The import screen must not scrape or inspect unrelated retailer files.
     if phase == 1:
-        return _phase1_candidates(day)
-    if phase == 2:
-        return _phase2_candidates(day)
-    if phase == 3:
-        return _phase3_candidates(day)
-    return _phase4_5_candidates(
-        phase, day, approve_duero_online=approve_duero_online
+        source = _phase1_candidates(day)
+    elif phase == 2:
+        source = _phase2_candidates(day)
+    elif phase == 3:
+        source = _phase3_candidates(day)
+    else:
+        source = _phase4_5_candidates(
+            phase, day,
+            approve_duero_online=approve_duero_online,
+            only_retailer=only_retailer,
+        )
+    return (
+        candidate for candidate in source
+        if only_retailer is None or candidate[0] == only_retailer
     )
 
 
@@ -381,6 +401,10 @@ def main():
     parser.add_argument("--phase", type=int, choices=range(1, 6), required=True)
     parser.add_argument("--preview", action="store_true", help="No modificar master ni puntero.")
     parser.add_argument(
+        "--retailer", type=str,
+        help="Integra solamente el retailer seleccionado, a partir de su captura del día.",
+    )
+    parser.add_argument(
         "--approve-duero-online", action="store_true",
         help=(
             "Aprueba expresamente catálogo público online Duero para Fase 5 "
@@ -390,6 +414,8 @@ def main():
     args = parser.parse_args()
     if args.approve_duero_online and args.phase != 5:
         parser.error("--approve-duero-online solo aplica a Fase 5")
+    if args.retailer is not None and args.retailer not in EXPECTED[args.phase]:
+        parser.error("Retailer no configurado para esa fase.")
     day = datetime.now().astimezone().date().isoformat()
     master = _master_path_for_date(day)
     pointer = _read_current_master_pointer()
@@ -413,7 +439,9 @@ def main():
     rows = []
     additions = []
     for retailer, frame, summary, source, errors in _candidates(
-        args.phase, day, approve_duero_online=args.approve_duero_online
+        args.phase, day,
+        approve_duero_online=args.approve_duero_online,
+        only_retailer=args.retailer,
     ):
         try:
             if errors:
@@ -426,10 +454,14 @@ def main():
             additions.append((retailer, _canonical(frame), summary))
             result = "ACTUALIZADO" if existing_frame["retailer"].astype(str).eq(retailer).any() else "AGREGADO"
             scope = (
-                "COMPLETE; catálogo público auditado; CP 59690: solo entrega "
-                "y producto manual; precios/stock por CP NO certificados"
-                if retailer == "Mayorista Duero" and args.approve_duero_online
-                else "COMPLETE; validado"
+                (
+                    "COMPLETE; catálogo público auditado; CP 59690: comprobación "
+                    "manual limitada; precios/stock por CP NO certificados"
+                    if args.approve_duero_online else
+                    "COMPLETE; catálogo público sin verificación de tienda ni CP; "
+                    "precios y existencias específicos NO certificados"
+                )
+                if retailer == "Mayorista Duero" else "COMPLETE; validado"
             )
             rows.append({
                 "retailer": retailer, "result": result,
@@ -437,7 +469,7 @@ def main():
                 "source": str(source),
                 "integration_scope": (
                     ONLINE_SCOPE if retailer == "Mayorista Duero"
-                    and args.approve_duero_online else "STANDARD_VERIFIED"
+                    else "STANDARD_VERIFIED"
                 ),
             })
         except (ValueError, KeyError, OSError) as exc:

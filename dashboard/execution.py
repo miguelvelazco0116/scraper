@@ -321,6 +321,65 @@ def start_run(root: Path, phase: int, target: str, mode: str):
         raise RuntimeError("No fue posible iniciar el worker local") from exc
     return payload
 
+def prepare_existing_import(root: Path, phase: int, retailer: str):
+    """Allowlisted, same-day integration of one validated local retailer."""
+    if os.name != "nt":
+        raise RuntimeError("La integración local solo se habilita en Windows.")
+    script = root / "scripts" / "integrate_complete_retailers.py"
+    if not script.is_file():
+        raise FileNotFoundError("Integrador no encontrado.")
+    from dashboard.existing_integration import inspect_existing_capture
+    evidence = inspect_existing_capture(root, phase, retailer)
+    return {
+        "phase": phase, "target": retailer, "mode": "captura_integracion",
+        "job_type": "integracion_existente",
+        "runner": "integrate_complete_retailers.py",
+        "command": [
+            sys.executable, str(script), "--phase", str(phase),
+            "--retailer", retailer,
+        ],
+        "capture_date": local_day(), "evidence": evidence,
+    }
+
+
+def start_existing_import(root: Path, phase: int, retailer: str):
+    """Run the integrator inside the same durable, exclusive Streamlit worker."""
+    spec = prepare_existing_import(root, phase, retailer)
+    if current_active_job(root):
+        raise RuntimeError(
+            "Existe una captura o integración activa. Termínala antes de importar."
+        )
+    run_id = uuid.uuid4().hex
+    payload = {
+        "run_id": run_id, "phase": phase, "target": retailer,
+        "mode": "captura_integracion",
+        "job_type": "integracion_existente",
+        "runner": spec["runner"], "capture_date": spec["capture_date"],
+        "created_at": now(), "status": "PENDING",
+        "log_name": run_id + ".log",
+    }
+    _atomic_json(job_path(root, run_id), payload)
+    worker = root / "dashboard" / "worker.py"
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, str(worker), run_id],
+            cwd=str(root), stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            close_fds=True,
+        )
+        if proc.poll() is not None and proc.returncode != 0:
+            raise RuntimeError("No fue posible iniciar el worker de integración.")
+    except Exception as exc:
+        update_job(
+            root, run_id, status="ERROR",
+            error="No fue posible iniciar la integración.",
+            finished_at=now(),
+        )
+        raise RuntimeError("No fue posible iniciar el worker de integración.") from exc
+    return payload
+
+
 def read_run_log(root: Path, run_id: str, max_bytes=80000):
     from dashboard.data import safe_log_tail
     path = job_folder(root) / (job_path(root, run_id).stem + ".log")

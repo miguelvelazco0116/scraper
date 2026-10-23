@@ -159,7 +159,15 @@ def main(run_id):
                     update_job(ROOT, run_id, status="STOPPED", finished_at=now(), exit_code=130)
                     log.write(b"Paro aceptado antes de iniciar.\n")
                     return 0
-                spec = prepare_run(ROOT, int(job["phase"]), job["target"], job["mode"])
+                if job.get("job_type") == "integracion_existente":
+                    from dashboard.execution import prepare_existing_import
+                    spec = prepare_existing_import(
+                        ROOT, int(job["phase"]), job["target"]
+                    )
+                else:
+                    spec = prepare_run(
+                        ROOT, int(job["phase"]), job["target"], job["mode"]
+                    )
                 if job["capture_date"] != local_day():
                     raise ValueError("La fecha cambió desde que se solicitó la captura. No se ejecuta.")
                 update_job(ROOT, run_id, status="RUNNING", started_at=now(), heartbeat_at=now())

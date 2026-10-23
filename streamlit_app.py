@@ -48,7 +48,8 @@ def csv_bytes(frame):
 st.sidebar.title("Centro de control")
 section = st.sidebar.radio("Módulo", [
     "Resumen ejecutivo", "Calidad de datos", "Fallas y diagnósticos",
-    "Nueva ejecución", "Guía de comandos CLI", "Azure SQL", "Trazabilidad e histórico",
+    "Nueva ejecución", "Integrar captura existente", "Guía de comandos CLI",
+    "Azure SQL", "Trazabilidad e histórico",
 ])
 active, pointer = active_master(ROOT)
 masters = available_masters(ROOT)
@@ -152,6 +153,10 @@ elif section == "Nueva ejecución":
     from dashboard.page_execution import render
     render(ROOT)
 
+elif section == "Integrar captura existente":
+    from dashboard.page_existing_integration import render
+    render(ROOT)
+
 elif section == "Guía de comandos CLI":
     from integrate_complete_retailers import EXPECTED
     st.header("Guía de comandos CLI")
@@ -167,7 +172,9 @@ elif section == "Guía de comandos CLI":
     st.subheader("Auditoría de integración sin escrituras")
     st.code(f"& .\\scripts\\integrate_complete_retailers.ps1 -Phase {phase} -Preview", language="powershell")
     if phase == 5:
-        st.warning("Duero online: nunca se aprueba automáticamente desde el panel. La aprobación exige revisar evidencia y autorizarla por separado.")
+        st.warning("Duero online: se permite integrar el catálogo público verificado "
+                   "sin contexto de tienda ni código postal. No equivale a precios "
+                   "o existencias certificados para una ubicación.")
     st.subheader("Checklist de operador (informativo)")
     st.checkbox("Confirmé la fecha y el master activo", key="check_master")
     st.checkbox("Confirmé Chrome/CDP y contexto de las tiendas", key="check_chrome")
