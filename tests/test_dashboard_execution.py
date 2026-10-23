@@ -4,17 +4,66 @@ No scraper subprocess or Azure connection is started.
 """
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import json
+import os
 import unittest
 from unittest.mock import patch
 
 from dashboard.execution import (
     ALL, RUNNERS, _atomic_json, current_active_job, job_path,
     latest_jobs, public_command, prepare_run, start_run, request_stop, stop_requested,
+    update_heartbeat, heartbeat_time, update_job,
 )
 from dashboard.worker import exclusive_lock
 
 
 class DashboardExecutionTests(unittest.TestCase):
+    def test_metadata_atomic_update_preserves_valid_json(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            rid = "c" * 32
+            _atomic_json(job_path(root, rid), {"run_id": rid, "status": "PENDING"})
+            update_job(root, rid, status="RUNNING", child_pid=4567)
+            payload = json.loads(job_path(root, rid).read_text(encoding="utf-8"))
+            self.assertEqual(payload["status"], "RUNNING")
+            self.assertEqual(payload["child_pid"], 4567)
+            self.assertEqual(
+                list(job_path(root, rid).parent.glob("*.tmp.*")), []
+            )
+
+    def test_sidecar_heartbeat_does_not_rewrite_job_json(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            rid = "d" * 32
+            _atomic_json(job_path(root, rid), {"run_id": rid, "status": "RUNNING"})
+            content = job_path(root, rid).read_bytes()
+            update_heartbeat(root, rid)
+            self.assertIsNotNone(heartbeat_time(root, {"run_id": rid}))
+            self.assertEqual(job_path(root, rid).read_bytes(), content)
+
+    @unittest.skipUnless(os.name == "nt", "Windows rename sharing behavior")
+    def test_windows_temporary_replace_denial_recovers(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = job_path(root, "e" * 32)
+            _atomic_json(path, {"status": "PENDING"})
+            original = os.replace
+            attempts = []
+
+            def temporarily_denied(source, destination):
+                attempts.append(1)
+                if len(attempts) < 3:
+                    problem = PermissionError("[WinError 5] Access denied")
+                    problem.winerror = 5
+                    raise problem
+                return original(source, destination)
+
+            with patch("dashboard.execution.os.replace", side_effect=temporarily_denied), \\
+                 patch("dashboard.execution.time.sleep"):
+                _atomic_json(path, {"status": "RUNNING"})
+            self.assertEqual(len(attempts), 3)
+            self.assertEqual(json.loads(path.read_text())["status"], "RUNNING")
+
     def test_retailers_all_thirteen_are_represented(self):
         self.assertEqual(len(RUNNERS), 5)
         self.assertEqual(sum(len(row) - 1 for row in RUNNERS.values()), 13)
