@@ -47,6 +47,33 @@ Pruebas del panel:
 
 **Lanzamiento local:** solo escucha en `127.0.0.1`; no desplegar como servicio público sin autenticación, aislamiento de usuarios y autorización por acción. No ejecutar simultáneamente scripts por CLI mientras trabaja Streamlit: el bloqueo cubre **solo los jobs lanzados por el panel**. Los procesos independientes de PowerShell no comparten ese bloqueo. En Windows, la ejecución se realiza como el usuario de Windows que inició Streamlit.
 
+### WinError 5 en Streamlit: archivo JSON del job bloqueado
+
+Si Windows muestra `PermissionError: [WinError 5] Access is denied` al
+reemplazar `diagnostics/dashboard_runs/<folio>.json`, **no significa que
+la captura falló**: el worker pudo lanzar un PowerShell antes de perder
+el registro de estado. Antes de repetir el scraping, consulta el folio
+`.json`, su `.log`, y confirma en el Administrador de tareas que no
+quede un script scraper en ejecución. No borres los checkpoints ni
+lances un nuevo job solo porque el tablero diga `REJECTED`.
+
+El control de estados ahora:
+- Mantiene la sustitución atómica `os.replace` con reintentos acotados
+  ante denegación temporal de Windows (WinError 5/32).
+- Utiliza un archivo independiente `.heartbeat` para latidos del worker,
+  evitando reescribir el JSON durante cada ciclo de 2 segundos.
+- Conserva el JSON previo íntegro ante errores persistentes de permisos.
+- Si persiste el WinError 5, revisar permisos ACL de `diagnostics/dashboard_runs`
+  y protección del antivirus **sin desactivar protecciones**.
+
+Verifica la actualización después de finalizar cualquier corrida activa:
+
+```powershell
+git pull --ff-only origin main
+python -m pytest -q tests/test_dashboard_execution.py
+& .\scripts\run_dashboard.ps1
+```
+
 ### Reintentos Chedraui: misma categoría hasta tres intentos
 
 En **Fase 1 productiva** y en el runner aislado/incremental de Chedraui,
