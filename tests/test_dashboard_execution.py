@@ -8,6 +8,9 @@ import io
 import json
 import os
 import unittest
+from types import SimpleNamespace
+
+import pandas as pd
 from unittest.mock import patch
 
 from dashboard.execution import (
@@ -114,6 +117,94 @@ class DashboardExecutionTests(unittest.TestCase):
         with TemporaryDirectory() as temp:
             with self.assertRaises(ValueError):
                 prepare_run(Path(temp), 6, ALL, "solo_captura")
+
+    def _phase4_fixture(self, root, completed=None):
+        scripts = root / "scripts"
+        scripts.mkdir(parents=True)
+        (scripts / "run_phase4_production.ps1").touch()
+        output = root / "output" / "checkpoints_validos"
+        output.mkdir(parents=True)
+        master = root / "output" / "master.xlsx"
+        master.touch()
+        (output / "current_master.json").write_text(json.dumps({
+            "capture_date": "2100-01-01",
+            "master": str(master),
+            "completed_phases": completed if completed is not None else [],
+        }), encoding="utf-8")
+        return master
+
+    def test_phase4_full_capture_only_allows_incomplete_prior_phases(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._phase4_fixture(root, completed=[])
+            with patch("dashboard.execution.os", SimpleNamespace(name="nt")), \
+                 patch("dashboard.execution.shutil.which", return_value="powershell.exe"), \
+                 patch("dashboard.execution.local_day", return_value="2100-01-01"), \
+                 patch("dashboard.data.inventory_for_master",
+                       side_effect=AssertionError("Capture-only should not audit prerequisites")):
+                spec = prepare_run(root, 4, ALL, "solo_captura")
+            self.assertEqual(spec["runner"], "run_phase4_production.ps1")
+            self.assertIn("-SkipIntegration", spec["command"])
+
+    def test_phase4_integration_requires_audited_prior_completion(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._phase4_fixture(root, completed=[1, 2, 3])
+            phases = pd.DataFrame([
+                {"fase": 1, "estado_calculado": "COMPLETE", "control_coincide": True},
+                {"fase": 2, "estado_calculado": "COMPLETE", "control_coincide": True},
+                {"fase": 3, "estado_calculado": "PARTIAL_VALIDATED", "control_coincide": True},
+            ])
+            with patch("dashboard.execution.os", SimpleNamespace(name="nt")), \
+                 patch("dashboard.execution.shutil.which", return_value="powershell.exe"), \
+                 patch("dashboard.execution.local_day", return_value="2100-01-01"), \
+                 patch("dashboard.data.inventory_for_master",
+                       return_value=(phases, None, None, None)):
+                with self.assertRaisesRegex(ValueError, "Fase 3"):
+                    prepare_run(root, 4, ALL, "captura_integracion")
+
+    def test_phase4_integration_accepts_valid_master_despite_stale_pointer(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._phase4_fixture(root, completed=[])
+            phases = pd.DataFrame([
+                {"fase": p, "estado_calculado": "COMPLETE", "control_coincide": True}
+                for p in (1, 2, 3)
+            ])
+            with patch("dashboard.execution.os", SimpleNamespace(name="nt")), \
+                 patch("dashboard.execution.shutil.which", return_value="powershell.exe"), \
+                 patch("dashboard.execution.local_day", return_value="2100-01-01"), \
+                 patch("dashboard.data.inventory_for_master",
+                       return_value=(phases, None, None, None)):
+                spec = prepare_run(root, 4, ALL, "captura_integracion")
+            self.assertNotIn("-SkipIntegration", spec["command"])
+
+    def test_phase4_integration_rejects_master_control_discrepancy(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._phase4_fixture(root, completed=[1, 2, 3])
+            phases = pd.DataFrame([
+                {"fase": p, "estado_calculado": "COMPLETE",
+                 "control_coincide": p != 2}
+                for p in (1, 2, 3)
+            ])
+            with patch("dashboard.execution.os", SimpleNamespace(name="nt")), \
+                 patch("dashboard.execution.shutil.which", return_value="powershell.exe"), \
+                 patch("dashboard.execution.local_day", return_value="2100-01-01"), \
+                 patch("dashboard.data.inventory_for_master",
+                       return_value=(phases, None, None, None)):
+                with self.assertRaisesRegex(ValueError, "Fase 2"):
+                    prepare_run(root, 4, ALL, "captura_integracion")
+
+    def test_phase4_capture_only_does_not_accept_yesterday_master(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._phase4_fixture(root, completed=[1, 2, 3])
+            with patch("dashboard.execution.os", SimpleNamespace(name="nt")), \
+                 patch("dashboard.execution.shutil.which", return_value="powershell.exe"), \
+                 patch("dashboard.execution.local_day", return_value="2100-01-02"):
+                with self.assertRaisesRegex(ValueError, "Master activo de hoy"):
+                    prepare_run(root, 4, ALL, "solo_captura")
 
     def test_bad_run_id_rejected(self):
         with self.assertRaises(ValueError):
