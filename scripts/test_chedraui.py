@@ -237,8 +237,8 @@ def _scrape_category_with_retries(
         sleep_fn = time.sleep
     if diagnostics_dir is None:
         diagnostics_dir = ROOT / "diagnostics"
-    if store_context_retries < 0 or store_context_retries > 4:
-        raise ValueError("store_context_retries debe estar entre 0 y 4")
+    if store_context_retries < 0 or store_context_retries > 2:
+        raise ValueError("store_context_retries debe estar entre 0 y 2 (máximo 3 intentos)")
     if retry_delay_seconds < 0 or retry_delay_seconds > 120:
         raise ValueError("retry_delay_seconds debe estar entre 0 y 120")
 
@@ -393,9 +393,9 @@ def main() -> int:
     parser.add_argument(
         "--store-context-retries",
         type=int,
-        choices=range(0, 5),
+        choices=range(0, 3),
         default=2,
-        metavar="{0..4}",
+        metavar="{0..2}",
         help="Reintentos adicionales por categoría ante errores de captura/calidad (default: 2; 3 intentos totales).",
     )
     parser.add_argument(
