@@ -129,6 +129,14 @@ def render(root: Path):
                         actual_rows = int(phase_row.iloc[0]["filas_master"])
                         st.caption(f"**Integración real del día** — Fase 1: {state} · "
                                    f"{actual_rows:,} productos en master.")
+                        if state == "COMPLETE" and len(completed) != len(inventory):
+                            st.warning(
+                                "La Fase 1 está integrada, pero "
+                                f"{len(inventory) - len(completed)} casos no tienen "
+                                "evidencia individual suficiente para presentarse "
+                                "como COMPLETE. Revisa la fecha y los controles de "
+                                "cada tienda/categoría antes de recapturar."
+                            )
                         with st.expander("Retailers de Fase 1 integrados al master"):
                             st.dataframe(master_retailers.loc[master_retailers["fase"].eq(1)],
                                          hide_index=True, use_container_width=True)
