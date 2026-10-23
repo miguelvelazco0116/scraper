@@ -53,6 +53,8 @@ class MockScraperFactory:
                     raise ChedrauiBlocked("sitio bloqueó sesión")
                 if kind == "other_error":
                     raise RuntimeError("unexpected")
+                if kind == "page_closed":
+                    raise RuntimeError("TargetClosedError: Target page, context or browser has been closed")
                 return rows
 
         return FakeScraper()
@@ -136,7 +138,7 @@ class RetryCategoryTests(unittest.TestCase):
 
     def test_page_closed_retried_and_recovers_same_category(self):
         factory = MockScraperFactory([
-            ("other_error", [], None),
+            ("page_closed", [], None),
             ("success", _records(297), 297),
         ])
         with tempfile.TemporaryDirectory() as temp:
@@ -167,6 +169,31 @@ class RetryCategoryTests(unittest.TestCase):
         self.assertEqual(history[0]["status"], "CATALOG_COUNT_OVERFLOW")
         self.assertTrue(Path(history[0]["diagnostic"]).is_file())
 
+    def test_partial_quality_retries_same_category_until_complete(self):
+        from unittest.mock import patch
+        factory = MockScraperFactory([
+            ("success", _records(5), 5),
+            ("success", _records(5), 5),
+        ])
+        reports = [
+            ("PARTIAL", {"target_products": 5, "pagination_gaps": 1, "structured_price_missing_pages": 0}),
+            ("COMPLETE", {"target_products": 5, "pagination_gaps": 0, "structured_price_missing_pages": 0}),
+        ]
+        with patch("test_chedraui._quality", side_effect=reports):
+            with tempfile.TemporaryDirectory() as temp:
+                _, rows, error, history = _scrape_category_with_retries(
+                    self.category, self.store,
+                    profile_dir=".chedraui_profile", max_pages=100,
+                    store_context_retries=2, retry_delay_seconds=0,
+                    scraper_factory=factory, sleep_fn=lambda _: None,
+                    diagnostics_dir=Path(temp), validate_quality=True,
+                )
+        self.assertEqual(factory.calls, 2)
+        self.assertEqual(len(rows), 5)
+        self.assertIsNone(error)
+        self.assertEqual(history[0]["status"], "QUALITY_PARTIAL")
+        self.assertEqual(history[1]["status"], "SCRAPED")
+
     def test_persistent_overcount_is_left_partial_after_retry_limit(self):
         factory, (_, rows, error, history) = self.run_fake([
             ("success", _records(386), 384),
@@ -174,8 +201,8 @@ class RetryCategoryTests(unittest.TestCase):
             ("success", _records(386), 384),
         ])
         self.assertEqual(factory.calls, 3)
-        self.assertIsNone(error)
-        self.assertEqual(len(rows), 386)
+        self.assertTrue(error.startswith("CATALOG_COUNT_OVERFLOW:"))
+        self.assertEqual(rows, [])
         self.assertEqual(len(history), 3)
         self.assertTrue(all(x["status"] == "CATALOG_COUNT_OVERFLOW"
                             for x in history))
