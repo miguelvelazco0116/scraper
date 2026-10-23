@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -77,13 +78,63 @@ def job_path(root: Path, run_id: str):
     return job_folder(root) / (run_id + ".json")
 
 def _atomic_json(path, payload):
+    """Replace a job metadata file safely despite short Windows read locks.
+
+    Streamlit fragments read the job every few seconds; on Windows a reader,
+    antivirus, or indexer can temporarily deny os.replace on its destination.
+    Never fall back to non-atomic in-place truncation or delete the old status.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name("." + path.name + ".tmp." + uuid.uuid4().hex)
     try:
         temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-        os.replace(temporary, path)
+        for attempt in range(9):
+            try:
+                os.replace(temporary, path)
+                return
+            except PermissionError as exc:
+                # Only retry transient Windows sharing/permission failures.
+                # Persistent ACL denial is surfaced without destroying the
+                # previous job status or partially written JSON.
+                if os.name != "nt" or getattr(exc, "winerror", None) not in (5, 32) or attempt == 8:
+                    raise
+                time.sleep(min(0.05 * 2 ** attempt, 0.8))
     finally:
-        temporary.unlink(missing_ok=True)
+        try:
+            temporary.unlink(missing_ok=True)
+        except PermissionError:
+            # Cleanup is best effort; never mask a successful atomic replace.
+            pass
+
+def heartbeat_path(root: Path, run_id: str):
+    return job_path(root, run_id).with_suffix(".heartbeat")
+
+def update_heartbeat(root: Path, run_id: str):
+    """Lightweight liveness stamp; avoids replacing JSON every 2 seconds."""
+    path = heartbeat_path(root, run_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch(exist_ok=True)
+
+def heartbeat_time(root: Path, job: dict):
+    """Use the newest of historic JSON heartbeat and the new sidecar file."""
+    stamp = job.get("heartbeat_at")
+    recorded = None
+    if stamp:
+        try:
+            recorded = datetime.fromisoformat(stamp)
+        except (TypeError, ValueError):
+            pass
+    run_id = job.get("run_id")
+    if isinstance(run_id, str):
+        try:
+            path = heartbeat_path(root, run_id)
+            if path.is_file():
+                file_time = datetime.fromtimestamp(path.stat().st_mtime).astimezone()
+                if recorded is None or file_time > recorded:
+                    return file_time
+        except (ValueError, OSError):
+            pass
+    return recorded
 
 def load_job(root: Path, run_id: str):
     return json.loads(job_path(root, run_id).read_text(encoding="utf-8"))
@@ -121,14 +172,11 @@ def request_stop(root: Path, run_id: str):
         raise ValueError("Esta ejecución ya terminó; no hay proceso que detener.")
     # Restrict immediate process killing to fresh, heartbeating workers; a
     # stale PID may have been recycled by Windows and must not be touched.
-    heartbeat = job.get("heartbeat_at")
-    recent = False
-    if heartbeat:
-        try:
-            recent = (datetime.now().astimezone() -
-                      datetime.fromisoformat(heartbeat)) < timedelta(seconds=20)
-        except (ValueError, TypeError):
-            pass
+    heartbeat = heartbeat_time(root, job)
+    recent = bool(
+        heartbeat and
+        datetime.now().astimezone() - heartbeat < timedelta(seconds=20)
+    )
     path = stop_request_path(root, run_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -155,15 +203,11 @@ def latest_jobs(root: Path, limit=25):
             if stop_requested(root, job["run_id"]) and job.get("status") in ("RUNNING", "PENDING"):
                 job["display_status"] = "PARO SOLICITADO"
             if job.get("status") == "RUNNING":
-                heartbeat = job.get("heartbeat_at")
+                heartbeat = heartbeat_time(root, job)
                 if heartbeat:
-                    try:
-                        age = datetime.now().astimezone() - datetime.fromisoformat(heartbeat)
-                        if age > timedelta(minutes=2):
-                            if not job.get("display_status"):
-                                job["display_status"] = "SIN LATIDO - REVISAR"
-                    except (ValueError, TypeError):
-                        pass
+                    age = datetime.now().astimezone() - heartbeat
+                    if age > timedelta(minutes=2) and not job.get("display_status"):
+                        job["display_status"] = "SIN LATIDO - REVISAR"
             out.append(job)
         except (OSError, ValueError):
             continue
