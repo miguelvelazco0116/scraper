@@ -256,16 +256,42 @@ def prepare_run(root: Path, phase: int, target: str, mode: str):
     if not ps:
         raise RuntimeError("PowerShell de Windows no está disponible")
     pointer = active_pointer(root)
-    # Phases 4 and 5 always require a complete same-day base even for --SkipIntegration.
-    # Earlier phases 2 and 3 allow isolated capture without an active same-day master.
+    # Full Phase 4/5 capture still needs today's master. However -SkipIntegration
+    # must not be blocked by unfinished earlier phases: no master is mutated.
+    # For integration, certify prior phases against the actual workbook audit,
+    # not the possibly stale completed_phases field in current_master.json.
     needs_today = (phase in (4, 5) and full) or (full and mode == "captura_integracion" and phase > 1)
     if needs_today:
-        if pointer.get("capture_date") != local_day() or not pointer.get("master") or not Path(pointer["master"]).is_file():
+        raw_master = str(pointer.get("master") or "").strip()
+        master = Path(raw_master) if raw_master else None
+        if master is not None and not master.is_absolute():
+            master = root / master
+        if pointer.get("capture_date") != local_day() or master is None or not master.is_file():
             raise ValueError("Master activo de hoy no disponible; el dashboard no utilizará capturas de otra fecha.")
-        required = list(range(1, phase))
-        prior = pointer.get("completed_phases", [])
-        if any(x not in prior for x in required):
-            raise ValueError("Las fases previas todavía no aparecen completas en el master de hoy.")
+
+        if full and mode == "captura_integracion" and phase > 1:
+            from dashboard.data import inventory_for_master
+            try:
+                phases, _, _, _ = inventory_for_master(root, master)
+                audited = phases.set_index("fase")
+                missing = [
+                    prior_phase for prior_phase in range(1, phase)
+                    if prior_phase not in audited.index
+                    or str(audited.loc[prior_phase, "estado_calculado"]) != "COMPLETE"
+                    or not bool(audited.loc[prior_phase, "control_coincide"])
+                ]
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                raise ValueError(
+                    "No fue posible auditar las fases previas del master activo. "
+                    "Ejecuta scripts/audit_master_phases.py antes de integrar."
+                ) from exc
+            if missing:
+                pending = ", ".join(f"Fase {number}" for number in missing)
+                raise ValueError(
+                    f"No se puede integrar Fase {phase}: {pending} no consta como "
+                    "COMPLETE y consistente con Control en el master de hoy. "
+                    "Puedes ejecutar 'Solo captura' sin modificar el master."
+                )
     args = [ps, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
             "-File", str(runner)]
     if full and mode == "solo_captura":
