@@ -19,7 +19,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from dashboard.execution import (
     RUNS_DIR, active_pointer, job_folder, job_path, load_job, local_day,
-    now, prepare_run, update_job, stop_requested, stop_process_tree,
+    now, prepare_run, update_job, update_heartbeat, stop_requested, stop_process_tree,
 )
 
 @contextmanager
@@ -123,7 +123,9 @@ def _run_child(spec, log, run_id: str):
                     proc.kill()
                     code = proc.wait(timeout=5)
             break
-        update_job(ROOT, run_id, heartbeat_at=now())
+        # Do not contend with Streamlit JSON readers on every poll.
+        # Metadata remains atomic and is changed only on state transitions.
+        update_heartbeat(ROOT, run_id)
         if code is not None:
             break
         time.sleep(2)
@@ -146,6 +148,7 @@ def main(run_id):
                 if job["capture_date"] != local_day():
                     raise ValueError("La fecha cambió desde que se solicitó la captura. No se ejecuta.")
                 update_job(ROOT, run_id, status="RUNNING", started_at=now(), heartbeat_at=now())
+                update_heartbeat(ROOT, run_id)
                 master_before, hash_before, master_date_before = master_reference(ROOT)
                 backups = backup_validated_inputs(ROOT, run_id, job["target"], job["mode"])
                 update_job(ROOT, run_id, backups=backups, master_before=str(master_before or ""),
