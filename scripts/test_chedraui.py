@@ -222,12 +222,14 @@ def _scrape_category_with_retries(
     category, location, *, profile_dir: str, max_pages: int,
     store_context_retries: int = 2, retry_delay_seconds: int = 10,
     scraper_factory=None, sleep_fn=None, diagnostics_dir: Path | None = None,
+    validate_quality: bool = True,
 ):
-    """Retry only store context failures and impossible overcount.
+    """Up to three attempts per category before proceeding to the next.
 
-    Every retry creates a new scraper/browser session, repeats the verified
-    directory UI contract, and discards rows from failed attempts. BLOCKED
-    and unrelated errors are never retried.
+    Every attempt gets a new browser/context and discarded failed rows. Retry
+    store errors, pagination gaps, TargetClosedError, other transient failures,
+    overcounts and non-COMPLETE data quality. Never retry a BLOCKED challenge,
+    which must stop automation rather than trying to bypass protection.
     """
     if scraper_factory is None:
         scraper_factory = ChedrauiScraper
@@ -243,7 +245,7 @@ def _scrape_category_with_retries(
     history = []
     attempts = store_context_retries + 1
     for number in range(1, attempts + 1):
-        print(f"  Intento {number}/{attempts}: {category.id} / tienda {location.store_id}")
+        print(f"  Intento {number}/{attempts}: {category.id} / tienda {location.store_id}", flush=True)
         scraper = scraper_factory(
             headless=False, browser_channel="chrome",
             profile_dir=profile_dir, max_pages=max_pages,
@@ -256,33 +258,53 @@ def _scrape_category_with_retries(
             rows = scraper.scrape_category(category, location)
         except ChedrauiBlocked as exc:
             error = f"BLOCKED: {exc}"
-            print(error)
         except ChedrauiStoreContextError as exc:
             error = f"STORE_CONTEXT_ERROR: {exc}"
             reason = "STORE_CONTEXT_ERROR"
-            print(error)
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
-            print(f"ERROR: {error}")
+            reason = "CAPTURE_ERROR"
 
-        if not error and rows:
-            # Only overcount is retried: it may result from a shifting
-            # category counter or pagination. Never silently discard rows.
-            observed = pd.DataFrame(rows, columns=COLUMNS)
-            observed = observed.drop_duplicates(
-                subset=["sku", "url"], keep="last"
-            )
-            published = (scraper.run_meta or {}).get("displayed_category_products")
-            try:
-                published = int(published) if published is not None else None
-            except (ValueError, TypeError):
-                published = None
-            if published and len(observed) > published:
-                reason = "CATALOG_COUNT_OVERFLOW"
-                print(f"  Conteo inconsistente: {len(observed)}/{published} (>100%)")
+        if not error:
+            if not rows:
+                reason = "EMPTY"
+            else:
+                # Reject overcount and missing-quality responses before saving;
+                # never combine rows from separately failing browser sessions.
+                observed = pd.DataFrame(rows, columns=COLUMNS).drop_duplicates(
+                    subset=["sku", "url"], keep="last"
+                )
+                published = (scraper.run_meta or {}).get("displayed_category_products")
+                try:
+                    published = int(published) if published is not None else None
+                except (ValueError, TypeError):
+                    published = None
+                if published and len(observed) > published:
+                    reason = "CATALOG_COUNT_OVERFLOW"
+                    print(f"  Conteo inconsistente: {len(observed)}/{published} (>100%)", flush=True)
+                elif validate_quality:
+                    quality, indicators = _quality(observed, scraper.run_meta or {})
+                    if quality != "COMPLETE":
+                        reason = "QUALITY_PARTIAL"
+                        print(
+                            "  Calidad pendiente: "
+                            f"filas={len(observed)} target={indicators['target_products']} "
+                            f"gaps={indicators['pagination_gaps']} "
+                            f"structured_missing={indicators['structured_price_missing_pages']}",
+                            flush=True,
+                        )
 
-        entry = {"attempt": number, "status": reason or (error or "SCRAPED"),
-                 "error": error, "rows": len(rows), "diagnostic": None}
+        if error:
+            print(f"  {error}", flush=True)
+
+        blocked = bool(error and error.startswith("BLOCKED:"))
+        entry = {
+            "attempt": number,
+            "status": reason or (error or "SCRAPED"),
+            "error": error,
+            "rows": len(rows),
+            "diagnostic": None,
+        }
         if reason:
             try:
                 diagnostic = _preserve_retry_diagnostics(
@@ -292,18 +314,31 @@ def _scrape_category_with_retries(
                     started_at=started_at, diagnostics_dir=diagnostics_dir,
                 )
                 entry["diagnostic"] = str(diagnostic)
-                print(f"  Diagnóstico conservado: {diagnostic}")
+                print(f"  Diagnóstico conservado: {diagnostic}", flush=True)
             except OSError as exc:
-                print(f"  ADVERTENCIA: no se pudo conservar el diagnóstico: {exc}")
+                print(f"  ADVERTENCIA: no se pudo conservar el diagnóstico: {exc}", flush=True)
         history.append(entry)
 
-        if reason and number < attempts:
-            print(f"  Reintento automático en {retry_delay_seconds} segundos...")
+        if not reason and not error:
+            if number > 1:
+                print(f"  Categoría recuperada en intento {number}/{attempts}", flush=True)
+            return scraper, rows, None, history
+        if blocked:
+            print("  BLOQUEADO: no se reintentará para respetar las protecciones del sitio.", flush=True)
+            return scraper, [], error, history
+        if number < attempts:
+            # An unsuccessful category stays in place until its bounded retry
+            # budget is exhausted. The worker's Stop terminates this process.
+            print(
+                f"  Falló la categoría; reintento {number + 1}/{attempts} "
+                f"en {retry_delay_seconds}s antes de pasar a otra categoría.",
+                flush=True,
+            )
             sleep_fn(retry_delay_seconds)
             continue
-        if number > 1 and not reason and not error:
-            print(f"  Categoría recuperada en intento {number}/{attempts}")
-        return scraper, rows, error, history
+        failure = error or f"{reason}: no se consiguió una captura COMPLETE"
+        print(f"  Se agotaron {attempts} intentos; categoría pendiente. Continúa la siguiente.", flush=True)
+        return scraper, [], failure, history
 
     raise AssertionError("El bucle de reintentos debe regresar en el último intento")
 
@@ -361,7 +396,7 @@ def main() -> int:
         choices=range(0, 5),
         default=2,
         metavar="{0..4}",
-        help="Reintentos por categoría para STORE_CONTEXT_ERROR o sobreconteo (default: 2).",
+        help="Reintentos adicionales por categoría ante errores de captura/calidad (default: 2; 3 intentos totales).",
     )
     parser.add_argument(
         "--store-context-retry-delay-seconds",
@@ -657,6 +692,10 @@ def main() -> int:
                     "la tienda aún no está verificada."
                 )
                 print("")
+            break
+
+        if status == "BLOCKED":
+            print("Se detiene esta tienda por protección de acceso; no se intentarán más categorías.", flush=True)
             break
 
         if (
