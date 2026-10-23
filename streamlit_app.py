@@ -48,7 +48,8 @@ def csv_bytes(frame):
 st.sidebar.title("Centro de control")
 section = st.sidebar.radio("Módulo", [
     "Resumen ejecutivo", "Calidad de datos", "Fallas y diagnósticos",
-    "Nueva ejecución", "Guía de comandos CLI", "Azure SQL", "Trazabilidad e histórico",
+    "Nueva ejecución", "Integrar captura existente", "Guía de comandos CLI",
+    "Azure SQL", "Trazabilidad e histórico",
 ])
 active, pointer = active_master(ROOT)
 masters = available_masters(ROOT)
@@ -150,6 +151,10 @@ elif section == "Fallas y diagnósticos":
 
 elif section == "Nueva ejecución":
     from dashboard.page_execution import render
+    render(ROOT)
+
+elif section == "Integrar captura existente":
+    from dashboard.page_existing_integration import render
     render(ROOT)
 
 elif section == "Guía de comandos CLI":
