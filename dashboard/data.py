@@ -30,6 +30,91 @@ def active_master(root: Path):
     except (OSError, ValueError, TypeError):
         return None, {}
 
+
+def phase1_master_view(master: Path, inventory: pd.DataFrame,
+                       phase_row: pd.Series, master_retailers: pd.DataFrame,
+                       day: str) -> pd.DataFrame | None:
+    """UI-only view of Phase 1 when the same-day master certifies all cases.
+
+    Never feeds execution/retry decisions. Master case metadata must reconcile
+    exactly with the configured store/category inventory and audited totals.
+    """
+    if (phase_row.get("estado_calculado") != "COMPLETE"
+            or not bool(phase_row.get("control_coincide"))
+            or int(phase_row.get("casos_complete", -1)) != len(inventory)
+            or int(phase_row.get("casos_esperados", -1)) != len(inventory)):
+        return None
+
+    sheets = pd.read_excel(
+        master, sheet_name=["Resumen", "Control"],
+        dtype={"category_id": str, "store_id": str},
+    )
+    summary = sheets["Resumen"]
+    control = sheets["Control"]
+    if (control.empty or str(control.iloc[0].get("capture_date") or "")[:10] != day
+            or "source_phase" not in summary.columns):
+        return None
+
+    phase_cases = summary.loc[
+        summary["source_phase"].astype(str).eq("FASE 1")
+    ].copy()
+    if len(phase_cases) != len(inventory) or not phase_cases["status"].astype(
+        str
+    ).str.upper().eq("COMPLETE").all():
+        return None
+
+    def norm_store(value):
+        return "" if pd.isna(value) else str(value).strip().removesuffix(".0")
+
+    def case_key(retailer, category, store):
+        name = str(retailer).strip()
+        return (
+            name,
+            str(category).strip(),
+            norm_store(store) if name == "Chedraui" else "",
+        )
+
+    expected_keys = [
+        case_key(row["retailer"], row["categoria"], row["store_id"])
+        for _, row in inventory.iterrows()
+    ]
+    if len(set(expected_keys)) != len(expected_keys):
+        return None
+
+    actual = {}
+    for _, row in phase_cases.iterrows():
+        key = case_key(row["retailer"], row["category_id"], row.get("store_id"))
+        count = pd.to_numeric(pd.Series([row.get("products")]), errors="coerce").iloc[0]
+        if key in actual or pd.isna(count) or count <= 0 or int(count) != count:
+            return None
+        actual[key] = int(count)
+    if set(actual) != set(expected_keys):
+        return None
+
+    retailers = master_retailers.loc[master_retailers["fase"].eq(1)]
+    if len(retailers) != inventory["retailer"].nunique():
+        return None
+    for _, row in retailers.iterrows():
+        name = str(row["retailer"])
+        reported = sum(count for key, count in actual.items() if key[0] == name)
+        if (str(row["estado"]) != "INTEGRADO_COMPLETE"
+                or reported != int(row["filas_master"])
+                or sum(key[0] == name for key in actual) != int(row["casos_master"])):
+            return None
+    if sum(actual.values()) != int(phase_row["filas_master"]):
+        return None
+
+    view = inventory.copy()
+    view["estado"] = "COMPLETE"
+    view["productos_validados"] = [
+        actual[key] for key in expected_keys
+    ]
+    # The display reports productive integration, not the capture runner's
+    # current skip/retry decisions (which still depend on its own checkpoints).
+    view["accion"] = "INTEGRADO"
+    view["detalle"] = "Caso COMPLETE certificado en el master productivo del día"
+    return view
+
 def inventory_for_master(root: Path, master: Path):
     scripts = str(root / "scripts")
     if scripts not in sys.path:
