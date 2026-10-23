@@ -2,12 +2,18 @@
 from __future__ import annotations
 
 import json
+import sys
+from types import SimpleNamespace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
 import pandas as pd
 import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts"))
 
 from dashboard.existing_integration import inspect_existing_capture
 from dashboard.execution import (
@@ -16,8 +22,8 @@ from dashboard.execution import (
 
 
 def test_duero_public_catalogue_passes_without_store_but_strict_mode_rejects():
-    from scripts.integrate_validated_phase import _validate_duero_retailer
-    from scripts.integrate_complete_retailers import _quality
+    from integrate_validated_phase import _validate_duero_retailer
+    from integrate_complete_retailers import _quality
 
     categories = [
         "cuidado-bucal", "desodorantes-y-antitranspirantes",
@@ -110,7 +116,7 @@ def test_existing_import_allowlist_and_exact_command():
         script = root / "scripts" / "integrate_complete_retailers.py"
         script.parent.mkdir()
         script.touch()
-        with patch("dashboard.execution.os.name", "nt"), \
+        with patch("dashboard.execution.os", SimpleNamespace(name="nt")), \
              patch("dashboard.existing_integration.inspect_existing_capture",
                    return_value={"products": 659}):
             spec = prepare_existing_import(root, 5, "Mayorista Duero")
