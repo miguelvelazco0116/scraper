@@ -92,9 +92,9 @@ def render(root: Path):
         st.info("El runner usará **-SkipIntegration**. No deberá modificar el master.")
 
     if phase == 5:
-        st.caption("Mayorista Duero: la opción especial de catálogo online público requiere "
-                   "aprobación explícita aparte. Esta pantalla **nunca** agrega "
-                   "-ApproveDueroOnline de forma automática.")
+        st.caption("Mayorista Duero se integra como catálogo público sin certificar "
+                   "tienda, código postal, precios o inventario localizados. "
+                   "Los demás controles de calidad permanecen activos.")
     if phase in (2, 3, 4, 5) and (target == ALL or target in {"HEB", "Sam's Club", "Bodega Aurrera", "Walmart", "Farmacias San Pablo"}):
         st.caption("Para los retailers con CDP, habilita remote debugging en Chrome y abre los sitios "
                    "correspondientes antes de iniciar.")
