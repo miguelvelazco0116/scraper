@@ -4,6 +4,7 @@ No scraper subprocess or Azure connection is started.
 """
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import io
 import json
 import os
 import unittest
@@ -63,6 +64,29 @@ class DashboardExecutionTests(unittest.TestCase):
                 _atomic_json(path, {"status": "RUNNING"})
             self.assertEqual(len(attempts), 3)
             self.assertEqual(json.loads(path.read_text())["status"], "RUNNING")
+
+    def test_worker_kills_child_if_metadata_write_fails(self):
+        from dashboard.worker import _run_child
+        from unittest.mock import Mock
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            rid = "f" * 32
+            child = Mock()
+            child.pid = 4242
+            child.poll.return_value = None
+            child.wait.return_value = 1
+            with patch("dashboard.worker.ROOT", root), \
+                 patch("dashboard.worker.subprocess.Popen", return_value=child), \
+                 patch("dashboard.worker.update_job", side_effect=PermissionError("Access denied")), \
+                 patch("dashboard.worker.stop_process_tree") as terminate:
+                with self.assertRaises(PermissionError):
+                    _run_child(
+                        {"command": ["powershell.exe", "-File", "safe.ps1"],
+                         "runner": "safe.ps1", "mode": "solo_captura"},
+                        io.BytesIO(), rid,
+                    )
+            terminate.assert_called_once_with(4242)
+            child.wait.assert_called_once()
 
     def test_retailers_all_thirteen_are_represented(self):
         self.assertEqual(len(RUNNERS), 5)
