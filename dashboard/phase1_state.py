@@ -26,71 +26,6 @@ def _normal_id(value):
         return ""
     return str(value).strip().removesuffix(".0")
 
-
-def _verified_master_cases(root: Path, day: str, case_key, validate_case):
-    """Recover only same-day, row-validated Phase-1 cases from a COMPLETE master.
-
-    The productive master is authoritative for integration, but its COMPLETE
-    label is not enough by itself: each recovered store/category must pass
-    its own count, timestamp and (for Chedraui) store/quality contract.
-    """
-    from dashboard.data import active_master, inventory_for_master
-
-    master, pointer = active_master(root)
-    if master is None or str(pointer.get("capture_date") or "")[:10] != day:
-        return {}
-
-    # Reconciliation is intended for a certified full Phase-1 master.
-    phases, _, _, _ = inventory_for_master(root, master)
-    phase = phases.loc[phases["fase"].eq(1)]
-    if len(phase) != 1 or str(phase.iloc[0]["estado_calculado"]) != "COMPLETE":
-        return {}
-
-    frame = pd.read_excel(
-        master, sheet_name="Concentrado",
-        dtype={"sku": str, "store_id": str, "category_id": str},
-    )
-    summary = pd.read_excel(
-        master, sheet_name="Resumen",
-        dtype={"store_id": str, "category_id": str},
-    )
-    control = pd.read_excel(master, sheet_name="Control")
-    if (control.empty or
-            str(control.iloc[0].get("capture_date") or "")[:10] != day or
-            "source_phase" not in summary):
-        return {}
-
-    summary = summary.loc[summary["source_phase"].astype(str).eq("FASE 1")]
-    row_keys = frame.apply(
-        lambda row: case_key(
-            row.get("retailer"), row.get("category_id"), row.get("store_id")
-        ),
-        axis=1,
-    )
-    recovered = {}
-    for _, case in summary.iterrows():
-        if str(case.get("status") or "").strip().upper() != "COMPLETE":
-            continue
-        retailer = str(case.get("retailer") or "").strip()
-        key = case_key(retailer, case.get("category_id"), case.get("store_id"))
-        subset = frame.loc[row_keys.map(lambda value: value == key)].copy()
-        try:
-            expected = int(case.get("products"))
-        except (ValueError, TypeError):
-            continue
-        if expected <= 0 or len(subset) != expected:
-            continue
-        if ("scrape_timestamp" not in subset or
-                set(subset["scrape_timestamp"].dropna().astype(str).str[:10]) != {day}):
-            continue
-        details = case.to_dict()
-        if retailer == "Chedraui" and validate_case(
-            subset, details, category_id=key[1], store_id=key[2], day=day
-        ):
-            continue
-        recovered[key] = (subset, details)
-    return recovered
-
 def phase1_inventory(root: Path, day: str | None = None):
     """Return (case dataframe, verified mapping) for this exact capture date."""
     day = day or today()
@@ -118,12 +53,6 @@ def phase1_inventory(root: Path, day: str | None = None):
 
     for key, item in load_valid_snapshots(root, day=day).items():
         verified.setdefault(key, item)
-
-    # A final integration can supersede an older progress workbook. Recover
-    # its cases only when the day's master passes the master audit AND the
-    # individual row/store validations above.
-    for key, item in _verified_master_cases(root, day, _case_key, validate_case).items():
-        verified[key] = item
 
     errors = {}
     progress = root / "output" / "fase1_progress.xlsx"
