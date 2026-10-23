@@ -62,7 +62,7 @@ def main():
 
         cmd = [sys.executable, str(ROOT / "scripts" / "test_chedraui.py"),
                "--store", store, "--category", category,
-               "--store-context-retries", "1"]
+               "--store-context-retries", "2"]
         if args.headed:
             cmd.append("--headed")
         print(f"\nCAPTURANDO {store}/{category}", flush=True)
