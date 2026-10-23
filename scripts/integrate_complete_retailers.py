@@ -229,6 +229,7 @@ def _phase3_candidates(day: str):
 def _phase4_5_candidates(
     phase: int, day: str, *,
     approve_duero_online: bool = False,
+    only_retailer: str | None = None,
 ):
     sources = PHASE4_RETAILER_SOURCES if phase == 4 else PHASE5_RETAILER_SOURCES
     validators = {
@@ -240,6 +241,8 @@ def _phase4_5_candidates(
         "Mayorista Duero": _validate_duero_retailer,
     }
     for retailer in EXPECTED[phase]:
+        if only_retailer is not None and retailer != only_retailer:
+            continue
         cfg = sources.get(retailer)
         if not cfg:
             yield retailer, pd.DataFrame(), pd.DataFrame(), Path(""), ["Sin fuente configurada"]
@@ -298,15 +301,24 @@ def _phase4_5_candidates(
 def _candidates(
     phase: int, day: str, *,
     approve_duero_online: bool = False,
+    only_retailer: str | None = None,
 ):
+    # The import screen must not scrape or inspect unrelated retailer files.
     if phase == 1:
-        return _phase1_candidates(day)
-    if phase == 2:
-        return _phase2_candidates(day)
-    if phase == 3:
-        return _phase3_candidates(day)
-    return _phase4_5_candidates(
-        phase, day, approve_duero_online=approve_duero_online
+        source = _phase1_candidates(day)
+    elif phase == 2:
+        source = _phase2_candidates(day)
+    elif phase == 3:
+        source = _phase3_candidates(day)
+    else:
+        source = _phase4_5_candidates(
+            phase, day,
+            approve_duero_online=approve_duero_online,
+            only_retailer=only_retailer,
+        )
+    return (
+        candidate for candidate in source
+        if only_retailer is None or candidate[0] == only_retailer
     )
 
 
@@ -427,10 +439,10 @@ def main():
     rows = []
     additions = []
     for retailer, frame, summary, source, errors in _candidates(
-        args.phase, day, approve_duero_online=args.approve_duero_online
+        args.phase, day,
+        approve_duero_online=args.approve_duero_online,
+        only_retailer=args.retailer,
     ):
-        if args.retailer is not None and retailer != args.retailer:
-            continue
         try:
             if errors:
                 raise ValueError("; ".join(errors))
