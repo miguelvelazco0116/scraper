@@ -58,7 +58,7 @@ class DashboardExecutionTests(unittest.TestCase):
                     raise problem
                 return original(source, destination)
 
-            with patch("dashboard.execution.os.replace", side_effect=temporarily_denied), \\
+            with patch("dashboard.execution.os.replace", side_effect=temporarily_denied), \
                  patch("dashboard.execution.time.sleep"):
                 _atomic_json(path, {"status": "RUNNING"})
             self.assertEqual(len(attempts), 3)
