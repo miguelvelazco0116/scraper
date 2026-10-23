@@ -65,7 +65,7 @@ try {
     Write-Host "Master    : $($pointer.master)"
     Write-Host "Retailers : Similares (2) + HEB (2) + Sam's Club (3) + Duero (6)"
     Write-Host "Integrar  : $(if ($SkipIntegration) { 'NO' } else { 'SI, SOLO RETAILERS VERIFICADOS' })"
-    Write-Host "Duero     : sin aprobacion de catalogo online / sin certificacion CP"
+    Write-Host "Duero     : catalogo online permitido / precios y stock por CP NO certificados"
     Write-Host "Log       : $log"
     Write-Host ""
 
@@ -185,7 +185,7 @@ try {
         Write-Host ("{0,-19}: {1}" -f $key, $codes[$key])
     }
     Write-Host "FASE 5                 : $(if ($SkipIntegration) { 'CAPTURA / SIN INTEGRAR' } elseif ($phase5Complete) { 'COMPLETE' } else { 'PARTIAL_VALIDATED / PENDING' })"
-    Write-Host "DUERO ONLINE           : REQUIERE APROBACION EXPLICITA SI SOLO SE CERTIFICA CATALOGO PUBLICO"
+    Write-Host "DUERO ONLINE           : CATALOGO PUBLICO; SIN VERIFICACION DE TIENDA O CP"
     Write-Host "Log                    : $log"
 } finally {
     try { Stop-Transcript | Out-Null } catch {}
