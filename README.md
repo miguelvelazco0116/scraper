@@ -47,6 +47,21 @@ Pruebas del panel:
 
 **Lanzamiento local:** solo escucha en `127.0.0.1`; no desplegar como servicio público sin autenticación, aislamiento de usuarios y autorización por acción. No ejecutar simultáneamente scripts por CLI mientras trabaja Streamlit: el bloqueo cubre **solo los jobs lanzados por el panel**. Los procesos independientes de PowerShell no comparten ese bloqueo. En Windows, la ejecución se realiza como el usuario de Windows que inició Streamlit.
 
+### Reintentos Chedraui: misma categoría hasta tres intentos
+
+En **Fase 1 productiva** y en el runner aislado/incremental de Chedraui,
+una categoría con error de paginación, navegador cerrado (TargetClosedError),
+selección de tienda o calidad incompleta **se reintenta en la misma tienda y
+categoría hasta tres veces en total** (intento inicial y 2 reintentos, pausa
+de 10 s, una sesión de Chrome nueva por intento). Si no se valida tras el
+tercer intento, queda pendiente y continúa la siguiente categoría.
+
+No se mezclan filas de intentos fallidos y solo se guardan checkpoints de
+capturas COMPLETE. Una respuesta BLOCKED / bloqueo del sitio interrumpe la
+automatización en esa tienda sin reintentar el bloqueo. Una corrida que
+ya estaba en marcha requiere finalizarse antes de actualizar el código:
+GitHub no modifica procesos Python/PowerShell ya iniciados.
+
 ### Fase 1: no duplicar capturas; ejecutar solo pendientes Chedraui
 
 La pantalla **Nueva ejecución → Fase 1** muestra una matriz de **30 casos**
