@@ -40,7 +40,7 @@ def test_phase6_capture_is_two_retailer_commands():
         "capture", "farmatodo", "http://127.0.0.1:9222", 100
     )
     assert len(yza) == len(farma) == 1
-    assert yza[0][-3:] == ["--max-pages", "100"][-3:] or "--max-pages" in yza[0]
+    assert yza[0][-2:] == ["--max-pages", "100"]
     assert "--max-rounds" in farma[0]
     assert "--cdp-url" in yza[0] and "--cdp-url" in farma[0]
 
