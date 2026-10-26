@@ -91,19 +91,11 @@ def render(root: Path):
     else:
         st.info("El runner usará **-SkipIntegration**. No deberá modificar el master.")
 
-    if target == "Farmacias YZA":
-        st.warning(
-            "YZA está en PILOTO: dos categorías y CP 11590 obligatorio. "
-            "Solo captura, sin integración al master. Antes de iniciar, "
-            "abre YZA en Chrome con CDP y selecciona una dirección válida "
-            "con CP 11590; si el sitio no confirma la ubicación, "
-            "se rechazará la captura."
-        )
     if phase == 5:
         st.caption("Mayorista Duero: la opción especial de catálogo online público requiere "
                    "aprobación explícita aparte. Esta pantalla **nunca** agrega "
                    "-ApproveDueroOnline de forma automática.")
-    if phase in (2, 3, 4, 5) and (target == ALL or target in {"HEB", "Sam's Club", "Bodega Aurrera", "Walmart", "Farmacias San Pablo", "Farmacias YZA"}):
+    if phase in (2, 3, 4, 5) and (target == ALL or target in {"HEB", "Sam's Club", "Bodega Aurrera", "Walmart", "Farmacias San Pablo"}):
         st.caption("Para los retailers con CDP, habilita remote debugging en Chrome y abre los sitios "
                    "correspondientes antes de iniciar.")
 
