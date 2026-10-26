@@ -237,7 +237,8 @@ def main() -> int:
         p.error("Categoría Farmatodo desconocida")
     today = datetime.now().astimezone().date().isoformat()
     cache = {} if args.probe else load_cache(today)
-    results = dict(cache)
+    expected = {cat.id for cat in categories}
+    results = {cat: value for cat, value in cache.items() if cat in expected}
     finished = True
 
     with sync_playwright() as playwright:
