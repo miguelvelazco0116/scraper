@@ -354,6 +354,7 @@ def main() -> int:
             "desodorantes-y-antitranspirantes",
             "depilacion",
             "respiratorios",
+            "equipo-y-botiquin-medico",
             "candidates",
             "all",
             "full",
@@ -369,6 +370,10 @@ def main() -> int:
             "chedraui-puebla-centro-sur",
         ],
         default="chedraui-polanco",
+    )
+    parser.add_argument(
+        "--pilot", action="store_true",
+        help="Prueba una sola categoría candidata sin tocar Excel/checkpoints productivos.",
     )
     parser.add_argument(
         "--profile-dir",
@@ -415,6 +420,11 @@ def main() -> int:
         ROOT / "config" / "chedraui" / "candidate_categories.yaml"
     )
     candidate_ids = {item.id for item in candidate_categories}
+    # Candidate-only runs must not populate the productive Phase-1 snapshots.
+    if args.pilot and args.category not in candidate_ids:
+        parser.error("--pilot requiere una categoría candidata individual.")
+    if args.category in candidate_ids and not args.pilot:
+        parser.error("Las categorías candidatas requieren --pilot.")
 
     if args.category == "all":
         # Preserve historical semantics: only currently productive categories.
@@ -451,15 +461,20 @@ def main() -> int:
         )
     )
     output_path = (
-        ROOT
-        / "output"
+        ROOT / "output" / "pilots" / "chedraui" / args.store
+        / f"{args.category}_test.xlsx"
+        if args.pilot else
+        ROOT / "output"
         / f"chedraui_{args.store.removeprefix('chedraui-').replace('-', '_')}_test.xlsx"
     )
 
     # Isolated test workbooks are mutable. Archive the previous capture
     # before a new test can replace it with EMPTY/STORE_CONTEXT_ERROR.
     if output_path.exists():
-        checkpoint_dir = ROOT / "output" / "checkpoints_validos"
+        checkpoint_dir = (
+            ROOT / "output" / "pilots" / "chedraui" / "backups"
+            if args.pilot else ROOT / "output" / "checkpoints_validos"
+        )
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         previous_capture = checkpoint_dir / (
@@ -470,8 +485,10 @@ def main() -> int:
         print(f"Respaldo de captura anterior: {previous_capture}")
 
     today = datetime.now().astimezone().date().isoformat()
-    recovered = seed_from_prior_test(
-        ROOT, output_path, store_id=str(location.store_id), day=today
+    recovered = (
+        [] if args.pilot else seed_from_prior_test(
+            ROOT, output_path, store_id=str(location.store_id), day=today
+        )
     )
     for archived in recovered:
         print(f"Caso COMPLETE anterior recuperado: {archived}")
@@ -490,6 +507,8 @@ def main() -> int:
     print(f"Reintentos : {args.store_context_retries} por categoría")
     print(f"Delay retr.: {args.store_context_retry_delay_seconds} segundos")
     print("Consolidado: sin cambios")
+    if args.pilot:
+        print("MODO PILOTO: sin master, sin Excel de tienda productivo y sin snapshots de Fase 1")
     print("")
 
     for index, category in enumerate(categories, start=1):
@@ -587,7 +606,7 @@ def main() -> int:
             "retry_history": json.dumps(retry_history, ensure_ascii=False),
         }
         summaries.append(summary)
-        if status == "COMPLETE":
+        if status == "COMPLETE" and not args.pilot:
             try:
                 validated_checkpoint = persist_case(
                     ROOT, frame, summary,
