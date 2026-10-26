@@ -1,0 +1,26 @@
+phase: 6
+status: PILOT_CLI
+retailers:
+  - id: farmacias-yza
+    name: Farmacias YZA
+    categories:
+      - medicamentos-respiratorio
+      - higiene-bucal
+    postal_mode: FIXED
+    postal_code: "11590"
+    capture_script: scripts/test_yza.py
+    probe_script: scripts/probe_yza.py
+    capture_workbook: output/yza_cp11590_test.xlsx
+    capture_report: diagnostics/yza/last_run.json
+  - id: farmatodo
+    name: Farmatodo
+    categories:
+      - respiratorios
+      - cuidado-bucal
+      - higiene-personal
+    postal_mode: NO_VERIFICATION
+    postal_code: null
+    capture_script: scripts/test_farmatodo.py
+    probe_script: scripts/test_farmatodo.py
+    capture_workbook: output/pilots/farmatodo/catalogo_online.xlsx
+    capture_report: diagnostics/farmatodo/last_run.json
