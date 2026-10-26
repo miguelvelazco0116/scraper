@@ -33,11 +33,10 @@ def test_six_productive_categories_remain_unaltered():
 
 def test_input_value_is_not_proof_of_postcode():
     class FakePage:
-        def evaluate(self, script, cp):
+        def evaluate(self, script):
             assert "input,textarea,select" in script
             assert "dialog" in script
-            assert cp == "83420"
-            return None
+            return []
         def locator(self, selector):
             return SimpleNamespace(first=SimpleNamespace(count=lambda: 0))
         def get_by_text(self, value, exact):
@@ -52,10 +51,82 @@ def test_input_value_is_not_proof_of_postcode():
 
 def test_context_verified_after_persistent_visible_selection():
     class FakePage:
-        def evaluate(self, script, cp):
-            return "header [class*=postal] :: entrega al CP " + cp
+        def evaluate(self, script):
+            return [{"value": "97245", "selector": "span", "x": 275, "y": 45}]
     result = require_postal_context(FakePage(), "97245")
     assert "97245" in result
+
+
+def test_other_zip_in_header_is_not_considered_verified():
+    class Header:
+        def evaluate(self, script):
+            # This is the 52164 from the user's second screenshot,
+            # not the requested 83420.
+            return [{"value": "52164", "x": 270, "y": 44}]
+    assert visible_postal_evidence(Header(), "83420") is None
+    with pytest.raises(SorianaPostalContextError, match="52164"):
+        require_postal_context(Header(), "83420")
+
+
+def test_modal_search_replaces_old_cp_and_checks_header():
+    class FakeField:
+        def __init__(self):
+            self.value = "03100"
+        def input_value(self, timeout=1500):
+            return self.value
+        def get_attribute(self, name):
+            return None
+        def fill(self, value, timeout=5000):
+            self.value = value
+
+    class FakeInputSet:
+        def __init__(self, field):
+            self.field = field
+        def count(self):
+            return 1
+        def nth(self, index):
+            return self.field
+
+    class FakeRow:
+        def __init__(self, field):
+            self.field = field
+        def count(self):
+            return 1
+        def locator(self, selector):
+            assert selector == "input:visible"
+            return FakeInputSet(self.field)
+
+    class FakeButton:
+        def __init__(self, page):
+            self.page = page
+        def count(self):
+            return 1
+        def nth(self, i):
+            return self
+        def is_visible(self):
+            return True
+        def locator(self, selector):
+            assert selector.startswith("xpath=ancestor::")
+            return FakeRow(self.page.field)
+        def click(self, timeout=6000):
+            assert self.page.field.value == "83420"
+            self.page.header = "83420"
+
+    class FakePage:
+        def __init__(self):
+            self.field = FakeField()
+            self.header = "52164"
+            self.button = FakeButton(self)
+        def evaluate(self, script):
+            return [{"value": self.header, "x": 270, "y": 45}]
+        def get_by_text(self, pattern, exact=None):
+            return self.button
+        def wait_for_timeout(self, ms):
+            return None
+
+    page = FakePage()
+    assert attempt_postal_selection(page, "83420") == "header_delivery_cp:83420"
+    assert page.field.value == "83420"
 
 
 def test_unverified_cp_never_passes_capture_quality():
