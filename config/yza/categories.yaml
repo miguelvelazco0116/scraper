@@ -1,0 +1,16 @@
+retailer: yza
+categories:
+  - id: medicamentos-respiratorio
+    department: Medicamentos
+    name: Respiratorio
+    subcategory: Respiratorio
+    sub_subcategory: null
+    url: https://www.yza.mx/medicamentos/respiratorio/
+    enabled: true
+  - id: higiene-bucal
+    department: Cuidado personal
+    name: Higiene bucal
+    subcategory: Higiene bucal
+    sub_subcategory: null
+    url: https://www.yza.mx/cuidado-personal/higiene-bucal/
+    enabled: true
