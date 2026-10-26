@@ -42,7 +42,7 @@ def visible_postal_evidence(page: Any, postal_code: str) -> str | None:
             '[class*="current-location" i]',
             '[class*="current-address" i]'
           ];
-          const exact = new RegExp('(^|\\\\D)' + cp + '(\\\\D|$)');
+          const exact = new RegExp('(^|[^0-9])' + cp + '([^0-9]|$)');
           for (const selector of selectors) {
             for (const el of document.querySelectorAll(selector)) {
               if (!el.getClientRects().length ||
