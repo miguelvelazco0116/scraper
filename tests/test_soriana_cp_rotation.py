@@ -188,3 +188,113 @@ def test_pilot_avoids_productive_phase2_files():
     assert '"pilots" / "soriana_cp_rotation"' in script
     assert "MAX_ATTEMPTS = 3" in script
     assert "page_validator" in script
+
+def test_recovery_applies_cp_before_waiting_for_stale_empty_grid(monkeypatch):
+    """The 54030/97245 failure was a wait for tiles BEFORE changing CP."""
+    from scripts import test_soriana_cp_rotation as cli
+
+    events = []
+
+    class FakePage:
+        def goto(self, url, wait_until, timeout):
+            events.append(("goto", url))
+        def wait_for_timeout(self, millis):
+            events.append(("sleep", millis))
+        def wait_for_selector(self, selector, state, timeout):
+            events.append(("wait_tiles", selector))
+        def locator(self, selector):
+            return SimpleNamespace(count=lambda: 4)
+
+    class FakeScraper:
+        def _assert_not_blocked(self, page):
+            events.append(("blockcheck", None))
+
+    def apply(page, cp):
+        events.append(("apply_cp", cp))
+        return "header_delivery_cp:" + cp
+
+    def verify(page, cp):
+        events.append(("verify_cp", cp))
+        return "header_delivery_cp:" + cp
+
+    monkeypatch.setattr(cli, "attempt_postal_selection", apply)
+    monkeypatch.setattr(cli, "require_postal_context", verify)
+    category = SimpleNamespace(
+        url="https://www.soriana.com/cuidado-personal-y-belleza/cuidado-bucal/"
+    )
+    proof = cli.prepare_postal_category(
+        FakePage(), category, FakeScraper(), "97245"
+    )
+    assert proof == "header_delivery_cp:97245"
+    assert events.index(("apply_cp", "97245")) < next(
+        i for i, event in enumerate(events) if event[0] == "wait_tiles"
+    )
+    assert events.index(("verify_cp", "97245")) < next(
+        i for i, event in enumerate(events) if event[0] == "wait_tiles"
+    )
+
+
+def test_verified_cp_empty_grid_retries_load_but_cannot_complete(monkeypatch):
+    from scripts import test_soriana_cp_rotation as cli
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    attempts = []
+
+    class FakePage:
+        def goto(self, url, wait_until, timeout):
+            attempts.append("goto")
+        def wait_for_timeout(self, millis):
+            pass
+        def wait_for_selector(self, selector, state, timeout):
+            attempts.append("wait")
+            raise PlaywrightTimeoutError("grid never rendered")
+
+    class FakeScraper:
+        def _assert_not_blocked(self, page):
+            pass
+
+    monkeypatch.setattr(
+        cli, "attempt_postal_selection",
+        lambda page, cp: "header_delivery_cp:" + cp
+    )
+    monkeypatch.setattr(
+        cli, "require_postal_context",
+        lambda page, cp: "header_delivery_cp:" + cp
+    )
+    category = SimpleNamespace(
+        url="https://www.soriana.com/cuidado-personal-y-belleza/cuidado-bucal/"
+    )
+    with pytest.raises(cli.SorianaCatalogueNotRendered, match="54030"):
+        cli.prepare_postal_category(
+            FakePage(), category, FakeScraper(), "54030"
+        )
+    assert attempts.count("goto") == 2
+    assert attempts.count("wait") == 2
+
+
+def test_other_cp_must_be_verified_after_navigating_category(monkeypatch):
+    from scripts import test_soriana_cp_rotation as cli
+
+    class FakePage:
+        def goto(self, url, wait_until, timeout):
+            pass
+        def wait_for_timeout(self, millis):
+            pass
+    class FakeScraper:
+        def _assert_not_blocked(self, page):
+            pass
+    monkeypatch.setattr(
+        cli, "attempt_postal_selection",
+        lambda page, cp: "header_delivery_cp:" + cp
+    )
+    def invalid(page, cp):
+        raise SorianaPostalContextError(
+            f"El encabezado muestra 52164, no {cp}"
+        )
+    monkeypatch.setattr(cli, "require_postal_context", invalid)
+    with pytest.raises(SorianaPostalContextError, match="52164"):
+        cli.prepare_postal_category(
+            FakePage(),
+            SimpleNamespace(url="https://www.soriana.com/cuidado-bucal/"),
+            FakeScraper(), "54030"
+        )
