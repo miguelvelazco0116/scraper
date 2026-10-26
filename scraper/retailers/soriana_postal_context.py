@@ -77,7 +77,7 @@ def _visible_search_and_input(page: Any):
     The reference modal has a textbox containing '03100' and a red Buscar
     button within the same flex container. No placeholder is guaranteed.
     """
-    searches = page.get_by_text(re.compile(r"^\s*Buscar\s*$", re.I))
+    searches = page.get_by_text(re.compile(r"^\s*Buscar\s*$", re.I), exact=False)
     for index in range(min(searches.count(), 12)):
         button = searches.nth(index)
         try:
@@ -100,7 +100,8 @@ def _visible_search_and_input(page: Any):
             # Exactly one input beside Buscar is enough when the delivery
             # modal's postal instruction is currently visible.
             instruction = page.get_by_text(
-                re.compile(r"Ingresa tu C\.?P\.? para verificar disponibilidad", re.I)
+                re.compile(r"Ingresa tu C\.?P\.? para verificar disponibilidad", re.I),
+                exact=False,
             )
             if inputs.count() == 1 and instruction.count() and instruction.first.is_visible():
                 return button, inputs.first
@@ -117,7 +118,7 @@ def _open_location_modal(page: Any) -> bool:
         r"Elige la mejor opci[oó]n de entrega para ti",
     )
     for pattern in phrases[:1]:
-        choices = page.get_by_text(re.compile(pattern, re.I))
+        choices = page.get_by_text(re.compile(pattern, re.I), exact=False)
         for index in range(min(choices.count(), 6)):
             target = choices.nth(index)
             try:
@@ -153,7 +154,8 @@ def postal_ui_diagnostics(page: Any, postal_code: str) -> dict:
         header = [f"error:{type(exc).__name__}"]
     try:
         instruction = page.get_by_text(
-            re.compile(r"Ingresa tu C\.?P\.? para verificar disponibilidad", re.I)
+            re.compile(r"Ingresa tu C\.?P\.? para verificar disponibilidad", re.I),
+            exact=False,
         )
         modal_open = instruction.count() > 0 and instruction.first.is_visible()
     except Exception:
