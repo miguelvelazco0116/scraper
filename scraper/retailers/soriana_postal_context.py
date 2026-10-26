@@ -35,36 +35,28 @@ _HEADER_CP_JS = r"""() => {
     const s = getComputedStyle(el);
     return s.visibility !== 'hidden' && s.display !== 'none';
   };
-  const normalize = (v) => String(v || '').replace(/\s+/g, ' ').trim();
-  const candidates = [...document.querySelectorAll(
-    'header *,[role="banner"] *,#header *,[class*="header" i] *,'
-    + 'body > div > div *,body > div > header *'
-  )];
+  // Text nodes avoid expensive innerText reads over full category grids.
+  // The screenshot shows one 5-digit leaf directly beside a yellow bag.
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   const hits = [];
-  for (const el of candidates) {
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const value = String(node.nodeValue || '').replace(/\s+/g, ' ').trim();
+    if (!/^\d{5}$/.test(value)) continue;
+    const el = node.parentElement;
     if (!visible(el) || el.matches('input,textarea,select,option')) continue;
     if (el.closest('dialog,[role="dialog"],[aria-modal="true"],'
         + '.modal,.modal-dialog,[class*="modal" i],form')) continue;
     const rect = el.getBoundingClientRect();
+    // Only the red top-left Soriana delivery area is eligible.
     if (rect.top < -2 || rect.top > 108 || rect.left < 0 ||
         rect.left > Math.min(430, innerWidth * .50) ||
         rect.width > 230 || rect.height > 100) continue;
-    const value = normalize(el.innerText || el.textContent);
-    if (!/^\d{5}$/.test(value)) continue;
-    // Prefer a leaf displaying only the five digits, not an ancestor
-    // duplicating a nested child with the same postcode.
-    const nested = [...el.querySelectorAll('span,div,button,a,strong,b,p')]
-      .some(child => child !== el &&
-            normalize(child.innerText || child.textContent) === value &&
-            visible(child));
-    if (nested) continue;
-    hits.push({value, selector: el.tagName.toLowerCase(),
-               x: Math.round(rect.x), y: Math.round(rect.y)});
+    hits.push({value, selector:el.tagName.toLowerCase(),
+               x:Math.round(rect.x),y:Math.round(rect.y)});
   }
   hits.sort((a,b) => a.y - b.y || a.x - b.x);
   return hits;
 }"""
-
 
 def header_postal_codes(page: Any) -> list[str]:
     """Return displayed CPs in the very top-left location control."""
