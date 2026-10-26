@@ -10,6 +10,7 @@ from playwright.sync_api import BrowserContext, Page, Response, TimeoutError as 
 
 from ..config import Category, Location
 from ..parsers import absolute_url, clean_text, extract_sku, parse_money
+from .soriana_availability import classify_soriana_availability
 
 PRODUCT_SELECTOR = ".product-tile.js-product-card"
 BLOCK_MARKERS = ("GF R01", "Access Denied", "Forbidden")
@@ -114,12 +115,29 @@ class SorianaScraper:
           const promoNodes = Array.from(
             el.querySelectorAll('.product-badge, .badge-label-coupons, [class*="promo"]')
           ).map(n => n.textContent.trim()).filter(Boolean);
+          // Scope availability to the current product-tile. Never use a
+          // global page button or infer stock from the mere presence of price.
+          const controlNodes = el.querySelectorAll(
+            'button, input[type="submit"], input[type="button"], [role="button"], .add-to-cart'
+          );
+          const availabilityControls = [...new Set(
+            Array.from(controlNodes)
+              .filter(n => n.getClientRects().length > 0)
+              .flatMap(n => [
+                n.innerText, n.getAttribute('aria-label'),
+                n.getAttribute('title'), n.value
+              ])
+              .filter(Boolean).map(v => String(v).replace(/\\s+/g, ' ').trim())
+              .filter(Boolean)
+          )];
           return {
             data_pid: el.getAttribute('data-pid') || attr('[data-pid]', 'data-pid'),
             product: text('a.product-tile--link') || text('.pdp-link a') || (image ? image.getAttribute('alt') : null),
             url: link ? link.getAttribute('href') : null,
             price_texts: [...new Set(priceCandidates)],
-            promo_texts: [...new Set(promoNodes)]
+            promo_texts: [...new Set(promoNodes)],
+            availability_controls: availabilityControls,
+            tile_text: (el.innerText || '').slice(0, 1000)
           };
         })
         """
@@ -147,6 +165,13 @@ class SorianaScraper:
             if current_price and regular_price and current_price > regular_price:
                 current_price, regular_price = regular_price, current_price
 
+            availability_status, is_available, availability_raw = (
+                classify_soriana_availability(
+                    item.get("availability_controls"),
+                    tile_text=item.get("tile_text") or "",
+                )
+            )
+
             out.append(
                 {
                     "scrape_timestamp": now,
@@ -155,6 +180,8 @@ class SorianaScraper:
                     "state": location.state,
                     "postal_code": location.postal_code,
                     "store": location.store,
+                    "store_id": location.store_id,
+                    "department": category.department,
                     "category": category.name,
                     "subcategory": category.subcategory,
                     "sub_subcategory": category.sub_subcategory,
@@ -165,6 +192,9 @@ class SorianaScraper:
                     "price_current": current_price,
                     "price_regular": regular_price,
                     "promotion": clean_text(" | ".join(item.get("promo_texts") or [])),
+                    "availability_status": availability_status,
+                    "is_available": is_available,
+                    "availability_raw": availability_raw,
                     "url": url,
                     "price_raw": clean_text(" | ".join(money_texts)),
                 }
