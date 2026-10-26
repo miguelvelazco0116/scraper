@@ -4,6 +4,7 @@ param(
     [string]$CdpUrl = "",
     [ValidateSet("all", "medicamentos-respiratorio", "higiene-bucal")]
     [string]$Category = "all",
+    [switch]$Probe,
     [ValidateRange(1, 200)]
     [int]$MaxPages = 100
 )
@@ -39,10 +40,15 @@ if ([string]::IsNullOrWhiteSpace($CdpUrl)) {
     $CdpUrl = "ws://127.0.0.1:$($lines[0].Trim())$($lines[1].Trim())"
 }
 
-Write-Host "FARMACIAS YZA - PILOTO DE CAPTURA"
+Write-Host "FARMACIAS YZA - TESTING CLI"
 Write-Host "CP fijo     : 11590"
 Write-Host "Categorias  : $Category"
 Write-Host "Master      : NO SE MODIFICA"
 Write-Host "Python      : $PythonExe"
-& $PythonExe ".\scripts\test_yza.py" --category $Category --cdp-url $CdpUrl --max-pages $MaxPages
+if ($Probe) {
+    if ($Category -eq "all") { $Category = "higiene-bucal" }
+    & $PythonExe ".\scripts\probe_yza.py" --category $Category --cdp-url $CdpUrl
+} else {
+    & $PythonExe ".\scripts\test_yza.py" --category $Category --cdp-url $CdpUrl --max-pages $MaxPages
+}
 exit $LASTEXITCODE
