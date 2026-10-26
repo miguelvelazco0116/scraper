@@ -314,7 +314,9 @@ def main() -> int:
             return 11
         for cp in codes:
             existing = load_cache(cp, day)
-            items = dict(existing)
+            # Do not allow cached categories outside this requested run to
+            # mask a missing category or change the denominator.
+            items = {cat.id: existing[cat.id] for cat in cats if cat.id in existing}
             for cat in cats:
                 key = cat.id
                 if key in existing:
