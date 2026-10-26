@@ -88,10 +88,10 @@ class DashboardExecutionTests(unittest.TestCase):
             terminate.assert_called_once_with(4242)
             child.wait.assert_called_once()
 
-    def test_retailers_all_thirteen_are_represented(self):
+    def test_retailers_all_fourteen_are_represented(self):
         self.assertEqual(len(RUNNERS), 5)
-        self.assertEqual(sum(len(row) - 1 for row in RUNNERS.values()), 13)
-        self.assertEqual(len(set(name for row in RUNNERS.values() for name in row if name != ALL)), 13)
+        self.assertEqual(sum(len(row) - 1 for row in RUNNERS.values()), 14)
+        self.assertEqual(len(set(name for row in RUNNERS.values() for name in row if name != ALL)), 14)
 
     def test_cli_commands_are_allowlisted(self):
         base = Path("C:/Proyectos/scraper")
