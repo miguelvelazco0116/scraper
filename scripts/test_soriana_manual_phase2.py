@@ -48,7 +48,7 @@ def target_count(page) -> int | None:
         return None
 
     matches = re.findall(
-        r"\b([0-9][0-9,]{0,5})\s+productos?\b",
+        r"\b([0-9][0-9,]{0,5})\s+(?:productos?|resultados?)\b",
         text,
         flags=re.IGNORECASE,
     )
