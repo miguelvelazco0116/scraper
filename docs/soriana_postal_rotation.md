@@ -84,3 +84,37 @@ Los `COMPLETE` del mismo día y mismo CP sí pueden reutilizarse.
 
 **Por probar en Windows**: selector postal real y persistencia tras navegar
 a páginas 2+, disponibilidad por tarjeta y calidad de los cuatro CP.
+
+## 26/10 · Corrección a partir de capturas de la interfaz real
+
+El primer CLI con CP 83420 terminó en PARTIAL / 0 productos porque el
+selector postal no se reconocía; no porque se hubieran agotado productos.
+
+Las capturas adjuntas permiten definir dos estados:
+- Antes de aplicar CP: modal "Elige la mejor opción de entrega para ti",
+  "Envío a domicilio", entrada con valor o placeholder como 03100,
+  botón rojo "Buscar".
+- Después de aplicar CP: CP de cinco dígitos junto al ícono de bolsa
+  amarilla en el encabezado superior izquierdo. La imagen de muestra
+  mostraba 52164, que NO es 83420 y por tanto debe rechazarse.
+
+El código actualizado:
+1. Localiza la fila de CP por el botón Buscar y su textbox vecino,
+   aunque el campo no tenga placeholder descriptivo.
+2. Sustituye el CP mostrado por el solicitado y hace clic en Buscar.
+3. Espera un máximo de varios segundos a que el encabezado refleje
+   exactamente el CP solicitado. El valor del textbox por sí solo NO cuenta.
+4. Vuelve a verificar el CP después de recargar y en todas las páginas.
+5. Guarda observaciones del modal y del CP anterior en
+   diagnostics/soriana_cp_rotation/<CP>/<category>/cp_attempt_<n>.json
+   además de capturas/HTML de diagnóstico.
+
+Actualizar la rama antes de reintentar:
+
+    git status --short
+    git pull --ff-only
+    python -m pytest tests/test_soriana_cp_rotation.py -v
+    & .\scripts\test_soriana_cp_rotation.ps1 -PostalCode 83420 -Category cuidado-bucal
+
+No lanzar los cuatro CP ni Fase 6 hasta demostrar que 83420 se aplica
+realmente, con producto y disponibilidad capturados.
