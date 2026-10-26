@@ -21,20 +21,19 @@ for folder in (ROOT, ROOT / "scripts"):
 
 import pandas as pd
 import yaml
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
 
 from main import COLUMNS
 from scraper.availability import AVAILABLE, UNAVAILABLE, UNKNOWN
 from scraper.config import load_categories, load_locations
 from scraper.quality_rules import meets_rate
-from scraper.retailers.soriana import SorianaBlocked, SorianaScraper
+from scraper.retailers.soriana import PRODUCT_SELECTOR, SorianaBlocked, SorianaScraper
 from scraper.retailers.soriana_postal_context import (
     SorianaPostalContextError, attempt_postal_selection,
     check_postal_code, require_postal_context, postal_ui_diagnostics,
 )
 from test_soriana_manual_phase2 import (
-    find_soriana_page, navigate_same_manual_session,
-    normalize_frame, target_count
+    find_soriana_page, normalize_frame, target_count
 )
 
 CONFIG = ROOT / "config" / "soriana" / "postal_rotation.yaml"
@@ -209,6 +208,75 @@ def save_cp(cp: str, items: dict[str, tuple[pd.DataFrame, dict]]) -> None:
         temp.unlink(missing_ok=True)
 
 
+
+class SorianaCatalogueNotRendered(RuntimeError):
+    """The delivery CP was verified but category cards did not load."""
+
+
+def prepare_postal_category(page, category, scraper, cp: str) -> str:
+    """Apply CP before waiting for product tiles, then refresh category data.
+
+    This recovery order also works if the prior CP left an empty category
+    grid: never block at wait_for_selector before changing the delivery CP.
+    """
+    scraper._assert_not_blocked(page)
+    proof = attempt_postal_selection(page, cp)
+    if not proof:
+        raise SorianaPostalContextError(
+            f"CP {cp} no aplicado/confirmado en Soriana."
+        )
+
+    # Re-enter the category after changing delivery location. The site may
+    # show a stale or unrendered grid until it fetches the new assortment.
+    for reload_number in (1, 2):
+        page.goto(category.url, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(1200)
+        scraper._assert_not_blocked(page)
+        proof = require_postal_context(page, cp)
+        try:
+            page.wait_for_selector(
+                PRODUCT_SELECTOR, state="attached", timeout=15000
+            )
+            scraper._assert_not_blocked(page)
+            if page.locator(PRODUCT_SELECTOR).count() > 0:
+                return proof
+        except PlaywrightTimeoutError:
+            pass
+        if reload_number == 1:
+            print(
+                f"CP {cp} confirmado pero catálogo sin tarjetas; "
+                "reintentando la carga con el mismo CP.",
+                flush=True,
+            )
+    raise SorianaCatalogueNotRendered(
+        f"CP {cp} aplicado, pero Soriana no mostró tarjetas "
+        f"{PRODUCT_SELECTOR} tras dos cargas de la categoría."
+    )
+
+
+def record_ui_diagnostics(page, scraper, cp: str, category_id: str, attempt: int) -> None:
+    """Save the visible CP and product-grid state for failed attempts."""
+    folder = DIAG / cp / category_id
+    folder.mkdir(parents=True, exist_ok=True)
+    try:
+        observed = postal_ui_diagnostics(page, cp)
+        observed["product_tiles"] = page.locator(PRODUCT_SELECTOR).count()
+        observed["category_id"] = category_id
+        observed["attempt"] = attempt
+        print("DIAGNÓSTICO CP:", json.dumps(observed, ensure_ascii=False))
+        (folder / f"cp_attempt_{attempt}.json").write_text(
+            json.dumps(observed, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        print(f"Diagnóstico CP no disponible: {exc}", flush=True)
+    try:
+        scraper._save_diagnostics(
+            page, f"failed_{cp}_{category_id}_{attempt}"
+        )
+    except Exception as exc:
+        print(f"Diagnóstico visual no disponible: {exc}", flush=True)
+
 def capture_case(page, category, location, cp: str, max_pages: int):
     last = ([], None)
     for attempt in range(1, MAX_ATTEMPTS + 1):
@@ -225,17 +293,9 @@ def capture_case(page, category, location, cp: str, max_pages: int):
             max_load_more=max_pages, wait_ms=1200,
         )
         try:
-            navigate_same_manual_session(page, category, scraper)
-            proof = attempt_postal_selection(page, cp)
-            if not proof:
-                raise SorianaPostalContextError(
-                    f"CP {cp} no aplicado/confirmado en Soriana."
-                )
-            # Revisit the category after changing delivery region so prices
-            # and stock are freshly rendered in the intended location.
-            page.reload(wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(1200)
-            proof = require_postal_context(page, cp)
+            # Selection and confirmation precede the first product wait.
+            # The prior CP may have left this page with no product tiles.
+            proof = prepare_postal_category(page, category, scraper, cp)
             target = target_count(page)
             scraper.page_validator = lambda pag: require_postal_context(pag, cp)
             rows = scraper._collect_pages(page, category, location)
@@ -258,24 +318,14 @@ def capture_case(page, category, location, cp: str, max_pages: int):
             error = str(exc)
             rows = []
             proof = None
-            # Record what the browser actually shows, to distinguish
-            # wrong CP from a missing modal input or selector mismatch.
-            try:
-                observed = postal_ui_diagnostics(page, cp)
-                print("DIAGNÓSTICO CP:", json.dumps(observed, ensure_ascii=False))
-                folder = DIAG / cp / category.id
-                folder.mkdir(parents=True, exist_ok=True)
-                (folder / f"cp_attempt_{attempt}.json").write_text(
-                    json.dumps(observed, ensure_ascii=False, indent=2),
-                    encoding="utf-8",
-                )
-                scraper._save_diagnostics(
-                    page, f"cp_unverified_{cp}_{category.id}_{attempt}"
-                )
-            except Exception as diag_exc:
-                print(f"DIAGNÓSTICO no disponible: {diag_exc}")
+        except SorianaCatalogueNotRendered as exc:
+            # Preserve true postal evidence: verified CP != loaded products.
+            error = str(exc)
+            rows = []
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
+        if error:
+            record_ui_diagnostics(page, scraper, cp, category.id, attempt)
         frame = normalize_frame(rows)
         summary = classify(
             frame.to_dict("records"), cp=cp, category_id=category.id,
