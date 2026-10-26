@@ -1,8 +1,12 @@
-"""Fail-closed Soriana shipping postal-code selection and verification.
+"""Soriana delivery postal-code selection; grounded in the visible UI.
 
-A typed postcode, matching page URL, input value, or search result alone does
-not prove that Soriana applied a delivery region. Verify a visible, persistent
-selected-location element outside the modal/input before collecting records.
+The user demonstrated a red "Elige cómo quieres recibir tu pedido" header
+control, a delivery modal with a textbox currently containing a CP (e.g.
+03100), the red "Buscar" button, and the selected postcode in the top-left
+header beside the yellow shopping-bag icon (e.g. 52164). Only the latter,
+outside the modal, can certify the intended CP.
+
+No postal attribution is allowed from a filled textbox or navigation alone.
 """
 from __future__ import annotations
 
@@ -11,138 +15,209 @@ from typing import Any
 
 
 class SorianaPostalContextError(RuntimeError):
-    """Soriana did not visibly certify the requested delivery postal code."""
+    pass
 
 
 def check_postal_code(cp: str) -> str:
-    normalized = str(cp).strip()
-    if not re.fullmatch(r"\d{5}", normalized):
-        raise ValueError("El CP debe contener exactamente 5 dígitos")
-    return normalized
+    code = str(cp).strip()
+    if not re.fullmatch(r"\d{5}", code):
+        raise ValueError("El CP debe contener exactamente 5 dígitos.")
+    return code
+
+
+# Minimal displayed-element evidence. The top strip in the reference
+# screenshots shows the selected delivery CP by a yellow shopping bag icon.
+# Restrict to the visible top-left header; never search the product body for
+# any occurrence of the requested 5 digits.
+_HEADER_CP_JS = r"""() => {
+  const visible = (el) => {
+    if (!el || !el.getClientRects().length) return false;
+    const s = getComputedStyle(el);
+    return s.visibility !== 'hidden' && s.display !== 'none';
+  };
+  const normalize = (v) => String(v || '').replace(/\s+/g, ' ').trim();
+  const candidates = [...document.querySelectorAll(
+    'header *,[role="banner"] *,#header *,[class*="header" i] *,'
+    + 'body > div > div *,body > div > header *'
+  )];
+  const hits = [];
+  for (const el of candidates) {
+    if (!visible(el) || el.matches('input,textarea,select,option')) continue;
+    if (el.closest('dialog,[role="dialog"],[aria-modal="true"],'
+        + '.modal,.modal-dialog,[class*="modal" i],form')) continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.top < -2 || rect.top > 108 || rect.left < 0 ||
+        rect.left > Math.min(430, innerWidth * .50) ||
+        rect.width > 230 || rect.height > 100) continue;
+    const value = normalize(el.innerText || el.textContent);
+    if (!/^\d{5}$/.test(value)) continue;
+    // Prefer a leaf displaying only the five digits, not an ancestor
+    // duplicating a nested child with the same postcode.
+    const nested = [...el.querySelectorAll('span,div,button,a,strong,b,p')]
+      .some(child => child !== el &&
+            normalize(child.innerText || child.textContent) === value &&
+            visible(child));
+    if (nested) continue;
+    hits.push({value, selector: el.tagName.toLowerCase(),
+               x: Math.round(rect.x), y: Math.round(rect.y)});
+  }
+  hits.sort((a,b) => a.y - b.y || a.x - b.x);
+  return hits;
+}"""
+
+
+def header_postal_codes(page: Any) -> list[str]:
+    """Return displayed CPs in the very top-left location control."""
+    hits = page.evaluate(_HEADER_CP_JS)
+    return list(dict.fromkeys(
+        str(x["value"]) for x in hits if re.fullmatch(r"\d{5}", str(x.get("value", "")))
+    ))
 
 
 def visible_postal_evidence(page: Any, postal_code: str) -> str | None:
-    """Return evidence for applied postcode; never use form/modal values."""
-    postal_code = check_postal_code(postal_code)
-    return page.evaluate(
-        r"""(cp) => {
-          const selectors = [
-            'header [data-testid*="location" i]',
-            'header [data-testid*="delivery" i]',
-            'header [data-testid*="postal" i]',
-            'header [class*="location" i]',
-            'header [class*="delivery" i]',
-            'header [class*="address" i]',
-            'header [class*="zip" i]',
-            'header [class*="postal" i]',
-            '[data-testid*="selected-location" i]',
-            '[data-testid*="selected-address" i]',
-            '[class*="selected-location" i]',
-            '[class*="selected-address" i]',
-            '[class*="current-location" i]',
-            '[class*="current-address" i]'
-          ];
-          const exact = new RegExp('(^|[^0-9])' + cp + '([^0-9]|$)');
-          for (const selector of selectors) {
-            for (const el of document.querySelectorAll(selector)) {
-              if (!el.getClientRects().length ||
-                  el.closest('dialog,[role="dialog"],.modal,.modal-dialog,[class*="modal" i],form') ||
-                  el.matches('input,textarea,select')) continue;
-              const text = (el.innerText || el.textContent || '')
-                .replace(/\s+/g,' ').trim();
-              if (text.length && text.length <= 180 && exact.test(text))
-                return selector + ' :: ' + text;
-            }
-          }
-          return null;
-        }""",
-        postal_code,
+    cp = check_postal_code(postal_code)
+    return f"header_delivery_cp:{cp}" if cp in header_postal_codes(page) else None
+
+
+def _visible_search_and_input(page: Any):
+    """Find the red Buscar control and the INPUT alongside it, not site search.
+
+    The reference modal has a textbox containing '03100' and a red Buscar
+    button within the same flex container. No placeholder is guaranteed.
+    """
+    searches = page.get_by_text(re.compile(r"^\s*Buscar\s*$", re.I))
+    for index in range(min(searches.count(), 12)):
+        button = searches.nth(index)
+        try:
+            if not button.is_visible():
+                continue
+            # Nearest ancestor containing an input, e.g. the postcode form row.
+            row = button.locator("xpath=ancestor::*[.//input][1]")
+            if row.count() == 0:
+                continue
+            inputs = row.locator("input:visible")
+            for pos in range(min(inputs.count(), 5)):
+                field = inputs.nth(pos)
+                value = field.input_value(timeout=1500)
+                placeholder = field.get_attribute("placeholder") or ""
+                if (re.fullmatch(r"\d{5}", value.strip()) or
+                    re.search(r"postal|c\.?\s*p\.?|c[oó]digo|^\d{5}$",
+                              placeholder, re.I) or
+                    field.get_attribute("inputmode") == "numeric"):
+                    return button, field
+            # Exactly one input beside Buscar is enough when the delivery
+            # modal's postal instruction is currently visible.
+            instruction = page.get_by_text(
+                re.compile(r"Ingresa tu C\.?P\.? para verificar disponibilidad", re.I)
+            )
+            if inputs.count() == 1 and instruction.count() and instruction.first.is_visible():
+                return button, inputs.first
+        except Exception:
+            continue
+    return None, None
+
+
+def _open_location_modal(page: Any) -> bool:
+    """Click the visible header selector, either text or current 5-digit CP."""
+    # Initial state: 'Elige cómo quieres recibir tu pedido'.
+    phrases = (
+        r"Elige c[oó]mo quieres\s+recibir tu pedido",
+        r"Elige la mejor opci[oó]n de entrega para ti",
     )
+    for pattern in phrases[:1]:
+        choices = page.get_by_text(re.compile(pattern, re.I))
+        for index in range(min(choices.count(), 6)):
+            target = choices.nth(index)
+            try:
+                if target.is_visible():
+                    target.click(timeout=4500)
+                    page.wait_for_timeout(350)
+                    return True
+            except Exception:
+                continue
+    # Applied state: number in top-left strip beside the bag.
+    for current in header_postal_codes(page):
+        texts = page.get_by_text(current, exact=True)
+        for index in range(min(texts.count(), 8)):
+            target = texts.nth(index)
+            try:
+                if target.is_visible():
+                    box = target.bounding_box()
+                    if box and box["y"] <= 108 and box["x"] <= 430:
+                        target.click(timeout=4500)
+                        page.wait_for_timeout(350)
+                        return True
+            except Exception:
+                continue
+    return False
+
+
+def postal_ui_diagnostics(page: Any, postal_code: str) -> dict:
+    """Non-sensitive failure summary: no address or cookie/storage data."""
+    cp = check_postal_code(postal_code)
+    try:
+        header = header_postal_codes(page)
+    except Exception as exc:
+        header = [f"error:{type(exc).__name__}"]
+    try:
+        instruction = page.get_by_text(
+            re.compile(r"Ingresa tu C\.?P\.? para verificar disponibilidad", re.I)
+        )
+        modal_open = instruction.count() > 0 and instruction.first.is_visible()
+    except Exception:
+        modal_open = False
+    try:
+        button, field = _visible_search_and_input(page)
+        search_visible = button is not None
+        input_visible = field is not None
+    except Exception:
+        search_visible = input_visible = False
+    return {
+        "requested_cp": cp,
+        "header_cp_candidates": header,
+        "delivery_modal_visible": modal_open,
+        "postal_input_found": input_visible,
+        "buscar_found": search_visible,
+        "url": page.url,
+    }
 
 
 def attempt_postal_selection(page: Any, postal_code: str) -> str | None:
-    """Use ordinary Soriana UI; do not change cookies/requests directly.
-
-    Select "Envío a domicilio", fill Código Postal, click Buscar and verify
-    the persistent selected-location display. Differences in the site UI fail
-    closed; the user can complete selection manually in Chrome.
-    """
     cp = check_postal_code(postal_code)
     proof = visible_postal_evidence(page, cp)
     if proof:
         return proof
 
-    for selector in (
-        'header button[class*="location" i]',
-        'header button[class*="delivery" i]',
-        'header button[class*="postal" i]',
-        '[data-testid*="change-location" i]',
-        '[data-testid*="delivery-method" i]',
-    ):
-        try:
-            button = page.locator(selector).first
-            if button.count() and button.is_visible():
-                button.click(timeout=3000)
-                break
-        except Exception:
-            continue
-
-    # The modal might already be open.
-    try:
-        delivery = page.get_by_text("Envío a domicilio", exact=True)
-        if delivery.count() and delivery.first.is_visible():
-            delivery.first.click(timeout=3000)
-    except Exception:
-        pass
-
-    field = None
-    for selector in (
-        'input[placeholder*="Código Postal" i]',
-        'input[placeholder*="Codigo Postal" i]',
-        'input[placeholder*="C.P." i]',
-        'input[aria-label*="postal" i]',
-        'input[name*="postal" i]',
-        'input[name*="zip" i]',
-    ):
-        candidate = page.locator(selector).first
-        try:
-            if candidate.count() and candidate.is_visible():
-                field = candidate
-                break
-        except Exception:
-            continue
-    if field is None:
+    button, field = _visible_search_and_input(page)
+    if button is None or field is None:
+        _open_location_modal(page)
+        button, field = _visible_search_and_input(page)
+    if button is None or field is None:
         return None
-
     try:
-        field.fill(cp, timeout=4000)
-        # The visible 'Buscar' control is part of Soriana's delivery modal.
-        modal = page.locator(
-            '[role="dialog"], dialog, .modal.show, [class*="delivery-modal" i]'
-        )
-        scope = modal.last if modal.count() and modal.last.is_visible() else page
-        search = scope.get_by_role(
-            "button", name=re.compile(r"^\s*buscar\s*$", re.I)
-        )
-        if search.count() and search.first.is_visible():
-            search.first.click(timeout=5000)
-        else:
-            # Do not press Enter against an unverified field (search may
-            # navigate away without applying a delivery method).
+        field.fill(cp, timeout=5000)
+        # Confirm only the entry field changed: this is not store proof.
+        if field.input_value(timeout=2000).strip() != cp:
             return None
-        page.wait_for_timeout(1600)
+        button.click(timeout=6000)
+        # A successful search may update the header asynchronously.
+        for _ in range(16):
+            page.wait_for_timeout(450)
+            proof = visible_postal_evidence(page, cp)
+            if proof:
+                return proof
     except Exception:
         return None
-
-    return visible_postal_evidence(page, cp)
+    return None
 
 
 def require_postal_context(page: Any, postal_code: str) -> str:
-    """Raise if Soriana does not visibly display this CP as applied."""
     proof = visible_postal_evidence(page, postal_code)
     if not proof:
+        seen = header_postal_codes(page)
+        observed = ", ".join(seen) if seen else "sin CP visible"
         raise SorianaPostalContextError(
-            f"Soriana no confirma el CP {postal_code} en la ubicación "
-            "persistente fuera del formulario. Captura rechazada."
+            f"Soriana no confirmó el CP {postal_code} junto a la bolsa "
+            f"del encabezado. CP observado: {observed}."
         )
     return proof
