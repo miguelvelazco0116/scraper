@@ -47,6 +47,8 @@ class SorianaScraper:
         self.browser_channel = browser_channel
         self.grid_responses: list[dict[str, Any]] = []
         self.last_page_meta: dict[str, Any] = {}
+        # Optional fail-closed postcode check for per-CP CLI rotation only.
+        self.page_validator = None
 
     def _capture_grid_response(self, response: Response) -> None:
         if not any(marker in response.url for marker in NETWORK_MARKERS):
@@ -279,6 +281,8 @@ class SorianaScraper:
             if page_number > 1 and not self._go_to_page(page, page_number):
                 break
             visited += 1
+            if self.page_validator is not None:
+                self.page_validator(page)
             rows.extend(self._extract_cards(page, category, location))
 
         self.last_page_meta = {
