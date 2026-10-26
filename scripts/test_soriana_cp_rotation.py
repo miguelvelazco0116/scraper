@@ -30,7 +30,7 @@ from scraper.quality_rules import meets_rate
 from scraper.retailers.soriana import SorianaBlocked, SorianaScraper
 from scraper.retailers.soriana_postal_context import (
     SorianaPostalContextError, attempt_postal_selection,
-    check_postal_code, require_postal_context,
+    check_postal_code, require_postal_context, postal_ui_diagnostics,
 )
 from test_soriana_manual_phase2 import (
     find_soriana_page, navigate_same_manual_session,
@@ -258,6 +258,22 @@ def capture_case(page, category, location, cp: str, max_pages: int):
             error = str(exc)
             rows = []
             proof = None
+            # Record what the browser actually shows, to distinguish
+            # wrong CP from a missing modal input or selector mismatch.
+            try:
+                observed = postal_ui_diagnostics(page, cp)
+                print("DIAGNÓSTICO CP:", json.dumps(observed, ensure_ascii=False))
+                folder = DIAG / cp / category.id
+                folder.mkdir(parents=True, exist_ok=True)
+                (folder / f"cp_attempt_{attempt}.json").write_text(
+                    json.dumps(observed, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                scraper._save_diagnostics(
+                    page, f"cp_unverified_{cp}_{category.id}_{attempt}"
+                )
+            except Exception as diag_exc:
+                print(f"DIAGNÓSTICO no disponible: {diag_exc}")
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
         frame = normalize_frame(rows)
