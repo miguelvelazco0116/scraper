@@ -142,7 +142,10 @@ def discover_cards(page) -> tuple[list[dict], int | None]:
                 .find(x => x.href.split('?')[0] === url && (x.innerText || '').trim());
               title = (other?.innerText || '').trim();
             }
-            if (title && (!byUrl.has(url) || text.length > byUrl.get(url).text.length))
+            if (title && (!byUrl.has(url) ||
+                text.length > byUrl.get(url).text.length ||
+                (text.length === byUrl.get(url).text.length &&
+                 title.length > byUrl.get(url).title.length)))
               byUrl.set(url, {url, title, text});
           }
           const pages = [...document.querySelectorAll('a[href], button, [data-page]')]
@@ -207,6 +210,8 @@ class YzaScraper:
                 page.goto(page_url(category.url, number),
                           wait_until="domcontentloaded", timeout=75000)
                 page.wait_for_timeout(700)
+                if urlparse(page.url).netloc.lower() not in {HOST, "yza.mx"}:
+                    raise YzaScrapeError("Redirección fuera de YZA")
                 proof = context_evidence(page)
                 if not proof:
                     raise YzaContextError(
@@ -232,6 +237,8 @@ class YzaScraper:
                 fresh = 0
                 for card in cards:
                     url = urljoin(category.url, card["url"])
+                    if urlparse(url).netloc.lower() not in {HOST, "yza.mx"}:
+                        continue
                     if url in seen:
                         continue
                     seen.add(url)
@@ -261,6 +268,11 @@ class YzaScraper:
                         "store_context_method": "yza_visible_selected_address_cp11590",
                         "url": url, "price_raw": card["text"][:300],
                     })
+                if number > 1 and fresh == 0:
+                    raise YzaScrapeError(
+                        f"La página {number} repite todos los productos "
+                        "o no tiene precios/SKU válidos. Paginación no verificada."
+                    )
                 pages.append({
                     "page": number, "cards": len(cards),
                     "new_valid": fresh, "last_page": expected_last,
