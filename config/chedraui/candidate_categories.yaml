@@ -1,2 +1,9 @@
 retailer: chedraui
-categories: []
+categories:
+  - id: equipo-y-botiquin-medico
+    department: Farmacia
+    name: Equipo y botiquín médico
+    subcategory: Equipo y botiquín médico
+    sub_subcategory: null
+    url: https://www.chedraui.com.mx/farmacia/equipo-y-botiquin-medico
+    enabled: true

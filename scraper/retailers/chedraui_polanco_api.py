@@ -818,6 +818,63 @@ class ChedrauiScraper(PolancoUIScraper):
             normalized = normalized.replace(source, target)
         return "promocionsi (" in normalized or "promocion si (" in normalized
 
+    @staticmethod
+    def _complete_unknown_availability_from_dom(
+        api_rows: list[dict],
+        html_rows: list[dict],
+    ) -> list[dict]:
+        """Add verified HTML CTA evidence only if structured stock is UNKNOWN.
+
+        Match the exact product URL and same store/category. Never overwrite
+        an explicit productSearchV3 AvailableQuantity=0 or positive quantity.
+        """
+        from collections import Counter
+
+        def key(row: dict) -> tuple[str, str, str] | None:
+            raw_url = str(row.get("url") or "").strip()
+            if not raw_url:
+                return None
+            path = urlsplit(raw_url).path.rstrip("/").casefold()
+            if not path.endswith("/p"):
+                return None
+            return (
+                str(row.get("store_id") or ""),
+                str(row.get("category_id") or ""),
+                path,
+            )
+
+        by_key: dict[tuple[str, str, str], dict] = {}
+        key_counts = Counter(key(row) for row in html_rows if key(row))
+        for row in html_rows:
+            product_key = key(row)
+            if product_key and key_counts[product_key] == 1:
+                by_key[product_key] = row
+
+        result = []
+        for row in api_rows:
+            merged = dict(row)
+            if merged.get("availability_status") != UNKNOWN:
+                result.append(merged)
+                continue
+            product_key = key(merged)
+            dom = by_key.get(product_key) if product_key else None
+            if (
+                dom
+                and dom.get("store_context_verified") is True
+                and merged.get("store_context_verified") is True
+                and dom.get("availability_status") in (AVAILABLE, UNAVAILABLE)
+                and dom.get("is_available") is
+                    (dom.get("availability_status") == AVAILABLE)
+            ):
+                merged["availability_status"] = dom["availability_status"]
+                merged["is_available"] = dom["is_available"]
+                merged["availability_raw"] = (
+                    "productSearchV3 AvailableQuantity=None; "
+                    + str(dom.get("availability_raw") or "dom_cta")[:380]
+                )
+            result.append(merged)
+        return result
+
     def _load_page_rows(
         self,
         page,
@@ -904,6 +961,9 @@ class ChedrauiScraper(PolancoUIScraper):
                     api_info = retry_info
 
         if api_rows:
+            api_rows = self._complete_unknown_availability_from_dom(
+                api_rows, html_rows
+            )
             self.run_meta.setdefault(
                 "api_price_pages",
                 [],
