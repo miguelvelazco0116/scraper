@@ -36,7 +36,6 @@ RUNNERS = {
         "Todas las tiendas": "run_phase4_production.ps1",
         "Farmacias San Pablo": "run_san_pablo_full.ps1",
         "Farmacias Benavides": "test_benavides.ps1",
-        "Farmacias YZA": "test_yza.ps1",
     },
     5: {
         "Todas las tiendas": "run_phase5_production.ps1",
