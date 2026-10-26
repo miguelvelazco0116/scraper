@@ -118,3 +118,34 @@ Actualizar la rama antes de reintentar:
 
 No lanzar los cuatro CP ni Fase 6 hasta demostrar que 83420 se aplica
 realmente, con producto y disponibilidad capturados.
+
+## Resultado de rotación: 26 de octubre, cuidado-bucal
+
+La primera corrida real entregó:
+- 83420: COMPLETE, 273 productos, 192 AVAILABLE, 81 UNAVAILABLE.
+- 44220: COMPLETE, 338 productos, 210 AVAILABLE, 128 UNAVAILABLE.
+- 54030: intento 1 CP confirmado pero 0 tarjetas; intentos 2-3
+  bloqueados por espera temprana de .product-tile.js-product-card.
+- 97245: tres intentos bloqueados por esa misma espera temprana.
+
+**Corrección:** en el runner de rotación se eliminó
+navigate_same_manual_session, porque esperaba productos ANTES de aplicar
+el siguiente CP. Ahora se selecciona y verifica el CP primero; luego
+se navega a la categoría y se espera explícitamente a las tarjetas.
+Si el sitio devuelve la categoría sin tarjetas, se repite la carga
+una vez con el mismo CP, conservando PARTIAL si sigue vacío.
+Cada falla registra diagnóstico del encabezado/DOM sin alterar master.
+
+Para retomar sin repetir los dos CP completos:
+
+    git pull --ff-only
+    python -m pytest tests/test_soriana_cp_rotation.py -v
+    & .\scripts\test_soriana_cp_rotation.ps1 -PostalCode 54030 -Category cuidado-bucal
+
+Después de validar 54030:
+
+    & .\scripts\test_soriana_cp_rotation.ps1 -PostalCode 97245 -Category cuidado-bucal
+
+Solo si ambos son COMPLETE, revalidar rotación completa usando
+-PostalCode all. El caché debe reutilizar 83420 y 44220
+por CP y fecha, sin borrarlos.
