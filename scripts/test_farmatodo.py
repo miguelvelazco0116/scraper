@@ -173,6 +173,8 @@ def save_excel(items: dict[str, tuple[pd.DataFrame, dict]]) -> None:
 
 def run_category(browser, category, *, max_rounds: int, probe: bool = False):
     failures = []
+    last_rows: list[dict] = []
+    last_summary: dict | None = None
     for attempt in range(1, 2 if probe else MAX_ATTEMPTS + 1):
         print(
             f"Farmatodo {category.id} · intento {attempt}"
@@ -187,6 +189,7 @@ def run_category(browser, category, *, max_rounds: int, probe: bool = False):
             )
             result = quality(rows, meta)
             result["attempts"] = attempt
+            last_rows, last_summary = rows, result
             if probe:
                 result["status"] = "PROBE" if rows else "ERROR"
             if result["status"] == "COMPLETE" or probe:
@@ -200,6 +203,11 @@ def run_category(browser, category, *, max_rounds: int, probe: bool = False):
             page.close()
         if attempt < MAX_ATTEMPTS:
             time.sleep(2)
+    if last_summary is not None:
+        # Preserve incomplete evidence for local diagnosis, but do not cache
+        # it as COMPLETE or integrate it into the productive master.
+        last_summary["quality_notes"] = " | ".join(failures[-3:])
+        return last_rows, last_summary
     return [], {
         "retailer": "Farmatodo", "category_id": category.id,
         "capture_date": datetime.now().astimezone().date().isoformat(),
