@@ -1,0 +1,120 @@
+"""Offline tests for isolated Farmacias YZA / CP 11590 pilot.
+
+No browser, site requests or productive master writes.
+"""
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import pandas as pd
+import pytest
+
+from scraper.config import load_categories, load_locations
+from scraper.retailers.yza import (
+    POSTAL_CODE, YzaContextError, YzaScraper,
+    page_url, prices_from_card, product_sku,
+)
+
+
+def test_yza_has_exactly_two_requested_categories():
+    categories = load_categories("config/yza/categories.yaml")
+    assert {c.id: c.url for c in categories} == {
+        "medicamentos-respiratorio":
+            "https://www.yza.mx/medicamentos/respiratorio/",
+        "higiene-bucal":
+            "https://www.yza.mx/cuidado-personal/higiene-bucal/",
+    }
+
+
+def test_fixed_postal_code_is_configured_without_fabricated_store():
+    location = next(
+        item for item in load_locations()
+        if item.id == "yza-cp-11590"
+    )
+    assert POSTAL_CODE == location.postal_code == "11590"
+    assert location.store_id is None
+
+
+def test_real_yza_product_url_yields_sku():
+    assert product_sku(
+        "https://www.yza.mx/colgate-enjuague-bucal-periogard-250ml/"
+        "MXYZ_7891024179925.html"
+    ) == "7891024179925"
+    assert product_sku("https://www.yza.mx/medicamentos/respiratorio/") is None
+
+
+def test_yza_offer_price_not_confused_with_old_price():
+    assert prices_from_card(
+        "$213.60 (Oferta) Precio reducido de $267.00 (Antes)"
+    ) == (213.60, 267.00)
+    assert prices_from_card("Sin precio") == (None, None)
+
+
+def test_page_url_is_restricted_to_yza_and_positive_pages():
+    url = "https://www.yza.mx/cuidado-personal/higiene-bucal/"
+    assert page_url(url, 2) == url + "?p=2"
+    assert page_url(url, 1) == url
+    with pytest.raises(ValueError):
+        page_url("https://untrusted.example/other/", 2)
+    with pytest.raises(ValueError):
+        page_url(url, 0)
+
+
+def test_wrong_cp_fails_before_browser_connection():
+    category = load_categories("config/yza/categories.yaml")[0]
+    location = SimpleNamespace(postal_code="11500")
+    scraper = YzaScraper("ws://127.0.0.1:9222")
+    with pytest.raises(YzaContextError, match="11590"):
+        scraper.scrape_category(category, location)
+
+
+def test_three_attempts_on_same_category_before_advancing():
+    import scripts.test_yza as runner
+    category = load_categories("config/yza/categories.yaml")[0]
+    location = SimpleNamespace(postal_code="11590")
+    failures = []
+
+    class BrokenYzaScraper:
+        def __init__(self, cdp_url, max_pages):
+            failures.append(cdp_url)
+
+        def scrape_category(self, category, location):
+            raise YzaContextError("El CP no fue aplicado")
+
+    with patch.object(runner, "YzaScraper", BrokenYzaScraper), \
+         patch.object(runner.time, "sleep"):
+        frame, summary = runner.run_category(
+            category, location, "ws://127.0.0.1:9222", 5
+        )
+    assert len(failures) == 3
+    assert frame.empty
+    assert summary["status"] == "STORE_CONTEXT_ERROR"
+
+
+def test_valid_cached_rejects_wrong_date_or_cp():
+    from scripts.test_yza import _valid_cached
+
+    rows = pd.DataFrame([{
+        "category_id": "higiene-bucal", "sku": "12345",
+        "url": "https://www.yza.mx/sku/MXYZ_12345.html",
+        "price_current": 20,
+        "scrape_timestamp": "2026-10-26T08:00:00",
+        "postal_code": "11590", "store_context_verified": True,
+    }])
+    meta = {
+        "category_id": "higiene-bucal", "status": "SUCCESS",
+        "capture_date": "2026-10-26",
+        "postal_code": "11590", "products": 1,
+    }
+    assert _valid_cached(rows, meta, "higiene-bucal", "2026-10-26")
+    assert not _valid_cached(rows, meta, "higiene-bucal", "2026-10-27")
+    assert not _valid_cached(
+        rows.assign(postal_code="11500"), meta,
+        "higiene-bucal", "2026-10-26"
+    )
+
+
+def test_pilot_has_no_master_integration_call():
+    runner = Path("scripts/test_yza.py").read_text(encoding="utf-8")
+    assert "integrate_complete_retailers" not in runner
+    assert "MASTER: SIN CAMBIOS" in runner
