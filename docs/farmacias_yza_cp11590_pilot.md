@@ -1,50 +1,65 @@
-# Farmacias YZA · Piloto con CP 11590
+# Farmacias YZA · Validación inicial por línea de comandos
 
-## Estado
+**Estado: piloto CLI únicamente.** Aún no se agrega al panel Streamlit ni
+al master productivo; las cinco fases y sus 13 retailers permanecen intactos.
 
-**Piloto de captura, no retailer productivo integrado.** No modifica el master,
-Control, `EXPECTED` ni el cierre de las fases 1–5.
+## Alcance
+- Medicamentos → Respiratorio: https://www.yza.mx/medicamentos/respiratorio/
+- Cuidado personal → Higiene bucal: https://www.yza.mx/cuidado-personal/higiene-bucal/
+- CP objetivo: **11590**. Una captura solo puede declararse válida cuando YZA
+  muestra explícitamente una dirección seleccionada para dicho código en una
+  zona persistente de la página (no basta escribir "11590" en un campo).
+- Chrome del operador + Playwright CDP; tres intentos **por categoría**.
+- No se certifica disponibilidad por tienda si YZA no proporciona pruebas.
 
-Categorías:
-- `medicamentos-respiratorio` → https://www.yza.mx/medicamentos/respiratorio/
-- `higiene-bucal` → https://www.yza.mx/cuidado-personal/higiene-bucal/
+## Pasos en Windows
 
-Configuración postal fija: `11590` (Miguel Hidalgo, CDMX).
-No se inventa sucursal, ni disponibilidad, ni stock local.
+No cambiar de rama, actualizar el código o reiniciar Streamlit mientras haya
+un scraper/productor en marcha. Con `git status --short` limpio:
 
-## Uso desde Streamlit
+```powershell
+cd C:\Proyectos\scraper
+& C:\Proyectos\venvs\scraper\Scripts\Activate.ps1
+git fetch origin
+git switch --track origin/feat/yza-cp11590-pilot-20261026
+python -m pytest tests/test_yza_pilot.py -q
+```
 
-1. Activar `C:\Proyectos\venvs\scraper\Scripts\Activate.ps1` en PowerShell.
-2. Iniciar `python -m streamlit run streamlit_app.py --server.port 8501`.
-3. Abrir Google Chrome con remote debugging habilitado en
-   `chrome://inspect/#remote-debugging`.
-4. Abrir una pestaña de `https://www.yza.mx/`; seleccionar manualmente,
-   desde el selector de ubicación, una dirección sugerida con CP **11590**.
-   Si el sitio no acepta ese CP o no lo muestra como ubicación aplicada,
-   el piloto debe fallar, no simular confirmación.
-5. En Streamlit → **Nueva ejecución** → **Fase 4** →
-   **Farmacias YZA** → **Solo captura**, confirmar y ejecutar.
-6. Revisar el log y `output/yza_cp11590_test.xlsx`
-   (Concentrado y Resumen); `diagnostics/yza/last_run.json`.
-7. Los casos reintentan la **misma categoría tres veces** antes de avanzar.
-   Las categorías válidas del mismo día se reutilizan.
+Si la rama ya existe localmente, ejecutar `git switch feat/yza-cp11590-pilot-20261026`
+y `git pull --ff-only` en lugar de `--track`.
 
-## Requisitos de validación
+Abrir en Chrome, no en Brave ni Firefox, una pestaña de
+`https://www.yza.mx/cuidado-personal/higiene-bucal/`;
+habilitar `chrome://inspect/#remote-debugging` y confirmar una dirección
+del CP 11590 que YZA reconozca.
 
-- CP 11590 visible y aplicado en un componente persistente de ubicación
-  del sitio, fuera del campo editable/autocompletado.
-- Un URL YZA auténtico con identificador `MXYZ_...`.
-- Precios positivos y orden de promociones razonable.
-- Listado paginado completamente; si el paginador no se reconoce,
-  conservar el estado como parcial y revisar su DOM.
-- Sin duplicados, sin registros de otros días y sin atribuir
-  disponibilidad a una dirección solo porque el botón de entrega aparezca.
+Primero diagnóstico **sin captura completa**:
 
-## Antes de promover a producción
+```powershell
+& .\scripts\test_yza.ps1 -Probe -Category higiene-bucal
+& .\scripts\test_yza.ps1 -Probe -Category medicamentos-respiratorio
+```
 
-Verificar en Chrome real: interacción del CP, cobertura de entrega para 11590,
-selectors DOM de producto, paginación y tarifa efectiva por ubicación.
-Solo entonces incluir YZA en `EXPECTED[4]`, runner integral de Fase 4,
-fuentes de integración, auditoría y resultados esperados (14 retailers, 68 casos).
-Esta migración debe ejecutarse con respaldo, porque altera el contrato de
-completitud de Fase 4 y las dependencias de la Fase 5.
+Leer `diagnostics/yza/probe_*.json`. Si `context_verified=False`
+o `pager_last_page` es `null`, revisar la selección postal o la paginación
+antes de lanzar las capturas completas; nunca dar por verificado el CP.
+
+Con diagnóstico válido:
+
+```powershell
+& .\scripts\test_yza.ps1 -Category higiene-bucal
+& .\scripts\test_yza.ps1 -Category medicamentos-respiratorio
+```
+
+La captura piloto produce `output/yza_cp11590_test.xlsx` (hojas
+`Concentrado`, `Resumen`) y `diagnostics/yza/last_run.json`. Reutiliza
+las categorías que ya pasaron controles el mismo día. Las incompletas
+intentan hasta tres veces y después pasan a la otra categoría.
+
+## Condiciones para añadir al panel más tarde
+- Dos categorías, CP 11590 confirmado, paginación y conteos validados.
+- SKU, URL, precios positivos, sin duplicados, y contexto postal verificable.
+- Pruebas sin errores y corrida real de Chrome validada.
+- Después se desarrollará la integración a Streamlit. La migración al master
+  implicará actualizar contrato `EXPECTED`, integrador y auditor y crear un
+  respaldo, para no romper la ejecución cronológica.
