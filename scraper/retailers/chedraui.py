@@ -12,6 +12,7 @@ from playwright.sync_api import BrowserContext, Page, TimeoutError as Playwright
 from ..availability import AVAILABLE, UNAVAILABLE, UNKNOWN
 from ..config import Category, Location
 from ..parsers import absolute_url, clean_text, extract_sku, parse_money
+from .chedraui_availability import from_chedraui_card_controls
 
 BASE_URL = "https://www.chedraui.com.mx/"
 STORE_CONTEXT_CONTRACT_VERSION = "chedraui-directory-ui-v3"
@@ -991,12 +992,40 @@ class ChedrauiScraper:
             if (!href || seen.has(href) || !/\/p(?:\?|$)/i.test(href)) continue;
             seen.add(href);
 
-            let card = a;
-            for (let i = 0; i < 10 && card && card.parentElement; i++) {
-              const txt = (card.textContent || '').replace(/\s+/g, ' ').trim();
-              if ((money.test(txt) || unavailable.test(txt)) && txt.length > 20 && txt.length < 3000) break;
-              card = card.parentElement;
+            // Prefer the smallest product-specific container that includes
+            // its CTA; do not climb into a grid of neighboring products.
+            let node = a;
+            let fallback = null;
+            let withCta = null;
+            for (let i = 0; i < 10 && node; i++) {
+              const txt = (node.textContent || '').replace(/\s+/g, ' ').trim();
+              const productHrefs = [...new Set(
+                [...node.querySelectorAll('a[href$="/p"], a[href*="/p?"]')]
+                  .map(link => (link.getAttribute('href') || '').split('?')[0])
+              )];
+              if (productHrefs.length > 1) break;
+              const hasProductText =
+                (money.test(txt) || unavailable.test(txt)) &&
+                txt.length > 20 && txt.length < 3000;
+              if (hasProductText && !fallback) fallback = node;
+              const ctas = [...node.querySelectorAll(
+                'button, [role="button"], input[type="submit"], input[type="button"], [class*="addToCart"], [class*="add-to-cart"]'
+              )];
+              const hasExplicitCta = ctas.some(control => {
+                if (!control.getClientRects().length) return false;
+                const label = String(
+                  control.innerText || control.value ||
+                  control.getAttribute('aria-label') || ''
+                ).replace(/\s+/g, ' ').trim();
+                return /^(?:Agregar(?:\s+al\s+carrito)?(?:\s*\+)?|Agotad[oa]s?(?:\s+en\s+l[ií]nea)?)$/i.test(label);
+              });
+              if (hasProductText && hasExplicitCta) {
+                withCta = node;
+                break;
+              }
+              node = node.parentElement;
             }
+            const card = withCta || fallback;
             if (!card) continue;
             const cardText = (card.textContent || '').replace(/\s+/g, ' ').trim();
             if (!money.test(cardText) && !unavailable.test(cardText)) continue;
@@ -1025,6 +1054,21 @@ class ChedrauiScraper:
               .map(n => (n.textContent || '').trim())
               .filter(Boolean);
 
+            const controls = [...card.querySelectorAll(
+              'button, [role="button"], input[type="submit"], input[type="button"], [class*="addToCart"], [class*="add-to-cart"]'
+            )].map(button => ({
+              text: String(
+                button.innerText || button.value ||
+                button.getAttribute('aria-label') || ''
+              ).replace(/\s+/g, ' ').trim(),
+              visible: button.getClientRects().length > 0,
+              disabled: Boolean(
+                button.disabled ||
+                button.getAttribute('aria-disabled') === 'true' ||
+                button.closest('[disabled], [aria-disabled="true"]')
+              )
+            })).filter(control => control.visible && control.text);
+
             out.push({
               href,
               product,
@@ -1032,6 +1076,7 @@ class ChedrauiScraper:
               regular,
               price_texts: [...new Set(priceNodes)],
               promo_texts: [...new Set(promoNodes)],
+              cta_controls: controls,
               card_text: cardText
             });
           }
@@ -1068,8 +1113,9 @@ class ChedrauiScraper:
             if current_price and regular_price and current_price > regular_price:
                 current_price, regular_price = regular_price, current_price
 
-            availability = self._availability_from_card_text(
-                item.get("card_text")
+            availability = from_chedraui_card_controls(
+                item.get("cta_controls"),
+                card_text=item.get("card_text") or "",
             )
 
             rows.append(
