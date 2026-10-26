@@ -425,6 +425,11 @@ def main() -> int:
         parser.error("--pilot requiere una categoría candidata individual.")
     if args.category in candidate_ids and not args.pilot:
         parser.error("Las categorías candidatas requieren --pilot.")
+    if candidate_ids and args.category in {"full", "candidates"}:
+        parser.error(
+            "Hay categorías en piloto. Prueba cada candidata de forma "
+            "individual con --category <id> --pilot."
+        )
 
     if args.category == "all":
         # Preserve historical semantics: only currently productive categories.
