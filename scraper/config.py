@@ -35,7 +35,11 @@ def _load_yaml(path: str | Path) -> dict[str, Any]:
         return yaml.safe_load(fh) or {}
 
 
-def load_categories(path: str | Path = "config/soriana/categories.yaml") -> list[Category]:
+def load_categories(
+    path: str | Path = "config/soriana/categories.yaml",
+    *,
+    include_disabled: bool = False,
+) -> list[Category]:
     data = _load_yaml(path)
     return [
         Category(
@@ -52,7 +56,7 @@ def load_categories(path: str | Path = "config/soriana/categories.yaml") -> list
             ),
         )
         for x in data.get("categories", [])
-        if x.get("enabled", True)
+        if include_disabled or x.get("enabled", True)
     ]
 
 
