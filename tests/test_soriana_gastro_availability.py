@@ -62,7 +62,7 @@ def test_absence_and_conflicting_controls_remain_unknown():
     )[0:2] == (UNKNOWN, None)
 
 
-def test_two_tiles_have_independent_product_availability():
+def test_two_tiles_have_independent_product_availability(tmp_path):
     products = [
         {
             "data_pid": "111",
@@ -105,7 +105,7 @@ def test_two_tiles_have_independent_product_availability():
             assert selector == PRODUCT_SELECTOR
             return Locator()
 
-    scraper = SorianaScraper(diagnostics_dir=Path("diagnostics"))
+    scraper = SorianaScraper(diagnostics_dir=tmp_path)
     location = SimpleNamespace(city="CDMX", state="CDMX", postal_code=None,
                                store=None, store_id=None)
     category = Category(
