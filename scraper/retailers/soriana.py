@@ -128,7 +128,7 @@ class SorianaScraper:
                 n.innerText, n.getAttribute('aria-label'),
                 n.getAttribute('title'), n.value
               ])
-              .filter(Boolean).map(v => String(v).replace(/\\s+/g, ' ').trim())
+              .filter(Boolean).map(v => String(v).replace(/\s+/g, ' ').trim())
               .filter(Boolean)
           )];
           return {
