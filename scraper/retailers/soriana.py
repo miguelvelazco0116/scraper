@@ -46,6 +46,7 @@ class SorianaScraper:
         self.wait_ms = wait_ms
         self.browser_channel = browser_channel
         self.grid_responses: list[dict[str, Any]] = []
+        self.last_page_meta: dict[str, Any] = {}
 
     def _capture_grid_response(self, response: Response) -> None:
         if not any(marker in response.url for marker in NETWORK_MARKERS):
@@ -272,12 +273,19 @@ class SorianaScraper:
         total_pages = self._total_pages(page)
         max_pages = total_pages if self.max_load_more <= 0 else min(total_pages, self.max_load_more)
         rows: list[dict[str, Any]] = []
+        visited = 0
 
         for page_number in range(1, max_pages + 1):
             if page_number > 1 and not self._go_to_page(page, page_number):
                 break
+            visited += 1
             rows.extend(self._extract_cards(page, category, location))
 
+        self.last_page_meta = {
+            "pages_expected": total_pages,
+            "pages_visited": visited,
+            "pagination_complete": visited == total_pages,
+        }
         return rows
 
     def scrape_category(self, category: Category, location: Location) -> list[dict[str, Any]]:
