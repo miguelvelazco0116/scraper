@@ -272,9 +272,18 @@ def test_probe_with_visible_products_but_no_sku_is_not_ready(monkeypatch):
         def close(self):
             pass
 
-    class DummyBrowser:
-        def new_page(self, **kwargs):
+    class DummyContext:
+        def new_page(self):
             return DummyPage()
+        def close(self):
+            pass
+
+    class DummyBrowser:
+        def new_context(self, **kwargs):
+            assert kwargs["locale"] == "es-MX"
+            return DummyContext()
+        def new_page(self, **kwargs):
+            raise AssertionError("browser.new_page must never be called")
 
     class DummyScraper:
         def __init__(self, max_rounds):
@@ -430,9 +439,18 @@ def test_probe_can_report_ready_after_three_verified_pdp_skus(monkeypatch):
         def close(self):
             pass
 
-    class DummyBrowser:
-        def new_page(self, **kwargs):
+    class DummyContext:
+        def new_page(self):
             return DummyPage()
+        def close(self):
+            pass
+
+    class DummyBrowser:
+        def new_context(self, **kwargs):
+            assert kwargs["locale"] == "es-MX"
+            return DummyContext()
+        def new_page(self, **kwargs):
+            raise AssertionError("browser.new_page must never be called")
 
     class ReadyScraper:
         def __init__(self, **kwargs):
