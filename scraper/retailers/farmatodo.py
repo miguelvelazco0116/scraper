@@ -349,6 +349,7 @@ class FarmatodoScraper:
         meta = {
             "category_id": category.id, "capture_date": now[:10],
             "product_links": len(seen), "products": len(rows),
+            "initial_products": initial_count, "loaded_products": len(seen),
             "target_products": target, "load_more_clicks": rounds,
             "load_more_stalled": stalled,
             "load_more_remaining": more,
