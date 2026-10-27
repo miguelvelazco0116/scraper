@@ -9,7 +9,7 @@ al master productivo; las cinco fases y sus 13 retailers permanecen intactos.
 - CP objetivo: **11590**. Una captura solo puede declararse válida cuando YZA
   muestra explícitamente una dirección seleccionada para dicho código en una
   zona persistente de la página (no basta escribir "11590" en un campo).
-- Chrome del operador + Playwright CDP; tres intentos **por categoría**.
+- Chrome abierto automáticamente por Playwright por defecto; CDP manual opcional cuando el sitio requiera contexto del operador. Tres intentos **por categoría**.
 - No se certifica disponibilidad por tienda si YZA no proporciona pruebas.
 
 ## Pasos en Windows
@@ -28,10 +28,15 @@ python -m pytest tests/test_yza_pilot.py -q
 Si la rama ya existe localmente, ejecutar `git switch feat/yza-cp11590-pilot-20261026`
 y `git pull --ff-only` en lugar de `--track`.
 
-Abrir en Chrome, no en Brave ni Firefox, una pestaña de
-`https://www.yza.mx/cuidado-personal/higiene-bucal/`;
-habilitar `chrome://inspect/#remote-debugging` y confirmar una dirección
-del CP 11590 que YZA reconozca.
+En la rama de Fase 6 `feat/phase6-yza-farmatodo-cli-20261026`,
+Chrome se inicia automáticamente desde el scraper para el primer intento,
+sin abrir previamente una pestaña ni activar CDP.
+Si YZA muestra un bloqueo o no confirma una dirección CP 11590, abrir
+manualmente una pestaña de YZA en Chrome, activar
+`chrome://inspect/#remote-debugging`, seleccionar domicilio CP 11590
+y conectar por `-CdpUrl` (o `-UseExistingChrome` en el runner de Fase 6).
+El código exige una evidencia persistente del CP: completar el formulario
+sin confirmarlo no autoriza una captura.
 
 Primero diagnóstico **sin captura completa**:
 
