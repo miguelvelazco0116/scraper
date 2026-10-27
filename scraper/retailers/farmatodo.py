@@ -170,9 +170,12 @@ def extract_catalogue(page) -> tuple[list[dict], int | None, bool]:
               'h3,h4,[class*="product-name" i],[class*="product-title" i],'
               + '[data-testid*="product-name" i]'
             );
+            const namedLink = [...card.querySelectorAll('a[href]')]
+              .find(link => link.href.split(/[?#]/)[0].replace(/\/+$/, '') === href
+                && (link.innerText || '').trim().length > 8);
             const title = (
-              titleNode?.innerText || a.innerText || a.getAttribute('title')
-              || img?.getAttribute('alt') || ''
+              titleNode?.innerText || namedLink?.innerText || a.innerText
+              || a.getAttribute('title') || img?.getAttribute('alt') || ''
             ).replace(/\s+/g,' ').trim();
             const skuNode = card.querySelector(
               '[data-sku],[data-pid],[data-product-id]'
@@ -186,7 +189,13 @@ def extract_catalogue(page) -> tuple[list[dict], int | None, bool]:
               product_id: card.getAttribute('data-product-id')
                           || skuNode?.getAttribute('data-product-id'),
               image_url: img?.src || null,
-              image_alt: img?.getAttribute('alt') || null
+              image_alt: img?.getAttribute('alt') || null,
+              promo_badge: [...card.querySelectorAll(
+                '[aria-label],[title],img[alt]'
+              )].map(el => (
+                el.getAttribute('aria-label') || el.getAttribute('title')
+                || el.getAttribute('alt') || ''
+              )).find(value => /3\s*\+\s*1/.test(value)) || null
             };
             if (!byUrl.has(href) || text.length < byUrl.get(href).text.length)
               byUrl.set(href, data);
@@ -338,7 +347,8 @@ class FarmatodoScraper:
                 "brand": None, "product": clean_text(card["product"]),
                 "price_current": current, "price_regular": regular,
                 "promotion": promotion_from_card(
-                    card["text"], current, regular
+                    (card["text"] + " " + str(card.get("promo_badge") or "")),
+                    current, regular
                 ),
                 "availability_status": status, "is_available": available,
                 "availability_raw": raw,
