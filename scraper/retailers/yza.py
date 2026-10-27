@@ -118,6 +118,16 @@ def context_evidence(page) -> str | None:
                   .test(value)) {
                 return 'yza_delivery_postal_confirmed:11590';
               }
+              // Some header themes replace the location label with
+              // the bare, applied five-digit CP. Accept it only in
+              // the top-left delivery-control region, not elsewhere.
+              if (value === '11590') {
+                const rect = el.getBoundingClientRect();
+                if (rect.top >= 0 && rect.top <= 180 &&
+                    rect.left >= 0 && rect.left <= 600) {
+                  return 'yza_header_postal_confirmed:11590';
+                }
+              }
             }
           }
           return null;
