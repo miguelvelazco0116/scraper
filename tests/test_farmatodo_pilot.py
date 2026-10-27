@@ -1095,7 +1095,15 @@ def test_farmatodo_real_observed_page_6_fallback_finishes_verified_capture(
     assert meta["load_more_stalled"] is False
     assert meta["load_more_stop_reason"] == "published_target_reached"
     assert meta["public_page_fallbacks"][0]["status"] == "validated_new_products"
-    assert quality(rows, meta)["status"] == "COMPLETE"
+    certified = quality(rows, meta)
+    assert certified["status"] == "COMPLETE"
+    assert certified["pagination_rounds"] == 2
+    assert certified["last_catalogue_url"].endswith("?page=7")
+    import json
+    audited_fallbacks = json.loads(certified["public_page_fallbacks"])
+    assert len(audited_fallbacks) == 1
+    assert audited_fallbacks[0]["candidate_page"] == 7
+    assert audited_fallbacks[0]["new_products"] == 4
 
 
 def test_farmatodo_click_error_is_recovered_when_new_products_arrived(
