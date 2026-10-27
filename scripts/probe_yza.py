@@ -14,7 +14,8 @@ if str(ROOT) not in sys.path:
 from scraper.config import load_categories
 from scraper.retailers.yza_postal_diagnostics import inspect_postal_ui
 from scraper.retailers.yza import (
-    BLOCKED_MARKERS, apply_postal_code, context_evidence, discover_cards, yza_browser_page,
+    BLOCKED_MARKERS, YzaContextError, apply_postal_code, context_evidence,
+    discover_cards, verify_operator_ready_category, yza_browser_page,
 )
 
 REPORT_DIR = ROOT / "diagnostics" / "yza"
@@ -39,12 +40,27 @@ def probe(category_id: str, cdp_url: str = "") -> int:
     try:
         with sync_playwright() as playwright:
             with yza_browser_page(playwright, cdp_url) as page:
-                page.goto(target.url, wait_until="domcontentloaded", timeout=75000)
-                page.wait_for_timeout(1200)
+                postal_flow = {}
+                if cdp_url:
+                    report["browser_mode"] = "operator_prepared_cdp"
+                    # San Pablo-style: attach to the operator's already
+                    # configured YZA tab; never alter the postal popup.
+                    try:
+                        evidence = verify_operator_ready_category(
+                            page, target.url, trace=postal_flow
+                        )
+                    except YzaContextError as exc:
+                        evidence = None
+                        report["manual_session_error"] = str(exc)
+                else:
+                    report["browser_mode"] = "automatic_headed"
+                    page.goto(
+                        target.url, wait_until="domcontentloaded", timeout=75000
+                    )
+                    page.wait_for_timeout(1200)
+                    evidence = apply_postal_code(page, trace=postal_flow)
                 report["site_title"] = page.title()
                 report["landing_url"] = page.url
-                postal_flow = {}
-                evidence = apply_postal_code(page, trace=postal_flow)
                 report["postal_flow"] = postal_flow
                 if evidence:
                     # A visible CP before reload is not enough: certify it
@@ -105,6 +121,8 @@ def probe(category_id: str, cdp_url: str = "") -> int:
     print("YZA PROBE | " + category_id)
     print("CP requerido       : 11590")
     print("CP confirmado      : " + str(report["context_verified"]))
+    if report.get("manual_session_error"):
+        print("Sesión manual      : " + report["manual_session_error"])
     if report.get("postal_flow"):
         flow = report["postal_flow"]
         print("Secuencia CP       : " + str(flow.get("stage")))
