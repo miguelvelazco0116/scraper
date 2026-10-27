@@ -180,3 +180,36 @@ Si el sitio solo permite verificar disponibilidad de UN producto, sin
 mostrar una ubicación global seleccionada, seguir en NEEDS_REVIEW y
 revisar la semántica comercial de precios antes de promover YZA.
 No relajar a context_verified=True ni ejecutar capture productivo.
+
+
+## 27/oct 08:40 — Modal postal confirmado en imagen y prueba real
+
+El usuario aportó captura del modal de YZA: título **Ingresa un código
+postal**, texto "Introduce el código postal en donde deseas recibir tu pedido",
+input con placeholder **Código Postal**, botón **CANCELAR** y botón verde
+**ACEPTAR**. Además, el probe Chrome automático sigue reportando 18 tarjetas
+por página y 20/7 páginas, sin CP 11590 certificado. El diagnóstico encontró
+los controles "INGRESA TU DIRECCIÓN" e "Ingresa un código postal" en el DOM.
+
+Se corrigió el extractor en scraper/retailers/yza.py:
+- Detectar el input **visible** de placeholder Código Postal; si no aparece,
+  abrir el selector mediante el encabezado **INGRESA TU DIRECCIÓN**.
+- Completar exactamente 11590 y hacer clic visible en **ACEPTAR**.
+- Esperar hasta 8 segundos a que YZA muestre el CP **aplicado** en el control
+  persistente del encabezado, excluyendo modales, formularios y elementos ocultos.
+- El probe vuelve a cargar la categoría y repite la verificación antes de
+  permitir READY_FOR_FULL_CAPTURE; el scraper completo la repite en cada página.
+- Una cifra visible en el campo editable NO certifica CP ni permite
+  context_verified=True. Sin prueba persistente la respuesta es NEEDS_REVIEW.
+- No usar sugerencias de autocompletado: corresponden a otra interfaz distinta.
+
+Probar:
+
+    git pull --ff-only
+    python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
+
+Si sigue CP confirmado False después de hacer clic en ACEPTAR, revisar
+la captura local diagnostics/yza/postal_ui_* y la variable postal_ui
+en el JSON; no iniciar captura completa sin evidencia. Para el modo Chrome
+manual, usar -UseExistingChrome con un CP aplicado previamente.
