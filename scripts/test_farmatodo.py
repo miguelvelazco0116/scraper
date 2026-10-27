@@ -220,7 +220,10 @@ def save_excel(items: dict[str, tuple[pd.DataFrame, dict]]) -> None:
         temp.unlink(missing_ok=True)
 
 
-def run_category(browser, category, *, max_rounds: int, probe: bool = False):
+def run_category(
+    browser, category, *, max_rounds: int, probe: bool = False,
+    existing_context: bool = False,
+):
     failures = []
     last_rows: list[dict] = []
     last_summary: dict | None = None
@@ -229,10 +232,28 @@ def run_category(browser, category, *, max_rounds: int, probe: bool = False):
             f"Farmatodo {category.id} · intento {attempt}"
             f"/{1 if probe else MAX_ATTEMPTS}", flush=True
         )
-        page = browser.new_page(
-            viewport={"width": 1440, "height": 1000}, locale="es-MX"
-        )
+        # Newer Playwright builds require browser.new_context() before
+        # context.new_page(). Never use the shortcut browser.new_page().
+        # With operator-owned CDP, reuse the EXISTING context and never
+        # close it (only our temporary page).
+        attempt_context = None
+        page = None
+        context_owned = False
         try:
+            if existing_context:
+                contexts = browser.contexts
+                if not contexts:
+                    raise FarmatodoCaptureError(
+                        "El Chrome CDP no expuso un contexto de navegación"
+                    )
+                attempt_context = contexts[0]
+            else:
+                attempt_context = browser.new_context(
+                    viewport={"width": 1440, "height": 1000},
+                    locale="es-MX",
+                )
+                context_owned = True
+            page = attempt_context.new_page()
             rows, meta = FarmatodoScraper(max_rounds=max_rounds).capture_category(
                 page, category, probe=probe
             )
@@ -279,7 +300,10 @@ def run_category(browser, category, *, max_rounds: int, probe: bool = False):
             failures.append(f"{type(exc).__name__}: {exc}")
             print("ERROR: " + failures[-1])
         finally:
-            page.close()
+            if page is not None:
+                page.close()
+            if context_owned and attempt_context is not None:
+                attempt_context.close()
         if attempt < MAX_ATTEMPTS:
             time.sleep(2)
     if last_summary is not None:
@@ -322,26 +346,21 @@ def main() -> int:
 
     with sync_playwright() as playwright:
         if args.cdp_url:
+            # Optional manual Chrome: use its pre-existing context, but
+            # never close the operator-owned browser or context.
             browser = playwright.chromium.connect_over_cdp(args.cdp_url)
-            # CDP sessions are operator-owned; only close pages opened here.
-            session_context = browser.contexts[0]
-            class ExistingSession:
-                def new_page(self, **kwargs):
-                    return session_context.new_page()
-            owner = ExistingSession()
         else:
             browser = playwright.chromium.launch(
                 headless=not args.headed, channel="chrome"
             )
-            owner = browser
         try:
             for category in categories:
                 if category.id in cache:
                     print(f"REUTILIZADA hoy: {category.id}")
                     continue
                 rows, summary = run_category(
-                    owner, category, max_rounds=args.max_rounds,
-                    probe=args.probe
+                    browser, category, max_rounds=args.max_rounds,
+                    probe=args.probe, existing_context=bool(args.cdp_url),
                 )
                 print(
                     f"{category.id} | {summary['status']} | productos="
