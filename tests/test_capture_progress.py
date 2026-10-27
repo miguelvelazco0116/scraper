@@ -82,3 +82,50 @@ def test_invalid_sequence_rejected(tmp_path):
     progress.start("83420", "cuidado-bucal", attempt=1)
     with pytest.raises(ValueError):
         progress.start("83420", "cuidado-bucal", attempt=1)
+
+
+def test_soriana_capture_emits_retry_events(monkeypatch, tmp_path):
+    """Capture-case hook is CLI-only and does not require a browser."""
+    import pandas as pd
+    from scripts import test_soriana_cp_rotation as cli
+    from types import SimpleNamespace
+
+    called = []
+    statuses = iter(["PARTIAL", "COMPLETE"])
+
+    class Page:
+        def wait_for_timeout(self, millis):
+            pass
+
+    class FakeScraper:
+        def __init__(self, **kwargs):
+            self.last_page_meta = {"pages_visited": 1, "pages_expected": 1, "pagination_complete": True}
+        def _collect_pages(self, page, category, location):
+            return [{"sku": "sku1", "price_current": 70, "url": "https://www.soriana.com/a"}]
+        def _save_diagnostics(self, page, name):
+            pass
+
+    monkeypatch.setattr(cli, "prepare_postal_category", lambda *args: "header_delivery_cp:83420")
+    monkeypatch.setattr(cli, "target_count", lambda page: 1)
+    monkeypatch.setattr(cli, "SorianaScraper", FakeScraper)
+    monkeypatch.setattr(cli, "normalize_frame", lambda rows: pd.DataFrame(rows))
+    monkeypatch.setattr(cli, "classify", lambda *args, **kwargs: {
+        "status": next(statuses),
+        "products": 1, "available_online": 1, "unavailable_online": 0,
+        "availability_unknown": 0, "postal_context_verified": True,
+        "quality_notes": "",
+    })
+    rows, summary = cli.capture_case(
+        Page(), SimpleNamespace(id="cuidado-bucal"), None,
+        "83420", 10,
+        on_attempt=lambda event, attempt, item: called.append((
+            event, attempt, item.get("status") if item else None
+        ))
+    )
+    assert len(rows) == 1
+    assert summary["status"] == "COMPLETE"
+    assert len(json.loads(summary["retry_history"])) == 2
+    assert called == [
+        ("start", 1, None), ("finish", 1, "PARTIAL"),
+        ("start", 2, None), ("finish", 2, "COMPLETE"),
+    ]
