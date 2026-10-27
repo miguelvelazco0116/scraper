@@ -39,33 +39,66 @@ Nunca resetear modificaciones locales para cambiar de rama.
 
     python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
 
-## Modo de navegador: primero Chrome automático
+## Modo San Pablo: abrir YZA manualmente y continuar con la sesión
 
-**No hace falta abrir Chrome previamente.** Los runners de Fase 6 lanzan
-Google Chrome visible mediante Playwright, visitan las URLs configuradas y
-cierran solo los navegadores que ellos mismos abrieron. YZA intenta elegir
-una dirección sugerida del CP **11590** y solo certifica resultados cuando
-ese código se confirma en la página fuera de los campos editables.
-Farmatodo captura catálogo online sin CP, sin inferir disponibilidad local.
+**YZA requiere un Chrome ya abierto, con CP 11590 seleccionado por el
+operador.** Farmatodo conserva su Chrome automático independiente.
+En YZA el scraper no escribe direcciones ni acciona el popup: se conecta por
+CDP a la pestaña existente y comprueba el CP 11590 ANTES de navegar. Si no
+está certificado visiblemente en el contexto de entrega, rechaza el caso.
+Después de entrar a otra categoría/página se vuelve a comprobar el CP.
 
-Si YZA muestra bloqueo o no permite confirmar una dirección, no se fuerza
-ninguna captura. Para probar una sesión Chrome abierta previamente:
+Chrome 136 y posteriores requieren un directorio de perfil no predeterminado
+para usar --remote-debugging-port:
+https://developer.chrome.com/blog/remote-debugging-port
 
-1. Abrir Google Chrome, habilitar
-   chrome://inspect/#remote-debugging y abrir una pestaña de www.yza.mx.
-2. Confirmar manualmente en YZA un domicilio válido con CP **11590**.
-3. Repetir el piloto con el parámetro `-UseExistingChrome`:
+### A. Abrir Chrome por cuenta del operador (PowerShell Windows)
 
-       & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza -UseExistingChrome
+    $chromeExe = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
+    $profile = Join-Path $env:LOCALAPPDATA "ScraperYZAChrome"
+    Start-Process -FilePath $chromeExe -ArgumentList @(
+        "--remote-debugging-port=9222",
+        ('--user-data-dir="{0}"' -f $profile),
+        "https://www.yza.mx/"
+    )
 
-El runner localiza el puerto de depuración activo en DevToolsActivePort. Si
-esa detección falla, se puede pasar el endpoint real de la máquina con
-`-CdpUrl 'http://127.0.0.1:9222'` (solo si Chrome usa ese puerto).
-En modo CDP, no se cierra el navegador ni la pestaña existente del operador.
+Es una ventana de Chrome con perfil independiente del personal, abierta
+por el operador (NO por el scraper). En esta ventana:
+1. Entrar a https://www.yza.mx/.
+2. En el popup "Ingresa un código postal" rellenar **11590**.
+3. Pulsar **ACEPTAR** y comprobar la ubicación aplicada en el encabezado.
+4. Dejar abierta UNA pestaña de YZA. No cerrar Chrome durante el piloto.
+
+Probar que el puerto local está activo:
+
+    Invoke-RestMethod "http://127.0.0.1:9222/json/version" |
+      Select-Object Browser, webSocketDebuggerUrl
+
+### B. Conectar el scraper sin modificar el CP
+
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza -CdpUrl "http://127.0.0.1:9222"
+
+En cada categoría YZA, el probe verifica el CP primero en la pestaña
+preparada, navega si corresponde, vuelve a verificar y recarga.
+Si el código no es observable, el diagnóstico falla de forma segura.
+El modo captura usa la misma sesión y confirma CP en cada página.
+
+Alternativa para Chrome iniciado en depuración desde su propia interfaz:
+usar -UseExistingChrome en vez de -CdpUrl, solo si está disponible un
+DevToolsActivePort local reconocible. La opción explícita 9222 es preferible
+cuando el operador abrió el perfil independiente anterior.
+
+### C. Farmatodo permanece automático
+
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmatodo
+
+Farmatodo no solicita CP y no certifica existencias regionales.
+Si su probe devuelve NEEDS_SKU_REVIEW, revisar los ejemplos de identificadores
+antes de lanzar una captura completa.
 
 ## Prueba A: cinco diagnósticos
 
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer all
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer all -CdpUrl "http://127.0.0.1:9222"
 
 Dos diagnósticos YZA y tres Farmatodo. Un resultado READY_FOR_CAPTURE
 es solo una señal de que pueden intentarse capturas; NO certifica los
@@ -78,7 +111,7 @@ diagnostics/farmatodo/probe_<category>_<date>.json.
 
 ## Prueba B: cinco categorías, captura real
 
-    & .\scripts\run_phase6_pilot.ps1 -Mode capture -Retailer all
+    & .\scripts\run_phase6_pilot.ps1 -Mode capture -Retailer all -CdpUrl "http://127.0.0.1:9222"
 
 La ejecución usa YZA (2 categorías y CP fijo 11590), seguido de
 Farmatodo (3 categorías sin CP). Debe verificar fecha, URL, precio,
@@ -87,9 +120,9 @@ COMPLETE_PILOT.
 
 Se pueden aislar fallas por retailer con:
 
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza -CdpUrl "http://127.0.0.1:9222"
     & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmatodo
-    & .\scripts\run_phase6_pilot.ps1 -Mode capture -Retailer farmacias-yza
+    & .\scripts\run_phase6_pilot.ps1 -Mode capture -Retailer farmacias-yza -CdpUrl "http://127.0.0.1:9222"
     & .\scripts\run_phase6_pilot.ps1 -Mode capture -Retailer farmatodo
 
 ## Archivos de diagnóstico
@@ -127,7 +160,7 @@ código. No declarar READY_FOR_CAPTURE para Farmatodo con 0 SKU.
 
     git pull --ff-only
     python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza -CdpUrl "http://127.0.0.1:9222"
     & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmatodo
 
 Si hay bloqueo o YZA requiere una dirección aplicada manualmente:
@@ -163,7 +196,7 @@ la captura con terceros.
 
     git pull --ff-only
     python -m pytest tests/test_yza_pilot.py tests/test_phase6_pilot.py tests/test_farmatodo_pilot.py -v
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza -CdpUrl "http://127.0.0.1:9222"
 
 ### Fallback a navegador ya abierto, solo si se necesita
 
@@ -207,7 +240,7 @@ Probar:
 
     git pull --ff-only
     python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza -CdpUrl "http://127.0.0.1:9222"
 
 Si sigue CP confirmado False después de hacer clic en ACEPTAR, revisar
 la captura local diagnostics/yza/postal_ui_* y la variable postal_ui
@@ -242,7 +275,7 @@ Para el próximo diagnóstico aislado:
 
     git pull --ff-only
     python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza -CdpUrl "http://127.0.0.1:9222"
 
 **Si el reporte muestra accept_clicked=true pero context_verified=false,
 no ampliar ni relajar la prueba de CP**: examinar el encabezado real después
@@ -270,3 +303,20 @@ Por tanto, el orden correcto es:
 
 Nuevos tests offline comprueban que el modal inicial tenga prioridad
 sobre el encabezado y que un popup visible sin campo no pueda pasar.
+
+
+## Cambio de estrategia aprobado: continuación manual (27/oct/2026)
+
+El operador decidió abandonar la selección automática del popup de YZA:
+"yo abro el navegador y de ahí continúas, al estilo Farmacias San Pablo".
+
+En la rama del PR #99, toda ejecución oficial de YZA por
+run_phase6_pilot.py/.ps1 requiere un endpoint CDP local. El helper de
+navegador exige una pestaña YZA ya abierta y NO crea ni cierra pestañas
+del operador. El scraper y el probe invocan verify_operator_ready_category
+y se niegan a escribir/modificar el CP: comprueban 11590 persistente primero
+en la pestaña y después de navegar a la categoría.
+
+Las secciones anteriores de esta página sobre intentos automáticos con el
+popup se conservan como **historial de diagnóstico**, no como estrategia
+vigente. La estrategia activa se describe en "Modo San Pablo" arriba.
