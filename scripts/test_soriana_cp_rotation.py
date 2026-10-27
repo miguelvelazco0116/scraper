@@ -380,9 +380,11 @@ def main() -> int:
             return 11
         for cp in codes:
             existing = load_cache(cp, day)
-            # Do not allow cached categories outside this requested run to
-            # mask a missing category or change the denominator.
-            items = {cat.id: existing[cat.id] for cat in cats if cat.id in existing}
+            # Preserve every previously COMPLETE category for this CP/day,
+            # including categories outside this CLI request. In particular,
+            # running Gastrointestinales after the six regular categories
+            # must not overwrite their rows in the per-CP workbook.
+            items = dict(existing)
             for cat in cats:
                 key = cat.id
                 if key in existing:
@@ -393,13 +395,18 @@ def main() -> int:
                 )
                 items[key] = (pd.DataFrame(rows, columns=COLUMNS), summary)
                 save_cp(cp, items)
-            results[cp] = [entry[1] for entry in items.values()]
+            # Only the requested categories determine this run's status:
+            # preserved data from earlier category-specific runs cannot
+            # mask an unfinished requested case.
+            results[cp] = [
+                items[cat.id][1] for cat in cats if cat.id in items
+            ]
 
     DIAG.mkdir(parents=True, exist_ok=True)
     status = all(
         row.get("status") == "COMPLETE"
         for entries in results.values() for row in entries
-    ) and all(len(entries) >= len(cats) for entries in results.values())
+    ) and all(len(entries) == len(cats) for entries in results.values())
     report = DIAG / f"rotation_{day}.json"
     report.write_text(
         json.dumps({
