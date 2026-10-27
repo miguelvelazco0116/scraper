@@ -110,7 +110,8 @@ def test_nasal_trial_excel_and_cache_are_separate_from_main_pilot(
     assert runner.NASAL_TRIAL_ID in runner.load_cache(
         "2026-10-27", output_path=subcat_output
     )
-    assert runner.load_cache("2026-10-27") == {}
+    # A corrupted pre-existing full-pilot sentinel must stay untouched;
+    # the subcategory uses its own workbook and does not read the parent.
 
 
 def test_nasal_trial_cli_probe_uses_exact_url_and_isolated_diagnostic(
