@@ -191,7 +191,15 @@ def run_category(browser, category, *, max_rounds: int, probe: bool = False):
             result["attempts"] = attempt
             last_rows, last_summary = rows, result
             if probe:
-                result["status"] = "PROBE" if rows else "ERROR"
+                # Preview coverage is deliberately partial; require at least
+                # one identifiable priced product before declaring probe-ready.
+                found_sku = sum(bool(row.get("sku")) for row in rows)
+                priced = sum(bool(row.get("price_current")) for row in rows)
+                result["sku_debug_samples"] = meta.get("sku_debug_samples", [])
+                result["probe_sku_identified"] = found_sku
+                result["status"] = (
+                    "PROBE" if rows and found_sku and priced else "NEEDS_SKU_REVIEW"
+                )
             if result["status"] == "COMPLETE" or probe:
                 return rows, result
             failures.append(result["quality_notes"])
