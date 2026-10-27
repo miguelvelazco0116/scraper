@@ -25,6 +25,9 @@ if (-not $PythonExe -or -not (Test-Path $PythonExe)) {
 }
 
 
+if (-not $CdpUrl) {
+    throw "Este piloto de YZA requiere Chrome abierto por el operador y -CdpUrl (o usa run_phase6_pilot.ps1 -UseExistingChrome)."
+}
 Write-Host "FARMACIAS YZA - TESTING CLI"
 Write-Host "CP fijo     : 11590"
 Write-Host "Categorias  : $Category"
@@ -33,7 +36,7 @@ Write-Host "Python      : $PythonExe"
 if ($Probe -and $Category -eq "all") { $Category = "higiene-bucal" }
 $argsList = @("--category", $Category)
 if ($CdpUrl) { $argsList += @("--cdp-url", $CdpUrl) }
-Write-Host ("Navegador  : " + $(if ($CdpUrl) { "Chrome manual (CDP)" } else { "Chrome automatico" }))
+Write-Host ("Navegador  : " + "Chrome manual (CDP, CP 11590 ya aplicado)")
 if ($Probe) {
     & $PythonExe ".\scripts\probe_yza.py" @argsList
 } else {
