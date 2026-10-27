@@ -39,54 +39,57 @@ Nunca resetear modificaciones locales para cambiar de rama.
 
     python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
 
-## Modo San Pablo: abrir YZA manualmente y continuar con la sesión
+## Modo HEB: abrir YZA manualmente y conectar el scraper
 
-**YZA requiere un Chrome ya abierto, con CP 11590 seleccionado por el
-operador.** Farmatodo conserva su Chrome automático independiente.
-En YZA el scraper no escribe direcciones ni acciona el popup: se conecta por
-CDP a la pestaña existente y comprueba el CP 11590 ANTES de navegar. Si no
-está certificado visiblemente en el contexto de entrega, rechaza el caso.
-Después de entrar a otra categoría/página se vuelve a comprobar el CP.
+**Este es el método VIGENTE para Farmacias YZA.** El operador abre Google
+Chrome de manera normal, visita https://www.yza.mx/ y acepta manualmente
+el CP 11590 en el popup. El scraper solo lee la ubicación ya aplicada y
+continúa en la misma pestaña por CDP; nunca rellena el popup ni cierra
+el Chrome del operador.
 
-Chrome 136 y posteriores requieren un directorio de perfil no predeterminado
-para usar --remote-debugging-port:
-https://developer.chrome.com/blog/remote-debugging-port
+**Chrome necesita la depuración remota activada**. No es posible conectar
+Playwright a un navegador arbitrario que no expone ese protocolo.
 
-### A. Abrir Chrome por cuenta del operador (PowerShell Windows)
+### A. En Chrome (el usuario controla la sesión)
 
-    $chromeExe = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
-    $profile = Join-Path $env:LOCALAPPDATA "ScraperYZAChrome"
-    Start-Process -FilePath $chromeExe -ArgumentList @(
-        "--remote-debugging-port=9222",
-        ('--user-data-dir="{0}"' -f $profile),
-        "https://www.yza.mx/"
-    )
+1. Abrir Google Chrome normalmente.
+2. En la barra de direcciones abrir chrome://inspect/#remote-debugging
+3. Activar **Allow remote debugging for this browser instance** y aceptar
+   el permiso, si Chrome lo solicita. Este es el flujo ya usado por HEB.
+4. En otra pestaña DE LA MISMA VENTANA abrir https://www.yza.mx/
+5. En el popup **Ingresa un código postal**, escribir **11590** y
+   pulsar **ACEPTAR**.
+6. Confirmar visualmente que YZA muestra el CP aplicado en el contexto
+   persistente de entrega, y **dejar abierta la pestaña y Chrome**.
 
-Es una ventana de Chrome con perfil independiente del personal, abierta
-por el operador (NO por el scraper). En esta ventana:
-1. Entrar a https://www.yza.mx/.
-2. En el popup "Ingresa un código postal" rellenar **11590**.
-3. Pulsar **ACEPTAR** y comprobar la ubicación aplicada en el encabezado.
-4. Dejar abierta UNA pestaña de YZA. No cerrar Chrome durante el piloto.
+### B. Desde PowerShell, reutilizar ese Chrome
 
-Probar que el puerto local está activo:
+    cd C:\Proyectos\scraper
+    & C:\Proyectos\venvs\scraper\Scripts\Activate.ps1
+    git pull --ff-only
+    python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
 
-    Invoke-RestMethod "http://127.0.0.1:9222/json/version" |
-      Select-Object Browser, webSocketDebuggerUrl
+Igual que scripts/test_heb.ps1, el wrapper:
+- Busca procesos Chrome ya abiertos, sin iniciarlos.
+- Descubre los DevToolsActivePort del Chrome del usuario (también el perfil
+  independiente ScraperYZAChrome), ordenados por actividad reciente.
+- Consulta el endpoint local /json/version para descartar puertos cerrados
+  u obsoletos; comprueba que /json/list contiene una pestaña YZA.
+- Usa ese puerto REAL para conectar al navegador ya abierto.
+- Si no encuentra conexión o pestaña, falla inmediatamente sin correr
+  dos diagnósticos con ECONNREFUSED ni alterar el master.
+- En cada categoría comprueba CP **11590** aplicado en la cabecera antes
+  y después de navegar, y nuevamente después de recargar la página.
 
-### B. Conectar el scraper sin modificar el CP
+Opcional: si conoces un endpoint local CDP real, puedes pasarlo con
+-CdpUrl. Nunca supongas que 9222 está activo.
 
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza -CdpUrl "http://127.0.0.1:9222"
-
-En cada categoría YZA, el probe verifica el CP primero en la pestaña
-preparada, navega si corresponde, vuelve a verificar y recarga.
-Si el código no es observable, el diagnóstico falla de forma segura.
-El modo captura usa la misma sesión y confirma CP en cada página.
-
-Alternativa para Chrome iniciado en depuración desde su propia interfaz:
-usar -UseExistingChrome en vez de -CdpUrl, solo si está disponible un
-DevToolsActivePort local reconocible. La opción explícita 9222 es preferible
-cuando el operador abrió el perfil independiente anterior.
+Nota: Los argumentos --remote-debugging-port en Chrome 136+ requieren
+un perfil no predeterminado, según la guía oficial de Chrome. El método
+chrome://inspect usado por HEB evita que tengas que escribir o adivinar
+un puerto en PowerShell. Si Chrome no muestra una conexión activa,
+revisar sus controles de depuración y el archivo DevToolsActivePort.
 
 ### C. Farmatodo permanece automático
 
@@ -98,7 +101,7 @@ antes de lanzar una captura completa.
 
 ## Prueba A: cinco diagnósticos
 
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer all -CdpUrl "http://127.0.0.1:9222"
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer all
 
 Dos diagnósticos YZA y tres Farmatodo. Un resultado READY_FOR_CAPTURE
 es solo una señal de que pueden intentarse capturas; NO certifica los
@@ -111,7 +114,7 @@ diagnostics/farmatodo/probe_<category>_<date>.json.
 
 ## Prueba B: cinco categorías, captura real
 
-    & .\scripts\run_phase6_pilot.ps1 -Mode capture -Retailer all -CdpUrl "http://127.0.0.1:9222"
+    & .\scripts\run_phase6_pilot.ps1 -Mode capture -Retailer all
 
 La ejecución usa YZA (2 categorías y CP fijo 11590), seguido de
 Farmatodo (3 categorías sin CP). Debe verificar fecha, URL, precio,
@@ -120,9 +123,9 @@ COMPLETE_PILOT.
 
 Se pueden aislar fallas por retailer con:
 
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza -CdpUrl "http://127.0.0.1:9222"
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
     & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmatodo
-    & .\scripts\run_phase6_pilot.ps1 -Mode capture -Retailer farmacias-yza -CdpUrl "http://127.0.0.1:9222"
+    & .\scripts\run_phase6_pilot.ps1 -Mode capture -Retailer farmacias-yza
     & .\scripts\run_phase6_pilot.ps1 -Mode capture -Retailer farmatodo
 
 ## Archivos de diagnóstico
@@ -160,7 +163,7 @@ código. No declarar READY_FOR_CAPTURE para Farmatodo con 0 SKU.
 
     git pull --ff-only
     python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza -CdpUrl "http://127.0.0.1:9222"
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
     & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmatodo
 
 Si hay bloqueo o YZA requiere una dirección aplicada manualmente:
@@ -196,7 +199,7 @@ la captura con terceros.
 
     git pull --ff-only
     python -m pytest tests/test_yza_pilot.py tests/test_phase6_pilot.py tests/test_farmatodo_pilot.py -v
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza -CdpUrl "http://127.0.0.1:9222"
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
 
 ### Fallback a navegador ya abierto, solo si se necesita
 
@@ -240,7 +243,7 @@ Probar:
 
     git pull --ff-only
     python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza -CdpUrl "http://127.0.0.1:9222"
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
 
 Si sigue CP confirmado False después de hacer clic en ACEPTAR, revisar
 la captura local diagnostics/yza/postal_ui_* y la variable postal_ui
@@ -275,7 +278,7 @@ Para el próximo diagnóstico aislado:
 
     git pull --ff-only
     python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza -CdpUrl "http://127.0.0.1:9222"
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
 
 **Si el reporte muestra accept_clicked=true pero context_verified=false,
 no ampliar ni relajar la prueba de CP**: examinar el encabezado real después
