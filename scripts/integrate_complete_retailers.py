@@ -42,8 +42,6 @@ EXPECTED = {
     3: {"Bodega Aurrera": 3, "Walmart": 3},
     4: {"Farmacias San Pablo": 4, "Farmacias Benavides": 3},
     5: {"Farmacias Similares": 2, "HEB": 2, "Sam's Club": 3, "Mayorista Duero": 6},
-    # Fase 6 is integrated by scripts/integrate_phase6_yza.py, not this CLI.
-    6: {"Farmacias YZA": 2},
 }
 PHASE2_FILES = {
     "Farmacias Guadalajara": ROOT / "output" / "farmacias_guadalajara_phase2_test.xlsx",
