@@ -13,7 +13,7 @@ from scraper.config import load_categories, load_locations
 from scraper.retailers.yza import (
     POSTAL_CODE, YzaContextError, YzaScraper,
     page_url, prices_from_card, product_sku, yza_browser_page,
-    apply_postal_code, context_evidence,
+    apply_postal_code, context_evidence, verify_operator_ready_category,
 )
 
 
@@ -144,6 +144,100 @@ def test_yza_manual_cdp_reuses_tab_without_closing_operators_browser():
         assert opened is page
 
 
+
+
+
+def test_yza_manual_session_verifies_cp_before_navigating(monkeypatch):
+    from scraper.retailers import yza as module
+
+    class PreparedPage:
+        url = "https://www.yza.mx/"
+        cp = "11590"
+        events = []
+        def goto(self, url, **kwargs):
+            self.events.append("navigate")
+            self.url = url
+        def wait_for_timeout(self, ms):
+            self.events.append("wait")
+
+    page = PreparedPage()
+    def visible_header(p):
+        p.events.append("verify")
+        return "header_cp:11590" if p.cp == "11590" else None
+    monkeypatch.setattr(module, "context_evidence", visible_header)
+    trace = {}
+    category = "https://www.yza.mx/medicamentos/respiratorio/"
+    assert verify_operator_ready_category(page, category, trace) == "header_cp:11590"
+    assert page.events == ["verify", "navigate", "wait", "verify"]
+    assert trace["postal_visible_before_navigation"] is True
+    assert trace["postal_visible_after_navigation"] is True
+    assert trace["stage"] == "operator_postal_verified"
+
+
+def test_yza_manual_session_rejects_wrong_cp_without_navigation(monkeypatch):
+    from scraper.retailers import yza as module
+
+    class WrongPage:
+        url = "https://www.yza.mx/"
+        def goto(self, *args, **kwargs):
+            raise AssertionError("Must not navigate before CP verification")
+    page = WrongPage()
+    monkeypatch.setattr(module, "context_evidence", lambda _: None)
+    trace = {}
+    with pytest.raises(YzaContextError, match="11590"):
+        verify_operator_ready_category(
+            page, "https://www.yza.mx/medicamentos/respiratorio/", trace
+        )
+    assert trace["stage"] == "operator_postal_not_verified"
+
+
+def test_yza_manual_session_rejects_lost_cp_after_navigation(monkeypatch):
+    from scraper.retailers import yza as module
+
+    class LostPage:
+        url = "https://www.yza.mx/"
+        cp = "11590"
+        def goto(self, url, **kwargs):
+            self.url = url
+            self.cp = "44220"
+        def wait_for_timeout(self, ms):
+            pass
+
+    monkeypatch.setattr(
+        module, "context_evidence",
+        lambda p: "header_cp:11590" if p.cp == "11590" else None,
+    )
+    trace = {}
+    with pytest.raises(YzaContextError, match="no conserva"):
+        verify_operator_ready_category(
+            LostPage(), "https://www.yza.mx/cuidado-personal/higiene-bucal/",
+            trace,
+        )
+    assert trace["postal_visible_before_navigation"] is True
+    assert trace["postal_visible_after_navigation"] is False
+    assert trace["stage"] == "operator_postal_lost_after_navigation"
+
+
+def test_yza_manual_cdp_requires_preopened_yza_tab():
+    class Chromium:
+        def connect_over_cdp(self, url):
+            assert url == "http://127.0.0.1:9222"
+            return SimpleNamespace(
+                contexts=[SimpleNamespace(pages=[
+                    SimpleNamespace(url="https://www.google.com/")
+                ], new_page=lambda: (_ for _ in ()).throw(
+                    AssertionError("Must not open a tab automatically")
+                ))]
+            )
+        def launch(self, **kwargs):
+            raise AssertionError("Must connect to Chrome, not launch it")
+
+    with pytest.raises(YzaContextError, match="pestaña"):
+        with yza_browser_page(
+            SimpleNamespace(chromium=Chromium()),
+            "http://127.0.0.1:9222",
+        ):
+            raise AssertionError("Should not yield an unrelated tab")
 
 
 def test_yza_postal_probe_metadata_excludes_typed_addresses():
