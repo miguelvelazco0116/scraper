@@ -1,4 +1,4 @@
-"""Read-only browser probe for YZA CP 11590. Does not scrape full catalogues."""
+"""Read-only YZA online-catalogue probe; location checks are disabled."""
 from __future__ import annotations
 
 import argparse
@@ -12,10 +12,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scraper.config import load_categories
-from scraper.retailers.yza_postal_diagnostics import inspect_postal_ui
 from scraper.retailers.yza import (
-    BLOCKED_MARKERS, YzaContextError, apply_postal_code, context_evidence,
-    discover_cards, verify_operator_ready_category, yza_browser_page,
+    BLOCKED_MARKERS, discover_cards, open_online_category, yza_browser_page,
 )
 
 REPORT_DIR = ROOT / "diagnostics" / "yza"
@@ -33,66 +31,26 @@ def probe(category_id: str, cdp_url: str = "") -> int:
     report = {
         "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
         "category_id": category_id, "url": target.url,
-        "required_postal_code": "11590",
+        "postal_verification_required": False,
+        "postal_code": None,
+        "store_context_verified": False,
+        "scope": "ONLINE_CATALOGUE_NO_LOCATION_VERIFICATION",
         "master_modified": False,
-        "status": "ERROR", "context_verified": False,
+        "status": "ERROR",
     }
     try:
         with sync_playwright() as playwright:
             with yza_browser_page(playwright, cdp_url) as page:
-                postal_flow = {}
+                report["browser_mode"] = (
+                    "operator_prepared_cdp" if cdp_url else "automatic_headed"
+                )
                 if cdp_url:
-                    report["browser_mode"] = "operator_prepared_cdp"
-                    # San Pablo-style: attach to the operator's already
-                    # configured YZA tab; never alter the postal popup.
-                    try:
-                        evidence = verify_operator_ready_category(
-                            page, target.url, trace=postal_flow
-                        )
-                    except YzaContextError as exc:
-                        evidence = None
-                        report["manual_session_error"] = str(exc)
+                    open_online_category(page, target.url)
                 else:
-                    report["browser_mode"] = "automatic_headed"
-                    page.goto(
-                        target.url, wait_until="domcontentloaded", timeout=75000
-                    )
+                    page.goto(target.url, wait_until="domcontentloaded", timeout=75000)
                     page.wait_for_timeout(1200)
-                    evidence = apply_postal_code(page, trace=postal_flow)
                 report["site_title"] = page.title()
                 report["landing_url"] = page.url
-                report["postal_flow"] = postal_flow
-                if evidence:
-                    # A visible CP before reload is not enough: certify it
-                    # survives a fresh category load, as full capture requires.
-                    page.reload(wait_until="domcontentloaded", timeout=75000)
-                    page.wait_for_timeout(950)
-                    evidence = context_evidence(page)
-                    report["postal_recheck_after_reload"] = bool(evidence)
-                report["context_verified"] = bool(evidence)
-                report["context_evidence"] = evidence
-                if not evidence:
-                    # Inspect the actual address UI. A product-specific
-                    # availability dialog must NOT be taken as proof that
-                    # a delivery postcode was applied site-wide.
-                    try:
-                        report["postal_ui"] = inspect_postal_ui(page)
-                    except Exception as diagnostic_error:
-                        report["postal_ui_error"] = (
-                            f"{type(diagnostic_error).__name__}: {diagnostic_error}"
-                        )
-                    try:
-                        REPORT_DIR.mkdir(parents=True, exist_ok=True)
-                        image_path = REPORT_DIR / (
-                            "postal_ui_" + category_id + "_" +
-                            datetime.now().strftime("%Y%m%d_%H%M%S") + ".png"
-                        )
-                        page.screenshot(path=str(image_path), full_page=False)
-                        report["postal_ui_screenshot"] = str(image_path)
-                    except Exception as diagnostic_error:
-                        report["screenshot_error"] = (
-                            f"{type(diagnostic_error).__name__}: {diagnostic_error}"
-                        )
                 cards, last_page = discover_cards(page)
                 report["visible_product_links"] = len(cards)
                 report["pager_last_page"] = last_page
@@ -103,7 +61,7 @@ def probe(category_id: str, cdp_url: str = "") -> int:
                     report["error"] = "El sitio mostró un bloqueo o desafío de verificación."
                 else:
                     report["status"] = (
-                        "READY_FOR_FULL_CAPTURE" if evidence and cards and last_page
+                        "READY_FOR_FULL_CAPTURE" if cards and last_page
                         else "NEEDS_REVIEW"
                     )
     except Exception as exc:
@@ -119,22 +77,9 @@ def probe(category_id: str, cdp_url: str = "") -> int:
         encoding="utf-8",
     )
     print("YZA PROBE | " + category_id)
-    print("CP requerido       : 11590")
-    print("CP confirmado      : " + str(report["context_verified"]))
-    if report.get("manual_session_error"):
-        print("Sesión manual      : " + report["manual_session_error"])
-    if report.get("postal_flow"):
-        flow = report["postal_flow"]
-        print("Secuencia CP       : " + str(flow.get("stage")))
-        print("Campo CP visible   : " + str(flow.get("postal_field_visible")))
-        print("ACEPTAR visible    : " + str(flow.get("accept_visible")))
-        print("ACEPTAR pulsado    : " + str(flow.get("accept_clicked", False)))
-        if flow.get("form_action_error_type"):
-            print("Error formulario   : " + str(flow["form_action_error_type"]))
-        if flow.get("postal_subdialog_clicked"):
-            print("Submodal postal    : intentado")
-        if flow.get("postal_field_still_visible_after_accept") is not None:
-            print("Campo sigue abierto: " + str(flow["postal_field_still_visible_after_accept"]))
+    print("Localidad          : SIN VERIFICACION (catalogo online)")
+    print("CP obligatorio     : No")
+    print("Contexto geográfico: NO CERTIFICADO")
     print("Tarjetas visibles  : " + str(report.get("visible_product_links", 0)))
     print("Ultima pagina      : " + str(report.get("pager_last_page")))
     if report.get("postal_ui") is not None:
@@ -160,7 +105,7 @@ def main() -> int:
         "--category", choices=("medicamentos-respiratorio", "higiene-bucal"),
         default="higiene-bucal",
     )
-    parser.add_argument("--cdp-url", required=True, help="Chrome previamente abierto por el operador, con CP 11590 aplicado.")
+    parser.add_argument("--cdp-url", required=True, help="Chrome previamente abierto por el operador; sin CP obligatorio.")
     args = parser.parse_args()
     return probe(args.category, args.cdp_url)
 
