@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from ..availability import AVAILABLE, UNAVAILABLE, UNKNOWN
 from ..parsers import clean_text
@@ -341,6 +341,100 @@ def inspect_public_pagination_ui(page, category_url: str) -> dict:
     return data if isinstance(data, dict) else {
         "diagnostic_unavailable": "unexpected_result_type"
     }
+
+
+def next_observed_public_page_url(current_url: str, category_url: str) -> str | None:
+    """Increment ONLY an already observed ?page=N on this same public route.
+
+    A discovered URL is a hypothesis, not evidence of a page of products.
+    The caller MUST validate navigation and genuinely new priced cards.
+    Never manufacture an unobserved query parameter or another route.
+    """
+    current, category = urlparse(current_url), urlparse(category_url)
+    if (current.scheme != "https" or current.netloc != HOST
+            or category.scheme != "https" or category.netloc != HOST
+            or current.path.rstrip("/") != category.path.rstrip("/")):
+        return None
+    params = parse_qsl(current.query, keep_blank_values=True)
+    values = [value for key, value in params if key == "page"]
+    if len(values) != 1 or not values[0].isdigit():
+        return None
+    page_number = int(values[0])
+    if not 2 <= page_number < 200:
+        return None
+    query = urlencode([
+        (key, str(page_number + 1) if key == "page" else value)
+        for key, value in params
+    ])
+    return urlunparse((
+        current.scheme, current.netloc, current.path,
+        current.params, query, "",
+    ))
+
+
+def visit_next_observed_public_page(
+    page, category, seen: dict[str, dict], target: int | None,
+) -> dict:
+    """Try one public page derived from the observed navigation pattern.
+
+    Browser page loads are NOT accepted on their own: the URL must remain
+    on the requested category, the published total cannot change, and at
+    least one new priced product URL must appear in the rendered catalogue.
+    On failure, the caller keeps its existing rows and reports PARTIAL.
+    """
+    previous_url = page.url
+    candidate = next_observed_public_page_url(
+        previous_url, category.url
+    )
+    if candidate is None:
+        return {"status": "no_observed_page_parameter"}
+    proposed_page = int(dict(parse_qsl(urlparse(candidate).query))["page"])
+    evidence = {
+        "status": "not_loaded",
+        "observed_page": proposed_page - 1,
+        "candidate_page": proposed_page,
+        "candidate_url": candidate,
+        "new_products": 0,
+        "checks": 0,
+    }
+    try:
+        page.goto(
+            candidate, wait_until="domcontentloaded", timeout=60000
+        )
+        final_url = urlparse(page.url)
+        final_params = dict(parse_qsl(final_url.query))
+        if (final_url.scheme != "https" or final_url.netloc != HOST
+                or final_url.path.rstrip("/") !=
+                    urlparse(category.url).path.rstrip("/")
+                or final_params.get("page") != str(proposed_page)):
+            evidence["status"] = "navigation_redirected"
+            return evidence
+        for check in range(1, 21):
+            validate_category_page(page, category)
+            cards, published_total, has_more = extract_catalogue(page)
+            evidence["checks"] = check
+            if (isinstance(target, int) and target > 0
+                    and published_total is not None
+                    and published_total != target):
+                evidence["status"] = "published_total_changed"
+                evidence["reported_total"] = published_total
+                return evidence
+            unique = [card for card in cards if card["url"] not in seen]
+            if unique:
+                evidence["status"] = "validated_new_products"
+                evidence["new_products"] = len(unique)
+                evidence["cards"] = cards
+                evidence["has_more"] = has_more
+                evidence["published_total"] = published_total
+                return evidence
+            if check < 20:
+                page.wait_for_timeout(750)
+        evidence["status"] = "no_new_priced_products"
+    except Exception as exc:
+        evidence["status"] = "navigation_error"
+        evidence["error_type"] = type(exc).__name__
+        evidence["error_message"] = str(exc)[:220]
+    return evidence
 
 
 class FarmatodoScraper:
