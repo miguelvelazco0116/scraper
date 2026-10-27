@@ -288,6 +288,55 @@ def test_yza_postal_input_or_clicked_aceptar_alone_is_not_proof():
     assert page.header_cp == "52164"
 
 
+def test_yza_two_step_address_chooser_to_postal_modal():
+    """Header can open address chooser; a second click opens postal input."""
+    class NestedPostalPage(FakeYzaPostalPage):
+        def __init__(self):
+            super().__init__(popup_open=False)
+            self.address_chooser_open = False
+
+        def open_popup(self):
+            self.events.append("open_address_chooser")
+            self.address_chooser_open = True
+
+        def get_by_text(self, text, exact=False):
+            if text.search("INGRESA TU DIRECCIÓN"):
+                return FakeYzaPostalLocator([
+                    FakeYzaPostalControl(click=self.open_popup)
+                ])
+            if (text.search("Ingresa un código postal")
+                    and self.address_chooser_open):
+                def open_postal():
+                    self.events.append("open_postal_modal")
+                    self.popup_open = True
+                return FakeYzaPostalLocator([
+                    FakeYzaPostalControl(click=open_postal)
+                ])
+            return FakeYzaPostalLocator([])
+
+    page = NestedPostalPage()
+    flow = {}
+    result = apply_postal_code(page, trace=flow)
+    assert result == "yza_delivery_postal_confirmed:11590"
+    assert page.events == [
+        "open_address_chooser", "open_postal_modal", "fill", "accept"
+    ]
+    assert flow["postal_subdialog_clicked"] is True
+    assert flow["accept_clicked"] is True
+    assert flow["stage"] == "applied_postal_confirmed"
+
+
+def test_yza_cp_trace_distinguishes_click_from_applied_context():
+    page = FakeYzaPostalPage(popup_open=True, persist=False, old_cp="52164")
+    trace = {}
+    assert apply_postal_code(page, trace=trace) is None
+    assert trace["field_filled"] is True
+    assert trace["accept_clicked"] is True
+    assert trace["stage"] == "accept_clicked_but_postal_not_confirmed"
+    assert "entered" not in trace
+    assert page.header_cp == "52164"
+
+
 def test_yza_postal_evidence_rejects_non_location_values():
     class StubPage:
         def evaluate(self, js):
