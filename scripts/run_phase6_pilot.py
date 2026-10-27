@@ -1,8 +1,8 @@
-"""CLI-only Phase 6 pilot: YZA + Farmatodo location-unverified online catalogues.
+"""CLI-only Phase 6 pilot: Farmacias YZA, online catalogue without CP.
 
-This coordinator is deliberately NOT part of the productive pipeline or master.
-Probe mode tests five category pages; capture mode checks five actual category
-results and isolated workbooks before reporting COMPLETE_PILOT.
+This coordinator remains isolated from productive phases 1-5, their master,
+and the dashboard. Farmatodo is retired from active phase-6 scope.
+Probe tests YZA's two categories; capture validates its dated workbook.
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from scraper.config import load_categories
 
 MANIFEST = ROOT / "config" / "phase6" / "retailers.yaml"
 PHASE6_REPORT = ROOT / "diagnostics" / "phase6" / "last_run.json"
-RETAILERS = ("farmacias-yza", "farmatodo")
+RETAILERS = ("farmacias-yza",)
 EXPECTED = {
     "farmacias-yza": {
         "categories": {"medicamentos-respiratorio", "higiene-bucal"},
@@ -32,12 +32,7 @@ EXPECTED = {
         "workbook": ROOT / "output" / "yza_online_test.xlsx",
         "name": "Farmacias YZA",
     },
-    "farmatodo": {
-        "categories": {"respiratorios", "cuidado-bucal", "higiene-personal"},
-        "report": ROOT / "diagnostics" / "farmatodo" / "last_run.json",
-        "workbook": ROOT / "output" / "pilots" / "farmatodo" / "catalogo_online.xlsx",
-        "name": "Farmatodo",
-    },
+
 }
 
 
@@ -51,10 +46,9 @@ def validated_manifest() -> dict:
         raise ValueError("Contrato de piloto Fase 6 incorrecto.")
     items = obj.get("retailers") or []
     if [item.get("id") for item in items] != list(RETAILERS):
-        raise ValueError("Fase 6 requiere YZA y Farmatodo en ese orden.")
+        raise ValueError("Fase 6 requiere únicamente Farmacias YZA.")
     catalogues = {
         "farmacias-yza": ROOT / "config" / "yza" / "categories.yaml",
-        "farmatodo": ROOT / "config" / "farmatodo" / "categories.yaml",
     }
     for item in items:
         rid = item["id"]
@@ -92,15 +86,14 @@ def validate_capture(retailer_id: str, day: str) -> dict:
         raise ValueError(f"{retailer_id}: reporte de una fecha diferente.")
     if report.get("master_modified") is not False:
         raise ValueError(f"{retailer_id}: reporte no declara master intacto.")
-    if retailer_id == "farmacias-yza":
-        if (report.get("complete_pilot") is not True
-                or report.get("postal_code") is not None
-                or report.get("postal_verification_required") is not False
-                or report.get("store_context_verified") is not False
-                or report.get("scope") != "ONLINE_CATALOGUE_NO_LOCATION_VERIFICATION"):
-            raise ValueError("YZA: categoria incompleta o contexto online invalido.")
-    elif report.get("complete") is not True or report.get("postal_verification_required") is not False:
-        raise ValueError("Farmatodo: 3 categorias o alcance postal invalido.")
+    if retailer_id != "farmacias-yza":
+        raise ValueError("Fase 6 solo permite Farmacias YZA.")
+    if (report.get("complete_pilot") is not True
+            or report.get("postal_code") is not None
+            or report.get("postal_verification_required") is not False
+            or report.get("store_context_verified") is not False
+            or report.get("scope") != "ONLINE_CATALOGUE_NO_LOCATION_VERIFICATION"):
+        raise ValueError("YZA: categoría incompleta o contexto online inválido.")
 
     summary = pd.read_excel(
         output, sheet_name="Resumen", dtype={"category_id": str, "postal_code": str}
@@ -131,7 +124,7 @@ def validate_capture(retailer_id: str, day: str) -> dict:
         num = len(frame.loc[frame["category_id"] == item["category_id"]])
         if num != int(item["products"]):
             raise ValueError(f"{retailer_id}: conteos inconsistentes en Resumen.")
-        expected_status = "SUCCESS" if retailer_id == "farmacias-yza" else "COMPLETE"
+        expected_status = "SUCCESS"
         if str(item.get("status")) != expected_status:
             raise ValueError(f"{retailer_id}: categoría no {expected_status}.")
         if str(item.get("capture_date")) != day:
@@ -145,32 +138,6 @@ def validate_capture(retailer_id: str, day: str) -> dict:
         raise ValueError(f"{retailer_id}: se atribuyo CP o sucursal sin verificar.")
     if not _bools_equal(frame["store_context_verified"], False):
         raise ValueError(f"{retailer_id}: contexto de localidad falsamente verificado.")
-    if retailer_id == "farmatodo":
-        # PDP verification is auditable per product without changing
-        # main.COLUMNS or any productive master format.
-        audit = pd.read_excel(
-            output, sheet_name="SkuAudit",
-            dtype={"category_id": str, "sku": str, "url": str},
-        )
-        if (len(audit) != len(frame)
-                or audit[["category_id", "url"]].duplicated().any()
-                or not _bools_equal(audit["sku_verified"], True)
-                or not audit["sku_source"].astype(str).eq("pdp_visible_sku").all()):
-            raise ValueError("Farmatodo: faltan SKU certificados en ficha PDP.")
-        base = frame[["category_id", "url", "sku"]].sort_values(
-            ["category_id", "url"]
-        ).reset_index(drop=True).fillna("")
-        certified = audit[["category_id", "url", "sku"]].sort_values(
-            ["category_id", "url"]
-        ).reset_index(drop=True).fillna("")
-        if not base.equals(certified):
-            raise ValueError("Farmatodo: la hoja SkuAudit no coincide con el catálogo.")
-        if ("sku_pdp_verified" not in summary.columns
-                or not all(
-                    int(item["sku_pdp_verified"]) == int(item["products"])
-                    for _, item in summary.iterrows()
-                )):
-            raise ValueError("Farmatodo: conteos de SKU PDP incompletos.")
     if retailer_id == "farmacias-yza":
         if ("postal_verification_required" not in summary.columns
                 or not _bools_equal(summary["postal_verification_required"], False)
@@ -198,31 +165,19 @@ def commands_for(mode: str, rid: str, cdp_url: str = "", max_pages: int = 100) -
             "Farmacias YZA ahora requiere Chrome local preparado por el "
             "operador y conexión CDP (sin CP obligatorio)."
         )
-    # Explicit CDP is a fallback; default is a Playwright-owned visible
-    # Chrome process for each isolated diagnostic or capture runner.
-    optional_cdp = ["--cdp-url", cdp_url] if cdp_url else []
-    if rid == "farmacias-yza":
-        if mode == "probe":
-            return [[
-                py, str(ROOT / "scripts" / "probe_yza.py"),
-                "--category", category, *optional_cdp,
-            ] for category in ("medicamentos-respiratorio", "higiene-bucal")]
-        return [[
-            py, str(ROOT / "scripts" / "test_yza.py"),
-            "--category", "all", *optional_cdp,
-            "--max-pages", str(max_pages),
-        ]]
+    # Always reuse the operator's Chrome for YZA.
+    optional_cdp = ["--cdp-url", cdp_url]
     if mode == "probe":
         return [[
-            py, str(ROOT / "scripts" / "test_farmatodo.py"),
-            "--category", category, "--probe", "--headed", *optional_cdp,
-            "--max-rounds", str(max_pages),
-        ] for category in ("respiratorios", "cuidado-bucal", "higiene-personal")]
+            py, str(ROOT / "scripts" / "probe_yza.py"),
+            "--category", category, *optional_cdp,
+        ] for category in ("medicamentos-respiratorio", "higiene-bucal")]
     return [[
-        py, str(ROOT / "scripts" / "test_farmatodo.py"),
-        "--category", "all", "--headed", *optional_cdp,
-        "--max-rounds", str(max_pages),
+        py, str(ROOT / "scripts" / "test_yza.py"),
+        "--category", "all", *optional_cdp,
+        "--max-pages", str(max_pages),
     ]]
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fase 6 CLI aislada")
@@ -257,7 +212,7 @@ def main() -> int:
     phase_report = {
         "phase": 6, "run_date": day, "mode": args.mode,
         "requested_retailers": list(ids), "master_modified": False,
-        "browser_mode": "manual_cdp" if args.cdp_url else "automatic_headed_chrome",
+        "browser_mode": "manual_cdp",
         "phase_status": "IN_PROGRESS", "retailers": [],
     }
     success = True
