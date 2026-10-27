@@ -65,16 +65,28 @@ def quality(rows: list[dict], meta: dict, *, error: str | None = None) -> dict:
         "sku_verified", lambda x: x is True
         or (pd.notna(x) and str(x).strip().lower() == "true")
     )
-    if products and sku != products:
-        notes.append(f"SKU no identificado en {products - sku}/{products}")
-    if products and pdp_verified != products:
+    pdp_checked = int(meta.get("pdp_sku_checked") or 0)
+    if products and pdp_checked < products:
+        # This is an INCOMPLETE category, so only the first three PDPs
+        # were inspected deliberately. The others are uninspected, NOT
+        # proven to have missing SKUs.
         notes.append(
-            f"SKU sin evidencia visible en PDP: "
-            f"{products - pdp_verified}/{products}"
+            f"SKU pendientes de inspección PDP: "
+            f"{products - pdp_checked}/{products}; "
+            f"verificados {pdp_verified}/{pdp_checked} revisados"
         )
-    if products and meta.get("pdp_sku_verified") != products:
+    else:
+        if products and sku != products:
+            notes.append(f"SKU no identificado en {products - sku}/{products}")
+        if products and pdp_verified != products:
+            notes.append(
+                f"SKU sin evidencia visible en PDP: "
+                f"{products - pdp_verified}/{products}"
+            )
+    if products and meta.get("pdp_sku_verified") != pdp_verified:
         notes.append(
-            f"PDP verificados {meta.get('pdp_sku_verified', 0)}/{products}"
+            f"Recuento PDP inconsistente: resumen={meta.get('pdp_sku_verified')}"
+            f", filas={pdp_verified}"
         )
     if products and urls != products:
         notes.append(f"URL incorrecta en {products - urls}/{products}")
@@ -97,7 +109,10 @@ def quality(rows: list[dict], meta: dict, *, error: str | None = None) -> dict:
         "url_complete": urls, "price_complete": prices,
         "load_more_clicks": meta.get("load_more_clicks"),
         "load_more_stalled": meta.get("load_more_stalled"),
+        "load_more_stop_reason": meta.get("load_more_stop_reason"),
+        "load_more_error": meta.get("load_more_error"),
         "pdp_sku_checked": meta.get("pdp_sku_checked"),
+        "pdp_sku_uninspected": max(products - pdp_checked, 0),
         "sku_source_counts": json.dumps(
             meta.get("sku_source_counts", {}), ensure_ascii=False
         ),
