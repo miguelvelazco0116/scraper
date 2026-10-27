@@ -1,4 +1,4 @@
-"""Pilot YZA capture: two categories, postcode 11590, no master integration."""
+"""Pilot YZA capture: two online categories, no location verification or master changes."""
 from __future__ import annotations
 
 import argparse
@@ -19,10 +19,10 @@ import pandas as pd
 from main import COLUMNS
 from scraper.config import load_categories, load_locations
 from scraper.retailers.yza import (
-    POSTAL_CODE, YzaContextError, YzaScrapeError, YzaScraper,
+    YzaContextError, YzaScrapeError, YzaScraper,
 )
 
-OUTPUT = ROOT / "output" / "yza_cp11590_test.xlsx"
+OUTPUT = ROOT / "output" / "yza_online_test.xlsx"
 REPORT = ROOT / "diagnostics" / "yza" / "last_run.json"
 MAX_ATTEMPTS = 3
 
@@ -34,16 +34,20 @@ def _valid_cached(df: pd.DataFrame, entry: dict, category_id: str, day: str) -> 
         return False
     if str(entry.get("category_id")) != category_id:
         return False
-    if str(entry.get("postal_code")) != POSTAL_CODE:
+    if pd.notna(entry.get("postal_code")):
+        return False
+    if entry.get("postal_verification_required") is not False:
         return False
     subset = df.loc[df["category_id"].astype(str).eq(category_id)]
     if subset.empty or len(subset) != int(entry.get("products") or 0):
         return False
     if not subset["scrape_timestamp"].astype(str).str.startswith(day).all():
         return False
-    if not subset["postal_code"].astype(str).eq(POSTAL_CODE).all():
+    if subset["postal_code"].notna().any():
         return False
-    if not subset["store_context_verified"].eq(True).all():
+    if subset["store_id"].notna().any():
+        return False
+    if not subset["store_context_verified"].eq(False).all():
         return False
     if subset["sku"].fillna("").astype(str).str.strip().eq("").any():
         return False
@@ -111,7 +115,7 @@ def run_category(category, location, cdp_url: str, max_pages: int) -> tuple[pd.D
     last_status = "ERROR"
     for attempt in range(1, MAX_ATTEMPTS + 1):
         print(
-            f"YZA | {category.id} | intento {attempt}/{MAX_ATTEMPTS} | CP {POSTAL_CODE}",
+            f"YZA | {category.id} | intento {attempt}/{MAX_ATTEMPTS} | catalogo online (sin CP)",
             flush=True,
         )
         scraper = YzaScraper(cdp_url=cdp_url, max_pages=max_pages)
@@ -128,17 +132,21 @@ def run_category(category, location, cdp_url: str, max_pages: int) -> tuple[pd.D
                 )
             if df.empty or df.duplicated(["sku", "url"]).any():
                 raise YzaScrapeError("Productos vacíos o duplicados")
-            if not df["store_context_verified"].eq(True).all():
-                raise YzaContextError("Ubicación no verificada en todas las filas")
+            if (df["postal_code"].notna().any()
+                    or df["store_id"].notna().any()
+                    or not df["store_context_verified"].eq(False).all()):
+                raise YzaScrapeError("Filas con atribución de localidad no certificada")
             summary = {
                 "retailer": "Farmacias YZA",
                 "category_id": category.id,
                 "category": category.name,
                 "status": "SUCCESS",
                 "capture_date": datetime.now().astimezone().date().isoformat(),
-                "postal_code": POSTAL_CODE,
-                "store_context_verified": True,
-                "store_context_method": "yza_visible_selected_address_cp11590",
+                "postal_code": None,
+                "postal_verification_required": False,
+                "store_context_verified": False,
+                "store_context_method": "online_catalogue_no_location_verification",
+                "scope": "ONLINE_CATALOGUE_NO_LOCATION_VERIFICATION",
                 "products": len(df),
                 "target_products": int(meta["target_products"]),
                 "pages_visited": int(meta["pages_visited"]),
@@ -165,15 +173,16 @@ def run_category(category, location, cdp_url: str, max_pages: int) -> tuple[pd.D
         "retailer": "Farmacias YZA", "category_id": category.id,
         "category": category.name, "status": last_status,
         "capture_date": datetime.now().astimezone().date().isoformat(),
-        "postal_code": POSTAL_CODE, "store_context_verified": False,
+        "postal_code": None, "postal_verification_required": False,
+        "store_context_verified": False,
         "products": 0, "error": last_error,
     }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Piloto YZA CP 11590")
+    parser = argparse.ArgumentParser(description="Piloto YZA catalogo online sin CP")
     parser.add_argument("--category", default="all")
-    parser.add_argument("--cdp-url", required=True, help="Chrome previamente abierto por el operador, con CP 11590 aplicado.")
+    parser.add_argument("--cdp-url", required=True, help="Chrome del operador, sin CP obligatorio.")
     parser.add_argument("--max-pages", type=int, default=100)
     args = parser.parse_args()
     if args.max_pages < 1 or args.max_pages > 200:
@@ -185,16 +194,16 @@ def main() -> int:
             parser.error("Categoría YZA desconocida")
     location = next(
         loc for loc in load_locations(ROOT / "config" / "locations.yaml")
-        if loc.id == "yza-cp-11590"
+        if loc.id == "yza-online"
     )
-    if location.postal_code != POSTAL_CODE:
-        raise ValueError("Configuración de CP YZA alterada")
+    if location.postal_code is not None or location.store_id is not None:
+        raise ValueError("YZA online no debe atribuir CP ni sucursal.")
     day = datetime.now().astimezone().date().isoformat()
     existing = load_cached(day)
     items = dict(existing)
-    print("PILOTO FARMACIAS YZA | CP 11590 | SIN INTEGRACIÓN AL MASTER")
-    print("Navegador: Chrome del operador por CDP; el scraper NO modifica el CP")
-    print("Solo se aceptará la ubicación CP 11590 verificada en la página.")
+    print("PILOTO FARMACIAS YZA | CATALOGO ONLINE | SIN INTEGRACION AL MASTER")
+    print("Navegador: Chrome del operador por CDP; no se modifica la localidad")
+    print("Precios: solo observados en esta sesion; ubicacion no certificada")
     complete = True
     for category in categories:
         if category.id in existing:
@@ -209,7 +218,10 @@ def main() -> int:
     REPORT.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "capture_date": day, "retailer": "Farmacias YZA",
-        "postal_code": POSTAL_CODE,
+        "postal_code": None,
+        "postal_verification_required": False,
+        "store_context_verified": False,
+        "scope": "ONLINE_CATALOGUE_NO_LOCATION_VERIFICATION",
         "complete_pilot": complete,
         "categories": [entry for _, entry in items.values()],
         "output": str(OUTPUT), "master_modified": False,
