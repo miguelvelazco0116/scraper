@@ -36,7 +36,7 @@ def _valid_cached(df: pd.DataFrame, entry: dict, category_id: str, day: str) -> 
         return False
     if pd.notna(entry.get("postal_code")):
         return False
-    if entry.get("postal_verification_required") is not False:
+    if str(entry.get("postal_verification_required")).strip().lower() != "false":
         return False
     subset = df.loc[df["category_id"].astype(str).eq(category_id)]
     if subset.empty or len(subset) != int(entry.get("products") or 0):
@@ -45,11 +45,13 @@ def _valid_cached(df: pd.DataFrame, entry: dict, category_id: str, day: str) -> 
         return False
     if subset["postal_code"].notna().any():
         return False
-    if subset["store_id"].notna().any():
+    if subset["store_id"].notna().any() or subset["store"].notna().any():
         return False
     if not subset["store_context_verified"].eq(False).all():
         return False
     if subset["sku"].fillna("").astype(str).str.strip().eq("").any():
+        return False
+    if subset["url"].fillna("").astype(str).str.strip().eq("").any():
         return False
     if not pd.to_numeric(subset["price_current"], errors="coerce").gt(0).all():
         return False
@@ -134,6 +136,7 @@ def run_category(category, location, cdp_url: str, max_pages: int) -> tuple[pd.D
                 raise YzaScrapeError("Productos vacíos o duplicados")
             if (df["postal_code"].notna().any()
                     or df["store_id"].notna().any()
+                    or df["store"].notna().any()
                     or not df["store_context_verified"].eq(False).all()):
                 raise YzaScrapeError("Filas con atribución de localidad no certificada")
             summary = {
