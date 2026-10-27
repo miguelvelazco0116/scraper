@@ -83,6 +83,41 @@ no se sobreescribe, no se reutiliza ni se usa para validar el nuevo
 alcance online sin localidad. La configuración antigua yza-cp-11590 de
 ubicaciones es histórica y no se utiliza en este piloto.
 
+## Actualización Farmatodo 27/oct — SKU y Mostrar más
+
+El primer probe desde el Chrome automático llegó a las tres categorías,
+pero con solo seis tarjetas iniciales y ningún SKU de tarjeta:
+**Respiratorios 6/460**, **Cuidado bucal 6/169** e
+**Higiene personal 6/140**. Esto no fue un bloqueo del sitio.
+
+Los productos muestran su SKU en la ficha individual como
+`Sku: 7509546653518` (Colgate Total Prevención Activa Antisarro C/150 mL).
+Se cambió el piloto para visitar PDP públicas y extraer el identificador
+visible. Las imágenes de producto solo aportan candidatos, no certifican SKU.
+
+La nueva primera prueba de Farmatodo:
+1. Abre cada categoría en Chrome automático.
+2. Pulsa **Mostrar más** al menos una vez y espera nuevas URL de producto.
+3. Abre 3 páginas individuales para buscar el texto `Sku:`.
+4. Reporta `probe_sku_checked`, `probe_sku_verified` y
+   `probe_load_more_verified`.
+5. Si los 3 SKU y el avance están probados devuelve `PROBE`;
+   en caso contrario `NEEDS_SKU_REVIEW` o `NEEDS_PAGINATION_REVIEW`.
+6. No abre Excel ni modifica el master durante el probe.
+
+En captura completa, Farmatodo continúa pulsando Mostrar más hasta
+alcanzar cobertura, comprueba SKU en cada PDP y genera un libro aislado
+con hoja `SkuAudit` para cada producto. La validación exige que la hoja
+coincida con `Concentrado` y con los conteos del resumen.
+
+```powershell
+git pull --ff-only
+python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
+& .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmatodo
+```
+
+No volver a capturar YZA, ya reportó `COMPLETE_PILOT` con 474 productos.
+
 ## Restricciones
 
 Fase 6 sigue en PR borrador. No se edita el master de las Fases 1–5,
