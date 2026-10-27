@@ -823,6 +823,7 @@ class FarmatodoScraper:
             "target_products": target, "load_more_clicks": ui_clicks,
             "pagination_rounds": rounds,
             "public_page_fallbacks": page_fallback_attempts,
+            "last_catalogue_url": page.url,
             "load_more_stalled": stalled,
             "load_more_error": load_more_error,
             "load_more_stop_reason": stop_reason,
