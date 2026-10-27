@@ -315,6 +315,137 @@ def test_probe_with_visible_products_but_no_sku_is_not_ready(monkeypatch):
 
 
 
+def test_farmatodo_auto_browser_creates_and_closes_one_context_per_attempt(monkeypatch):
+    from types import SimpleNamespace
+    from scripts import test_farmatodo as runner
+
+    events = []
+
+    class FakePage:
+        def close(self):
+            events.append("page_closed")
+
+    class FakeContext:
+        def new_page(self):
+            events.append("context.new_page")
+            return FakePage()
+        def close(self):
+            events.append("context_closed")
+
+    class AutoBrowser:
+        def new_page(self, **kwargs):
+            raise AssertionError("browser.new_page is forbidden")
+        def new_context(self, **kwargs):
+            assert kwargs == {
+                "locale": "es-MX",
+                "viewport": {"width": 1440, "height": 1000},
+            }
+            events.append("browser.new_context")
+            return FakeContext()
+
+    class EmptyProbe:
+        def __init__(self, **kwargs):
+            pass
+        def capture_category(self, page, category, probe):
+            assert probe is True
+            return [], {
+                "category_id": category.id,
+                "capture_date": "2026-10-27",
+                "target_products": 460,
+            }
+
+    monkeypatch.setattr(runner, "FarmatodoScraper", EmptyProbe)
+    _, summary = runner.run_category(
+        AutoBrowser(), SimpleNamespace(id="respiratorios"),
+        max_rounds=100, probe=True,
+    )
+    assert summary["status"] == "NEEDS_SKU_REVIEW"
+    assert events == [
+        "browser.new_context", "context.new_page",
+        "page_closed", "context_closed",
+    ]
+
+
+def test_farmatodo_auto_context_cleanup_after_three_failures(monkeypatch):
+    from types import SimpleNamespace
+    from scripts import test_farmatodo as runner
+
+    events = []
+
+    class Context:
+        def new_page(self):
+            events.append("open_page")
+            return SimpleNamespace(close=lambda: events.append("close_page"))
+        def close(self):
+            events.append("close_context")
+
+    class Browser:
+        def new_context(self, **kwargs):
+            events.append("open_context")
+            return Context()
+        def new_page(self, **kwargs):
+            raise AssertionError("Do not use browser.new_page")
+
+    class FailingScraper:
+        def __init__(self, **kwargs):
+            pass
+        def capture_category(self, page, category, probe):
+            raise RuntimeError("simulated failure")
+
+    monkeypatch.setattr(runner, "FarmatodoScraper", FailingScraper)
+    monkeypatch.setattr(runner.time, "sleep", lambda duration: None)
+    rows, summary = runner.run_category(
+        Browser(), SimpleNamespace(id="respiratorios"),
+        max_rounds=100, probe=False,
+    )
+    assert rows == []
+    assert summary["status"] == "PARTIAL"
+    assert summary["attempts"] == 3
+    assert events.count("open_context") == 3
+    assert events.count("open_page") == 3
+    assert events.count("close_page") == 3
+    assert events.count("close_context") == 3
+
+
+def test_farmatodo_cdp_reuses_existing_context_without_closing(monkeypatch):
+    from types import SimpleNamespace
+    from scripts import test_farmatodo as runner
+
+    events = []
+
+    class ExistingContext:
+        def new_page(self):
+            events.append("page_opened")
+            return SimpleNamespace(close=lambda: events.append("page_closed"))
+        def close(self):
+            raise AssertionError("Operator Chrome context must stay open")
+
+    class Browser:
+        contexts = [ExistingContext()]
+        def new_context(self, **kwargs):
+            raise AssertionError("CDP session should reuse original context")
+        def new_page(self, **kwargs):
+            raise AssertionError("Never use browser.new_page")
+
+    class EmptyProbe:
+        def __init__(self, **kwargs):
+            pass
+        def capture_category(self, page, category, probe):
+            return [], {
+                "category_id": category.id,
+                "capture_date": "2026-10-27",
+                "target_products": 169,
+            }
+
+    monkeypatch.setattr(runner, "FarmatodoScraper", EmptyProbe)
+    _, result = runner.run_category(
+        Browser(), SimpleNamespace(id="cuidado-bucal"),
+        max_rounds=100, probe=True, existing_context=True,
+    )
+    assert result["status"] == "NEEDS_SKU_REVIEW"
+    assert events == ["page_opened", "page_closed"]
+
+
 def test_farmatodo_pilot_writes_pdp_audit_in_isolated_excel(tmp_path, monkeypatch):
     from scripts import test_farmatodo as runner
     output = tmp_path / "farmatodo.xlsx"
