@@ -3,13 +3,24 @@
 **Estado: piloto CLI únicamente.** Aún no se agrega al panel Streamlit ni
 al master productivo; las cinco fases y sus 13 retailers permanecen intactos.
 
+**CAMBIO VIGENTE — 27/oct/2026:** YZA opera como Farmacias San Pablo:
+el operador abre Chrome con depuración local y selecciona CP **11590**
+manualmente; el scraper se conecta a esa pestaña mediante CDP, **no**
+modifica el código postal, comprueba su aplicación visible antes de
+navegar y en cada página. El master productivo permanece intacto.
+
+Instrucciones actualizadas: docs/phase6_yza_farmatodo_cli.md,
+apartado "Modo San Pablo". Las instrucciones antiguas de Chrome
+automático que aparecen más abajo son antecedentes del piloto,
+no deben usarse para la próxima validación.
+
 ## Alcance
 - Medicamentos → Respiratorio: https://www.yza.mx/medicamentos/respiratorio/
 - Cuidado personal → Higiene bucal: https://www.yza.mx/cuidado-personal/higiene-bucal/
 - CP objetivo: **11590**. Una captura solo puede declararse válida cuando YZA
   muestra explícitamente una dirección seleccionada para dicho código en una
   zona persistente de la página (no basta escribir "11590" en un campo).
-- Chrome abierto automáticamente por Playwright por defecto; CDP manual opcional cuando el sitio requiera contexto del operador. Tres intentos **por categoría**.
+- Chrome abierto y preparado **por el operador**, CDP local obligatorio en Fase 6. Tres intentos **por categoría**.
 - No se certifica disponibilidad por tienda si YZA no proporciona pruebas.
 
 ## Pasos en Windows
