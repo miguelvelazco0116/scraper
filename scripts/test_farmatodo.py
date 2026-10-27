@@ -238,15 +238,19 @@ def save_excel(items: dict[str, tuple[pd.DataFrame, dict]]) -> None:
 def run_category(
     browser, category, *, max_rounds: int, probe: bool = False,
     existing_context: bool = False,
+    max_attempts: int = MAX_ATTEMPTS,
 ):
     failures = []
     best_rows: list[dict] = []
     best_summary: dict | None = None
     best_attempt: int | None = None
-    for attempt in range(1, 2 if probe else MAX_ATTEMPTS + 1):
+    if max_attempts not in (1, 2, 3):
+        raise ValueError("max_attempts debe ser 1..3")
+    total_attempts = 1 if probe else max_attempts
+    for attempt in range(1, total_attempts + 1):
         print(
             f"Farmatodo {category.id} · intento {attempt}"
-            f"/{1 if probe else MAX_ATTEMPTS}", flush=True
+            f"/{total_attempts}", flush=True
         )
         # Newer Playwright builds require browser.new_context() before
         # context.new_page(). Never use the shortcut browser.new_page().
@@ -350,7 +354,7 @@ def run_category(
                 page.close()
             if context_owned and attempt_context is not None:
                 attempt_context.close()
-        if attempt < MAX_ATTEMPTS:
+        if attempt < total_attempts:
             time.sleep(2)
     if best_summary is not None:
         # Preserve the HIGHEST-COVERAGE partial evidence, rather than a
@@ -360,7 +364,7 @@ def run_category(
         best_summary["quality_notes"] = " | ".join(failures[-3:])
         print(
             f"Farmatodo {category.id} | mejor intento "
-            f"{best_attempt}/{MAX_ATTEMPTS} | "
+            f"{best_attempt}/{total_attempts} | "
             f"productos={len(best_rows)}/"
             f"{best_summary.get('target_products') or '?'}",
             flush=True,
@@ -381,6 +385,11 @@ def main() -> int:
     p.add_argument("--headed", action="store_true")
     p.add_argument("--cdp-url", default="")
     p.add_argument("--max-rounds", type=int, default=100)
+    p.add_argument(
+        "--attempts", type=int, choices=(1, 2, 3),
+        default=MAX_ATTEMPTS,
+        help="1 solo para diagnóstico directo; pipeline usa 3 por defecto",
+    )
     p.add_argument("--probe", action="store_true", help="Diagnóstico sin XLSX")
     args = p.parse_args()
     if not 1 <= args.max_rounds <= 200:
@@ -416,6 +425,7 @@ def main() -> int:
                 rows, summary = run_category(
                     browser, category, max_rounds=args.max_rounds,
                     probe=args.probe, existing_context=bool(args.cdp_url),
+                    max_attempts=args.attempts,
                 )
                 print(
                     f"{category.id} | {summary['status']} | productos="
