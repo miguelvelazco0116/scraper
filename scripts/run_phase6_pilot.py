@@ -157,43 +157,45 @@ def validate_capture(retailer_id: str, day: str) -> dict:
     }
 
 
-def commands_for(mode: str, rid: str, cdp_url: str, max_pages: int) -> list[list[str]]:
+def commands_for(mode: str, rid: str, cdp_url: str = "", max_pages: int = 100) -> list[list[str]]:
     py = sys.executable
     if mode not in ("probe", "capture") or rid not in RETAILERS:
         raise ValueError("Modo o retailer no autorizado.")
-    if not cdp_url.startswith(("ws://127.0.0.1:", "http://127.0.0.1:", "ws://localhost:", "http://localhost:")):
+    if cdp_url and not cdp_url.startswith(("ws://127.0.0.1:", "http://127.0.0.1:", "ws://localhost:", "http://localhost:")):
         raise ValueError("La conexión CDP debe ser al Chrome local.")
     if not 1 <= max_pages <= 200:
         raise ValueError("max-pages fuera de rango.")
+    # Explicit CDP is a fallback; default is a Playwright-owned visible
+    # Chrome process for each isolated diagnostic or capture runner.
+    optional_cdp = ["--cdp-url", cdp_url] if cdp_url else []
     if rid == "farmacias-yza":
         if mode == "probe":
             return [[
                 py, str(ROOT / "scripts" / "probe_yza.py"),
-                "--category", category, "--cdp-url", cdp_url,
+                "--category", category, *optional_cdp,
             ] for category in ("medicamentos-respiratorio", "higiene-bucal")]
         return [[
             py, str(ROOT / "scripts" / "test_yza.py"),
-            "--category", "all", "--cdp-url", cdp_url,
+            "--category", "all", *optional_cdp,
             "--max-pages", str(max_pages),
         ]]
     if mode == "probe":
         return [[
             py, str(ROOT / "scripts" / "test_farmatodo.py"),
-            "--category", category, "--probe", "--cdp-url", cdp_url,
+            "--category", category, "--probe", *optional_cdp,
             "--max-rounds", str(max_pages),
         ] for category in ("respiratorios", "cuidado-bucal", "higiene-personal")]
     return [[
         py, str(ROOT / "scripts" / "test_farmatodo.py"),
-        "--category", "all", "--cdp-url", cdp_url,
+        "--category", "all", *optional_cdp,
         "--max-rounds", str(max_pages),
     ]]
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fase 6 CLI aislada")
     parser.add_argument("--mode", choices=("probe", "capture"), default="probe")
     parser.add_argument("--retailer", choices=("all", *RETAILERS), default="all")
-    parser.add_argument("--cdp-url", required=True)
+    parser.add_argument("--cdp-url", default="", help="Fallback a Chrome manual CDP; por defecto se abre Chrome automáticamente.")
     parser.add_argument("--max-pages", type=int, default=100)
     args = parser.parse_args()
     validated_manifest()
@@ -202,6 +204,7 @@ def main() -> int:
     phase_report = {
         "phase": 6, "run_date": day, "mode": args.mode,
         "requested_retailers": list(ids), "master_modified": False,
+        "browser_mode": "manual_cdp" if args.cdp_url else "automatic_headed_chrome",
         "phase_status": "IN_PROGRESS", "retailers": [],
     }
     success = True
