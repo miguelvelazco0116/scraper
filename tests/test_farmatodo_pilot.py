@@ -386,6 +386,8 @@ def test_probe_clicks_mostrar_mas_and_detects_new_cards(monkeypatch):
             assert "querySelectorAll('a[href]')" in expression
             assert "replace(" in expression
             assert self.clicked
+            if getattr(self, "force_timeout", False):
+                raise TimeoutError("Mostrar más no agregó fichas nuevas")
 
     def make_cards(size):
         return [{
@@ -407,6 +409,17 @@ def test_probe_clicks_mostrar_mas_and_detects_new_cards(monkeypatch):
     assert meta["load_more_clicks"] == 1
     assert meta["probe_load_more_verified"] is True
     assert meta["pdp_sku_verified"] == 3
+
+    timed_out = Page()
+    timed_out.force_timeout = True
+    failed_rows, failed_meta = FarmatodoScraper(max_rounds=100).capture_category(
+        timed_out, cat, probe=True
+    )
+    assert len(failed_rows) == 6
+    assert failed_meta["load_more_stalled"] is True
+    assert failed_meta["load_more_error"] == "TimeoutError"
+    assert failed_meta["probe_load_more_verified"] is False
+    assert failed_meta["pdp_sku_verified"] == 3
 
 
 def test_probe_can_report_ready_after_three_verified_pdp_skus(monkeypatch):
