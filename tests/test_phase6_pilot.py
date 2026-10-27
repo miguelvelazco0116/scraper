@@ -45,6 +45,23 @@ def test_phase6_capture_is_two_retailer_commands():
     assert "--cdp-url" in yza[0] and "--cdp-url" in farma[0]
 
 
+
+def test_phase6_default_launches_browsers_without_cdp():
+    for mode in ("probe", "capture"):
+        for rid in phase6.RETAILERS:
+            commands = phase6.commands_for(mode, rid, "", 20)
+            assert commands
+            assert all("--cdp-url" not in command for command in commands)
+            assert all("--category" in command for command in commands)
+            if rid == "farmatodo":
+                assert all("--headed" in command for command in commands)
+            assert all(
+                str(phase6.ROOT / "scripts") in command[1]
+                for command in commands
+            )
+
+
+
 def test_phase6_rejects_remote_cdp_endpoint():
     with pytest.raises(ValueError, match="local"):
         phase6.commands_for("probe", "farmacias-yza",
