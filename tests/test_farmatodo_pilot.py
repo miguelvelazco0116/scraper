@@ -36,6 +36,29 @@ def test_farmatodo_offer_prices_and_identifier():
     )
 
 
+
+def test_image_ean_suffixes_and_invalid_embedded_codes():
+    for image in (
+        "https://cdn.example/7509546653518_01.webp",
+        "https://cdn.example/7509546653518-01.webp",
+        "https://cdn.example/7509546653518.webp",
+        "https://cdn.example/products/7509546653518_02?width=400",
+    ):
+        assert sku_from_card({"image_url": image}) == (
+            "7509546653518", "image_ean_candidate"
+        )
+    # Never accept a substring of a longer code or mixed alphanumeric ID.
+    for image in (
+        "https://cdn.example/175095466535189.webp",
+        "https://cdn.example/X7509546653518_01.webp",
+        "https://cdn.example/7509546653518X.webp",
+    ):
+        assert sku_from_card({"image_url": image}) == (
+            None, "not_found"
+        )
+
+
+
 def test_online_availability_never_inferred_from_price():
     assert explicit_online_availability("Producto $120")[0:2] == (
         UNKNOWN, None
