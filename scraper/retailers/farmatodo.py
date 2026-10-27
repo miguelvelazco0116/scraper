@@ -54,6 +54,24 @@ def prices_from_card(text: str) -> tuple[float | None, float | None]:
     return current, regular
 
 
+
+def promotion_from_card(text: str, current: float | None,
+                        regular: float | None) -> str | None:
+    """Preserve visible 3+1 badges separately from monetary discounts.
+
+    A 3+1 promotion is not itself a cheaper unit price. Screenshot badges
+    do not establish eligibility, terms, or participating store locations.
+    """
+    raw = str(text or "")
+    labels = []
+    if re.search(r"(?<!\\d)3\\s*\\+\\s*1(?!\\d)", raw):
+        labels.append("3+1 (condiciones no verificadas)")
+    if (current is not None and regular is not None
+            and regular > current):
+        labels.append("Precio promocional")
+    return " | ".join(labels) if labels else None
+
+
 def sku_from_card(card: dict) -> tuple[str | None, str]:
     """Never derive SKU from a display-name slug or invent one."""
     for field in ("sku", "data_sku", "data_pid", "product_id"):
@@ -319,9 +337,9 @@ class FarmatodoScraper:
                 "sku_source": source, "sku_verified": verified,
                 "brand": None, "product": clean_text(card["product"]),
                 "price_current": current, "price_regular": regular,
-                "promotion": "Precio promocional" if (
-                    regular and current and regular > current
-                ) else None,
+                "promotion": promotion_from_card(
+                    card["text"], current, regular
+                ),
                 "availability_status": status, "is_available": available,
                 "availability_raw": raw,
                 "store_context_verified": False,
