@@ -372,7 +372,7 @@ def yza_browser_page(playwright, cdp_url: str = ""):
         # Chrome inspect may ask for operator approval before the browser
         # websocket becomes usable; allow time for the visible Allow dialog.
         browser = playwright.chromium.connect_over_cdp(
-            cdp_url, timeout=60000
+            cdp_url, timeout=60000, no_defaults=True
         )
         if not browser.contexts:
             raise YzaContextError("Chrome CDP no expone contextos de navegador.")
