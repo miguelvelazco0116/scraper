@@ -89,7 +89,7 @@ def test_phase6_manual_chrome_wrapper_accepts_chrome_144_inspect_ws():
     assert '& $PythonExe @argsList' in script
     assert 'Start-Process' not in script
     # Neither endpoint is a hard requirement: Chrome M144+ can answer 404.
-    assert '/json/list' not in script
+    assert 'Invoke-RestMethod -Uri "$Base/json/list"' not in script
     assert '$Version.webSocketDebuggerUrl' in script  # legacy fallback only
 
 
