@@ -23,6 +23,166 @@ def test_farmatodo_three_requested_urls_exactly():
     }
 
 
+
+
+def test_nasal_decongestants_subcategory_is_exact_and_distinct():
+    """One approved public subcategory URL is NOT complete Respiratorios."""
+    from scripts.test_farmatodo import (
+        NASAL_DECONGESTANTS_URL, NASAL_TRIAL_ID,
+        narrow_to_nasal_decongestants,
+    )
+    categories = load_categories("config/farmatodo/categories.yaml")
+    original = categories[0]
+    narrowed = narrow_to_nasal_decongestants(
+        original, NASAL_DECONGESTANTS_URL
+    )
+    assert original.id == "respiratorios"
+    assert original.url == (
+        "https://www.farmatodo.com.mx/medicamentos/respiratorios"
+    )
+    assert narrowed.id == NASAL_TRIAL_ID
+    assert narrowed.url == NASAL_DECONGESTANTS_URL
+    assert narrowed.department == "Medicamentos"
+    assert narrowed.name == "Descongestionantes nasales"
+    assert narrowed.subcategory == "Respiratorios"
+    assert narrowed.sub_subcategory == "Descongestionantes nasales"
+    assert {c.id for c in categories} == {
+        "respiratorios", "cuidado-bucal", "higiene-personal",
+    }
+    for invalid in (
+        NASAL_DECONGESTANTS_URL + "?page=7",
+        NASAL_DECONGESTANTS_URL + "/otro",
+        "http://www.farmatodo.com.mx/medicamentos/"
+        "respiratorios/descongestionantes-nasales",
+        "https://example.com/medicamentos/"
+        "respiratorios/descongestionantes-nasales",
+        categories[0].url,
+    ):
+        with pytest.raises(ValueError):
+            narrow_to_nasal_decongestants(original, invalid)
+    with pytest.raises(ValueError):
+        narrow_to_nasal_decongestants(
+            categories[1], NASAL_DECONGESTANTS_URL
+        )
+
+
+def test_nasal_trial_excel_and_cache_are_separate_from_main_pilot(
+    tmp_path, monkeypatch,
+):
+    """An isolated subcategory may succeed without changing full retailer."""
+    from scripts import test_farmatodo as runner
+    standard = tmp_path / "catalogo_online.xlsx"
+    standard.write_bytes(b"untouched production pilot")
+    monkeypatch.setattr(runner, "OUTPUT", standard)
+    subcat_output = (
+        tmp_path / "subcategories" / "descongestionantes-nasales.xlsx"
+    )
+    report = tmp_path / "diagnostics" / "subcat" / "last_run.json"
+    row = pd.DataFrame([{
+        "retailer": "Farmatodo",
+        "category_id": runner.NASAL_TRIAL_ID,
+        "scrape_timestamp": "2026-10-27T14:00:00",
+        "sku": "7501086453221",
+        "url": "https://www.farmatodo.com.mx/item-example/p",
+        "sku_source": "pdp_visible_sku",
+        "sku_verified": True,
+        "price_current": 105.50,
+        "postal_code": None, "store": None, "store_id": None,
+        "store_context_verified": False,
+    }])
+    summary = {
+        "retailer": "Farmatodo",
+        "category_id": runner.NASAL_TRIAL_ID,
+        "capture_date": "2026-10-27",
+        "status": "COMPLETE", "products": 1,
+        "sku_pdp_verified": 1,
+    }
+    runner.save_excel(
+        {runner.NASAL_TRIAL_ID: (row, summary)},
+        output_path=subcat_output, report_path=report,
+    )
+    assert standard.read_bytes() == b"untouched production pilot"
+    assert subcat_output.exists()
+    assert report.parent.exists()
+    assert not report.exists()
+    xls = pd.ExcelFile(subcat_output)
+    assert set(xls.sheet_names) == {"Concentrado", "Resumen", "SkuAudit"}
+    assert runner.NASAL_TRIAL_ID in runner.load_cache(
+        "2026-10-27", output_path=subcat_output
+    )
+    assert runner.load_cache("2026-10-27") == {}
+
+
+def test_nasal_trial_cli_probe_uses_exact_url_and_isolated_diagnostic(
+    monkeypatch, tmp_path,
+):
+    """Never allow a narrowed trial to impersonate complete Respiratorios."""
+    from types import SimpleNamespace
+    import sys
+    from scripts import test_farmatodo as runner
+
+    url = runner.NASAL_DECONGESTANTS_URL
+    calls = []
+    class Browser:
+        def close(self):
+            calls.append("close_browser")
+    class Chromium:
+        def launch(self, **kw):
+            calls.append("launch")
+            return Browser()
+    class Playwright:
+        chromium = Chromium()
+    class PlaywrightSession:
+        def __enter__(self):
+            return Playwright()
+        def __exit__(self, *args):
+            pass
+
+    monkeypatch.setattr(runner, "sync_playwright", PlaywrightSession)
+    monkeypatch.setattr(
+        runner, "NASAL_TRIAL_REPORT",
+        tmp_path / "subcat" / "last_run.json",
+    )
+    monkeypatch.setattr(
+        runner, "run_category",
+        lambda browser, cat, **kwargs: (
+            calls.append((cat.id, cat.url, cat.sub_subcategory))
+            or [{
+                "price_current": 90.0,
+                "product": "Spray nasal", "sku_verified": True,
+            }],
+            {
+                "category_id": cat.id,
+                "products": 1,
+                "status": "PROBE",
+                "probe_sku_checked": 1,
+                "probe_sku_verified": 1,
+                "probe_load_more_verified": True,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        runner, "save_excel",
+        lambda *a, **kw: pytest.fail("probe should not touch excel"),
+    )
+    monkeypatch.setattr(
+        sys, "argv", [
+            "test_farmatodo.py",
+            "--category", "respiratorios",
+            "--subcategory-url", url,
+            "--headed", "--probe",
+        ],
+    )
+    assert runner.main() == 0
+    assert (
+        runner.NASAL_TRIAL_ID, url, "Descongestionantes nasales"
+    ) in calls
+    assert "close_browser" in calls
+    files = list((tmp_path / "subcat").glob("probe_*.json"))
+    assert len(files) == 1
+    assert runner.NASAL_TRIAL_ID in files[0].name
+
+
 def test_farmatodo_offer_prices_and_identifier():
     assert prices_from_card("De $145.00 Para $108.50") == (108.5, 145.0)
     assert prices_from_card("$29.50") == (29.5, 29.5)
