@@ -251,7 +251,7 @@ def main() -> int:
                 "Para Chrome 144+ con chrome://inspect se requiere "
                 "Playwright >= 1.60; el entorno actual tiene "
                 f"{playwright_version}. En este piloto ejecuta: "
-                "python -m pip install -r requirements-phase6-yza-cdp.txt. "
+                "python -m pip install -r requirements.txt. "
                 "No cambia requirements.txt ni el master productivo."
             )
     phase_report = {
