@@ -382,6 +382,9 @@ def test_probe_clicks_mostrar_mas_and_detects_new_cards(monkeypatch):
         def wait_for_function(self, expression, arg, timeout, polling):
             assert timeout == 25000
             assert len(arg) == 6
+            assert "document.body" in expression
+            assert "querySelectorAll('a[href]')" in expression
+            assert "replace(" in expression
             assert self.clicked
 
     def make_cards(size):
