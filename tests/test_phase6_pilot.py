@@ -144,6 +144,7 @@ def test_capture_validation_requires_no_postcode_but_complete_products(
             "products": 1, "postal_code": None,
             "store_context_verified": False,
             "postal_verification_required": False,
+            "sku_pdp_verified": 1 if retailer == "farmatodo" else None,
         })
 
     def write_book(products):
@@ -154,6 +155,16 @@ def test_capture_validation_requires_no_postcode_but_complete_products(
             pd.DataFrame(summaries).to_excel(
                 writer, sheet_name="Resumen", index=False
             )
+            if retailer == "farmatodo":
+                pd.DataFrame([
+                    {
+                        "category_id": p["category_id"],
+                        "sku": p["sku"], "url": p["url"],
+                        "sku_source": "pdp_visible_sku",
+                        "sku_verified": True,
+                    }
+                    for p in rows
+                ]).to_excel(writer, sheet_name="SkuAudit", index=False)
 
     write_book(rows)
     report_obj = {
