@@ -1,4 +1,4 @@
-"""Offline Phase 6 tests: YZA fixed CP and Farmatodo catalogue only."""
+"""Offline Phase 6 tests: YZA and Farmatodo online without locality claims."""
 import json
 import sys
 
@@ -15,8 +15,9 @@ def test_phase6_manifest_has_two_retailers_five_categories():
         "farmacias-yza", "farmatodo"
     ]
     assert sum(len(row["categories"]) for row in manifest["retailers"]) == 5
-    assert manifest["retailers"][0]["postal_code"] == "11590"
-    assert manifest["retailers"][1]["postal_code"] is None
+    assert all(r["postal_code"] is None for r in manifest["retailers"])
+    assert all(r["postal_mode"] == "NO_VERIFICATION" for r in manifest["retailers"])
+    assert phase6.EXPECTED["farmacias-yza"]["workbook"].name == "yza_online_test.xlsx"
 
 
 def test_phase6_probe_is_five_isolated_commands_without_master():
@@ -114,59 +115,103 @@ def test_phase6_rejects_remote_cdp_endpoint():
                             "ws://198.51.100.20:9222", 20)
 
 
-@pytest.mark.parametrize("retailer,categories,cp,valid_store", [
-    ("farmacias-yza", ["higiene-bucal", "medicamentos-respiratorio"], "11590", True),
-    ("farmatodo", ["cuidado-bucal", "respiratorios", "higiene-personal"], None, False),
+@pytest.mark.parametrize("retailer,categories", [
+    ("farmacias-yza", ["higiene-bucal", "medicamentos-respiratorio"]),
+    ("farmatodo", ["cuidado-bucal", "respiratorios", "higiene-personal"]),
 ])
-def test_capture_validation_checks_record_and_postal_scope(
-    tmp_path, monkeypatch, retailer, categories, cp, valid_store
+def test_capture_validation_requires_no_postcode_but_complete_products(
+    tmp_path, monkeypatch, retailer, categories
 ):
     root = tmp_path / retailer
     root.mkdir()
     workbook = root / "catalog.xlsx"
     report = root / "report.json"
-    day = "2026-10-26"
+    day = "2026-10-27"
     name = phase6.EXPECTED[retailer]["name"]
-    rows = []
-    summary = []
+    rows, summaries = [], []
     for index, category in enumerate(categories):
         rows.append({
             "retailer": name, "category_id": category,
             "scrape_timestamp": day + "T10:00:00",
             "sku": f"sku-{index}", "url": f"https://example.org/{index}",
-            "price_current": 50 + index, "postal_code": cp,
-            "store_id": None, "store_context_verified": valid_store,
+            "price_current": 50 + index, "postal_code": None,
+            "store": None, "store_id": None,
+            "store_context_verified": False,
         })
-        summary.append({
+        summaries.append({
             "category_id": category, "capture_date": day,
-            "status": "SUCCESS" if valid_store else "COMPLETE",
-            "products": 1,
+            "status": "SUCCESS" if retailer == "farmacias-yza" else "COMPLETE",
+            "products": 1, "postal_code": None,
+            "store_context_verified": False,
+            "postal_verification_required": False,
         })
-    with pd.ExcelWriter(workbook, engine="openpyxl") as writer:
-        pd.DataFrame(rows).to_excel(writer, sheet_name="Concentrado", index=False)
-        pd.DataFrame(summary).to_excel(writer, sheet_name="Resumen", index=False)
-    payload = {
+
+    def write_book(products):
+        with pd.ExcelWriter(workbook, engine="openpyxl") as writer:
+            pd.DataFrame(products).to_excel(
+                writer, sheet_name="Concentrado", index=False
+            )
+            pd.DataFrame(summaries).to_excel(
+                writer, sheet_name="Resumen", index=False
+            )
+
+    write_book(rows)
+    report_obj = {
         "capture_date": day, "master_modified": False,
-        "complete_pilot": valid_store, "postal_code": "11590" if valid_store else None,
-        "complete": not valid_store, "postal_verification_required": False,
+        "postal_code": None,
+        "store_context_verified": False,
+        "complete_pilot": retailer == "farmacias-yza",
+        "complete": retailer == "farmatodo",
+        "postal_verification_required": False,
+        "scope": "ONLINE_CATALOGUE_NO_LOCATION_VERIFICATION",
     }
-    report.write_text(json.dumps(payload), encoding="utf-8")
+    report.write_text(json.dumps(report_obj), encoding="utf-8")
     metadata = phase6.EXPECTED[retailer].copy()
     metadata["workbook"] = workbook
     metadata["report"] = report
     monkeypatch.setitem(phase6.EXPECTED, retailer, metadata)
-    result = phase6.validate_capture(retailer, day)
-    assert result["categories"] == len(categories)
-    assert result["products"] == len(categories)
 
-    # Deliberate wrong region must be rejected for both retailers.
-    edited = pd.DataFrame(rows)
-    edited.loc[0, "postal_code"] = "44220"
-    with pd.ExcelWriter(workbook, engine="openpyxl") as writer:
-        edited.to_excel(writer, sheet_name="Concentrado", index=False)
-        pd.DataFrame(summary).to_excel(writer, sheet_name="Resumen", index=False)
-    with pytest.raises(ValueError):
-        phase6.validate_capture(retailer, day)
+    validated = phase6.validate_capture(retailer, day)
+    assert validated["categories"] == len(categories)
+    assert validated["products"] == len(categories)
+    assert validated["scope"] == "ONLINE_CATALOGUE_NO_LOCATION_VERIFICATION"
+
+    # No certified locality must be fabricated (even if the web UI happens
+    # to show a postal code the operator previously typed).
+    for tampering in (
+        {"postal_code": "11590"},
+        {"store_id": "123"},
+        {"store": "Sucursal inventada"},
+        {"store_context_verified": True},
+        {"sku": None},
+        {"price_current": None},
+    ):
+        altered = pd.DataFrame(rows)
+        for key, value in tampering.items():
+            altered.loc[0, key] = value
+        write_book(altered.to_dict("records"))
+        with pytest.raises(ValueError):
+            phase6.validate_capture(retailer, day)
+
+    write_book(rows)
+    if retailer == "farmacias-yza":
+        stale_report = dict(report_obj, postal_code="11590")
+        report.write_text(json.dumps(stale_report), encoding="utf-8")
+        with pytest.raises(ValueError):
+            phase6.validate_capture(retailer, day)
+
+
+def test_manifest_rejects_legacy_yza_fixed_postcode(monkeypatch, tmp_path):
+    manifest = phase6.validated_manifest()
+    wrong = json.loads(json.dumps(manifest))
+    wrong["retailers"][0]["postal_mode"] = "FIXED"
+    wrong["retailers"][0]["postal_code"] = "11590"
+    copy = tmp_path / "retailers.yaml"
+    import yaml
+    copy.write_text(yaml.safe_dump(wrong), encoding="utf-8")
+    monkeypatch.setattr(phase6, "MANIFEST", copy)
+    with pytest.raises(ValueError, match="codigo postal"):
+        phase6.validated_manifest()
 
 
 def test_phase6_only_writes_isolated_diagnostics():
