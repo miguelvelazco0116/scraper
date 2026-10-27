@@ -17,7 +17,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from integrate_complete_retailers import EXPECTED
+from integrate_complete_retailers import EXPECTED as PRODUCTIVE_EXPECTED
+
+# Fase 6 is promoted independently, so this read-only audit may report it
+# without changing the proven phase-1..5 integrators.
+EXPECTED = {**PRODUCTIVE_EXPECTED, 6: {"Farmacias YZA": 2}}
 from integrate_validated_phase import (
     _read_current_master_pointer, _master_path_for_date,
     _read_existing_master,
@@ -140,7 +144,7 @@ def inventory(master: Path):
         control_field = f"phase{phase}_status"
         recorded = (
             str(control.iloc[0][control_field])
-            if control_field in control else "NO_REGISTRADO"
+            if control_field in control else ("PENDING" if phase == 6 and computed_state == "PENDING" else "NO_REGISTRADO")
         )
         phase_summary.append({
             "fase": phase,
@@ -226,7 +230,7 @@ def main():
     print(
         f"Filas reales: {facts['total_rows']:,} | "
         f"Retailers: {facts['total_retailers']} | "
-        f"Fases completas: {facts['phases_complete']}/5"
+        f"Fases completas: {facts['phases_complete']}/{len(EXPECTED)}"
     )
     print("\nFASES")
     print(phases.to_string(index=False))
