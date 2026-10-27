@@ -170,3 +170,9 @@ python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_f
 & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmatodo
 ```
 No ejecutar captura completa hasta los tres probes correctos.
+
+## 27/oct — Diagnóstico de carga inicial y SKU
+
+El último probe mostró 0 tarjetas en Respiratorios, 27 en Cuidado bucal (SKU 2/3) y 14 en Higiene personal (SKU 3/3). Las dos últimas categorías avanzaron con Mostrar más. El sitio público sí presenta el campo Sku en la ficha Oral-B que no se identificó durante el probe.
+
+El piloto actualizado espera la hidratación inicial, recarga la categoría una sola vez si el catálogo permanece vacío y vuelve a verificar la ficha individual cuando no encuentra el SKU visible. Conserva los criterios de cobertura y nunca inventa identificadores. Los productos no inspeccionados no se cuentan como SKU ausentes durante el probe. Validar con pytest antes de repetir el diagnóstico; no ejecutar capture todavía.
