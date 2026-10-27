@@ -64,7 +64,7 @@ def promotion_from_card(text: str, current: float | None,
     """
     raw = str(text or "")
     labels = []
-    if re.search(r"(?<!\\d)3\\s*\\+\\s*1(?!\\d)", raw):
+    if re.search(r"(?<!\d)3\s*\+\s*1(?!\d)", raw):
         labels.append("3+1 (condiciones no verificadas)")
     if (current is not None and regular is not None
             and regular > current):
