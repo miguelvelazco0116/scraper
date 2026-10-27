@@ -135,8 +135,8 @@ def context_evidence(page) -> str | None:
     )
 
 
-def _first_visible(locator, limit: int = 12):
-    """Ignore inactive hidden popup copies; return first visible candidate."""
+def _first_visible(locator, limit: int = 60):
+    """Prefer an actual visible widget over hidden duplicates of modal forms."""
     try:
         for index in range(min(locator.count(), limit)):
             candidate = locator.nth(index)
@@ -148,16 +148,17 @@ def _first_visible(locator, limit: int = 12):
 
 
 def _postal_modal_controls(page):
-    """YZA popup: Ingresa un código postal / Código Postal / ACEPTAR."""
+    """YZA popup: 'Ingresa un código postal' / 'Código Postal' / ACEPTAR.
+
+    Modal copies may exist in the DOM while hidden. Never fill or click them.
+    """
     field = _first_visible(
         page.get_by_placeholder(re.compile(r"c[oó]digo\s*postal", re.I))
     )
     if field is None:
         return None, None
     button = _first_visible(
-        page.get_by_role(
-            "button", name=re.compile(r"^\s*aceptar\s*$", re.I)
-        )
+        page.get_by_role("button", name=re.compile(r"^\s*aceptar\s*$", re.I))
     )
     if button is None:
         button = _first_visible(
@@ -166,8 +167,10 @@ def _postal_modal_controls(page):
     return field, button
 
 
-def _open_postal_modal(page) -> bool:
-    """Use YZA's delivery header control, not product availability dialog."""
+def _open_postal_modal(page, trace: dict | None = None) -> bool:
+    """Open header delivery chooser then, if necessary, its CP sub-dialog."""
+    if trace is None:
+        trace = {}
     for pattern in (
         r"^\s*ingresa\s+tu\s+direcci[oó]n\s*$",
         r"^\s*entregar\s+productos\s+en\s*$",
@@ -177,50 +180,103 @@ def _open_postal_modal(page) -> bool:
         if trigger is None:
             continue
         try:
+            trace["delivery_header_clicked"] = True
             trigger.click(timeout=5000)
-            page.wait_for_timeout(400)
+            page.wait_for_timeout(500)
             field, button = _postal_modal_controls(page)
             if field is not None and button is not None:
+                trace["postal_form_found_after_header"] = True
                 return True
-        except Exception:
-            continue
+        except Exception as exc:
+            trace["header_click_error"] = type(exc).__name__
+
+    # YZA has multiple address popups. "Ingresa un código postal" may be an
+    # intermediate action after the first (generic) address dialog.
+    for pattern in (
+        r"^\s*ingresa\s+un\s+c[oó]digo\s+postal\s*$",
+        r"^\s*actualizar\s+una\s+direcci[oó]n\s*$",
+    ):
+        controls = page.get_by_text(re.compile(pattern, re.I), exact=True)
+        for index in range(min(controls.count(), 30)):
+            try:
+                control = controls.nth(index)
+                if not control.is_visible():
+                    continue
+                trace["postal_subdialog_clicked"] = True
+                control.click(timeout=5000)
+                page.wait_for_timeout(450)
+                field, button = _postal_modal_controls(page)
+                if field is not None and button is not None:
+                    trace["postal_form_found_after_subdialog"] = True
+                    return True
+            except Exception as exc:
+                trace["subdialog_click_error"] = type(exc).__name__
     return False
 
 
-def apply_postal_code(page) -> str | None:
-    """Set 11590 through YZA's visible postal modal, never via hidden APIs.
+def apply_postal_code(page, trace: dict | None = None) -> str | None:
+    """Set CP 11590 using YZA's visible modal and certify persistent context.
 
-    Filling input or closing a popup is not confirmation. Only applied,
-    visible header evidence is accepted. If the UI is different, fail closed.
+    trace is optional non-sensitive debug metadata: no addresses, typed
+    field values, tokens, storage or page HTML are recorded.
     """
+    if trace is None:
+        trace = {}
+    trace["requested_cp"] = POSTAL_CODE
+    trace["stage"] = "check_initial_header"
     proof = context_evidence(page)
     if proof:
+        trace["stage"] = "already_confirmed"
         return proof
 
+    trace["stage"] = "locate_postal_modal"
     field, button = _postal_modal_controls(page)
+    trace["postal_field_initially_visible"] = field is not None
+    trace["accept_initially_visible"] = button is not None
     if field is None or button is None:
-        _open_postal_modal(page)
+        _open_postal_modal(page, trace)
         field, button = _postal_modal_controls(page)
+
+    trace["postal_field_visible"] = field is not None
+    trace["accept_visible"] = button is not None
     if field is None or button is None:
+        trace["stage"] = "postal_controls_not_found"
         return None
 
     try:
+        trace["stage"] = "fill_postal"
         field.fill(POSTAL_CODE, timeout=5000)
         if field.input_value(timeout=2000).strip() != POSTAL_CODE:
+            trace["stage"] = "postal_input_did_not_update"
             return None
+        trace["field_filled"] = True
+        trace["stage"] = "click_accept"
         button.click(timeout=7000)
-    except Exception:
+        trace["accept_clicked"] = True
+    except Exception as exc:
+        trace["stage"] = "form_action_error"
+        trace["form_action_error_type"] = type(exc).__name__
         return None
 
-    for _ in range(16):
+    trace["stage"] = "confirm_applied_postal_in_header"
+    for attempt in range(16):
         page.wait_for_timeout(500)
         try:
             proof = context_evidence(page)
-        except Exception:
-            # SPA location update/navigation can temporarily destroy context.
+        except Exception as exc:
+            trace["last_header_check_error_type"] = type(exc).__name__
             continue
         if proof:
+            trace["stage"] = "applied_postal_confirmed"
+            trace["header_check_attempt"] = attempt + 1
             return proof
+    trace["stage"] = "accept_clicked_but_postal_not_confirmed"
+    try:
+        field_after, button_after = _postal_modal_controls(page)
+        trace["postal_field_still_visible_after_accept"] = field_after is not None
+        trace["accept_still_visible_after_accept"] = button_after is not None
+    except Exception:
+        pass
     return None
 
 
