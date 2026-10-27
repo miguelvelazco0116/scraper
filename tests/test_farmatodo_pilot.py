@@ -929,6 +929,235 @@ def test_partial_retries_preserve_best_coverage_not_last_attempt(monkeypatch):
     assert one_summary["best_attempt"] == 1
 
 
+
+def test_farmatodo_next_page_only_from_real_observed_public_route():
+    from scraper.retailers.farmatodo import next_observed_public_page_url
+
+    category = "https://www.farmatodo.com.mx/medicamentos/respiratorios"
+    assert next_observed_public_page_url(
+        category + "?page=6", category,
+    ) == category + "?page=7"
+    assert next_observed_public_page_url(
+        category + "?page=6&order=asc", category,
+    ) == category + "?page=7&order=asc"
+
+    # Not allowed to INVENT the page parameter or move to another route.
+    for url in (
+        category, category + "?page=1", category + "?page=foo",
+        category + "?page=6&page=7",
+        "https://evil.example/medicamentos/respiratorios?page=6",
+        "https://www.farmatodo.com.mx/medicamentos/otro?page=6",
+        category + "?page=200",
+    ):
+        assert next_observed_public_page_url(url, category) is None
+
+
+def test_farmatodo_observed_page_7_must_render_new_priced_cards(monkeypatch):
+    from scraper.retailers import farmatodo as mod
+    from scraper.retailers.farmatodo import visit_next_observed_public_page
+    cat = load_categories("config/farmatodo/categories.yaml")[0]
+    current = cat.url + "?page=6"
+    original_card = {
+        "url": "https://www.farmatodo.com.mx/item-0/p",
+        "product": "Producto 0", "text": "$100.00",
+    }
+    next_card = {
+        "url": "https://www.farmatodo.com.mx/item-1/p",
+        "product": "Producto 1", "text": "$120.00",
+    }
+
+    class Page:
+        def __init__(self):
+            self.url = current
+            self.calls = []
+        def goto(self, url, **kwargs):
+            self.url = url
+            self.calls.append(url)
+        def wait_for_timeout(self, delay):
+            pass
+
+    page = Page()
+    monkeypatch.setattr(mod, "validate_category_page", lambda *args: None)
+    monkeypatch.setattr(mod, "extract_catalogue", lambda page: (
+        [original_card, next_card], 460, False,
+    ))
+    result = visit_next_observed_public_page(
+        page, cat, {original_card["url"]: original_card}, 460,
+    )
+    assert page.calls == [cat.url + "?page=7"]
+    assert result["status"] == "validated_new_products"
+    assert result["new_products"] == 1
+    assert result["candidate_page"] == 7
+    assert result["published_total"] == 460
+
+
+def test_farmatodo_page_7_without_new_products_never_certified(monkeypatch):
+    from scraper.retailers import farmatodo as mod
+    from scraper.retailers.farmatodo import visit_next_observed_public_page
+    cat = load_categories("config/farmatodo/categories.yaml")[0]
+    card = {
+        "url": "https://www.farmatodo.com.mx/item-0/p",
+        "product": "Product 0", "text": "$80.00",
+    }
+
+    class Page:
+        url = cat.url + "?page=6"
+        def __init__(self):
+            self.waits = 0
+        def goto(self, url, **kwargs):
+            self.url = url
+        def wait_for_timeout(self, delay):
+            self.waits += 1
+
+    page = Page()
+    monkeypatch.setattr(mod, "validate_category_page", lambda *args: None)
+    monkeypatch.setattr(mod, "extract_catalogue",
+                        lambda page: ([card], 460, False))
+    result = visit_next_observed_public_page(
+        page, cat, {card["url"]: card}, 460,
+    )
+    assert result["status"] == "no_new_priced_products"
+    assert result["new_products"] == 0
+    assert result["checks"] == 20
+    assert page.waits == 19
+
+
+def test_farmatodo_real_observed_page_6_fallback_finishes_verified_capture(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+    from scraper.retailers import farmatodo as mod
+    cat = load_categories("config/farmatodo/categories.yaml")[0]
+
+    class Button:
+        def __init__(self, page):
+            self.page = page
+        def is_visible(self):
+            return True
+        def is_enabled(self):
+            return True
+        def scroll_into_view_if_needed(self, **kw):
+            pass
+        def click(self, **kw):
+            self.page.clicks += 1
+            # Observed site navigation following Mostrar más.
+            self.page.url = cat.url + "?page=6"
+
+    class Page:
+        url = cat.url
+        def __init__(self):
+            self.clicks = 0
+            self.navigations = []
+            self.context = SimpleNamespace(
+                new_page=lambda: SimpleNamespace(close=lambda: None)
+            )
+        def goto(self, url, **kwargs):
+            self.url = url
+            self.navigations.append(url)
+        def wait_for_timeout(self, ms):
+            pass
+        def get_by_text(self, pattern):
+            return SimpleNamespace(
+                count=lambda: 1 if self.clicks == 0 else 0,
+                last=Button(self),
+            )
+
+    def listing(page):
+        if page.url.endswith("?page=7"):
+            n = 12
+        elif page.clicks:
+            n = 8
+        else:
+            n = 6
+        return ([{
+            "url": f"https://www.farmatodo.com.mx/product-{i}/p",
+            "product": f"Producto {i}", "text": "$75.00",
+        } for i in range(n)], 12, page.clicks == 0)
+
+    monkeypatch.setattr(mod, "validate_category_page", lambda *args: None)
+    monkeypatch.setattr(mod, "extract_catalogue", listing)
+    monkeypatch.setattr(mod, "inspect_public_product_page",
+        lambda page, url: {
+            "sku": url.rstrip("/").split("/")[-2],
+            "source": "pdp_visible_sku", "verified": True,
+        },
+    )
+    page = Page()
+    rows, meta = FarmatodoScraper(max_rounds=10).capture_category(
+        page, cat, probe=False,
+    )
+    assert len(rows) == 12
+    assert page.clicks == 1
+    assert cat.url + "?page=7" in page.navigations
+    assert meta["load_more_clicks"] == 1
+    assert meta["pagination_rounds"] == 2
+    assert meta["pdp_sku_verified"] == 12
+    assert meta["load_more_stalled"] is False
+    assert meta["load_more_stop_reason"] == "published_target_reached"
+    assert meta["public_page_fallbacks"][0]["status"] == "validated_new_products"
+    assert quality(rows, meta)["status"] == "COMPLETE"
+
+
+def test_farmatodo_click_error_is_recovered_when_new_products_arrived(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+    from scraper.retailers import farmatodo as mod
+    cat = load_categories("config/farmatodo/categories.yaml")[1]
+
+    class Button:
+        def __init__(self, page):
+            self.page = page
+        def is_visible(self):
+            return True
+        def is_enabled(self):
+            return True
+        def scroll_into_view_if_needed(self, **kw):
+            pass
+        def click(self, **kw):
+            self.page.clicked = True
+            raise RuntimeError("DOM detached during public navigation")
+
+    class Page:
+        url = cat.url
+        def __init__(self):
+            self.clicked = False
+            self.context = SimpleNamespace(
+                new_page=lambda: SimpleNamespace(close=lambda: None)
+            )
+        def goto(self, url, **kw):
+            self.url = url
+        def wait_for_timeout(self, ms):
+            pass
+        def get_by_text(self, regexp):
+            return SimpleNamespace(count=lambda: 1, last=Button(self))
+
+    def listing(page):
+        n = 12 if page.clicked else 6
+        return ([{
+            "url": f"https://www.farmatodo.com.mx/item-{i}/p",
+            "product": f"Producto {i}", "text": "$60.00",
+        } for i in range(n)], 12, not page.clicked)
+
+    monkeypatch.setattr(mod, "validate_category_page", lambda *args: None)
+    monkeypatch.setattr(mod, "extract_catalogue", listing)
+    monkeypatch.setattr(mod, "inspect_public_product_page",
+        lambda page, url: {
+            "sku": url.rstrip("/").split("/")[-2],
+            "source": "pdp_visible_sku", "verified": True,
+        },
+    )
+    rows, meta = FarmatodoScraper(max_rounds=5).capture_category(
+        Page(), cat, probe=False,
+    )
+    assert len(rows) == 12
+    assert meta["pagination_rounds"] == 1
+    assert meta["load_more_stalled"] is False
+    assert meta["pdp_sku_checked"] == 12
+    assert quality(rows, meta)["status"] == "COMPLETE"
+
+
+
 def test_probe_can_report_ready_after_three_verified_pdp_skus(monkeypatch):
     from types import SimpleNamespace
     from scripts import test_farmatodo as runner
