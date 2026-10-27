@@ -264,6 +264,85 @@ def validate_category_page(page, category) -> None:
         raise FarmatodoCaptureError("Categoría sin productos")
 
 
+def inspect_public_pagination_ui(page, category_url: str) -> dict:
+    """Public DOM-only diagnosis of pagination and subcategory navigation.
+
+    Records no cookies, tokens, private requests, HTML blobs or embedded
+    hydration data. Linked URLs must stay on the original catalogue route.
+    """
+    try:
+        data = page.evaluate(
+            r"""(categoryUrl) => {
+              const base = new URL(categoryUrl);
+              const prefix = base.pathname.replace(/\/+$/, '') + '/';
+              const textOf = el => (
+                el.innerText || el.getAttribute('aria-label') || ''
+              ).replace(/\s+/g, ' ').trim().slice(0, 90);
+              const links = [...document.querySelectorAll('a[href]')];
+              const children = [];
+              const navigation = [];
+              for (const a of links) {
+                if (!a.getClientRects().length) continue;
+                let url;
+                try { url = new URL(a.href); } catch (_) { continue; }
+                if (url.hostname !== base.hostname ||
+                    url.protocol !== 'https:') continue;
+                if (url.pathname.startsWith(prefix) &&
+                    !url.pathname.replace(/\/+$/, '').endsWith('/p')) {
+                  children.push({
+                    label: textOf(a), url: url.origin + url.pathname
+                  });
+                }
+                if (url.searchParams.has('page') ||
+                    url.searchParams.has('from') ||
+                    url.searchParams.has('_from')) {
+                  navigation.push({
+                    label: textOf(a),
+                    url: url.origin + url.pathname + url.search
+                  });
+                }
+              }
+              const buttons = [...document.querySelectorAll(
+                'button,[role="button"]'
+              )].map(b => ({
+                text: textOf(b),
+                visible: Boolean(b.getClientRects().length),
+                disabled: Boolean(b.disabled || b.getAttribute(
+                  'aria-disabled') === 'true')
+              })).filter(b => b.text &&
+                /mostrar|cargar|siguiente|anterior|ver m[aá]s/i.test(b.text)
+              );
+              const filters = [...document.querySelectorAll('label')].
+                map(l => ({
+                  label: textOf(l), visible: Boolean(l.getClientRects().length),
+                  input_type: l.querySelector('input')?.type || null
+                })).filter(l => l.label).slice(0, 40);
+              return {
+                url: location.origin + location.pathname + location.search,
+                title: document.title.slice(0, 90),
+                visible_product_links: links.filter(a =>
+                  a.getClientRects().length &&
+                  a.href.split(/[?#]/)[0].replace(/\/+$/, '')
+                    .endsWith('/p')).length,
+                visible_buttons: buttons.slice(0, 20),
+                public_subcategory_links: children.filter(
+                  (x,i) => children.findIndex(y => y.url === x.url) === i
+                ).slice(0, 40),
+                visible_pagination_links: navigation.filter(
+                  (x,i) => navigation.findIndex(y => y.url === x.url) === i
+                ).slice(0, 20),
+                filter_labels: filters
+              };
+            }""",
+            category_url,
+        )
+    except Exception as exc:
+        return {"diagnostic_unavailable": type(exc).__name__}
+    return data if isinstance(data, dict) else {
+        "diagnostic_unavailable": "unexpected_result_type"
+    }
+
+
 class FarmatodoScraper:
     def __init__(self, *, max_rounds: int = 100, wait_ms: int = 950):
         self.max_rounds = max_rounds
@@ -454,6 +533,26 @@ class FarmatodoScraper:
             if stop_reason in {"not_started", "max_rounds_reached"}:
                 load_more_error = "target_not_reached"
 
+        # A stable stop around 100 despite a much larger public target
+        # needs DOM evidence of alternative PUBLIC catalogue navigation
+        # before attempting any fallback or inventing pagination URLs.
+        load_more_ui_debug = (
+            inspect_public_pagination_ui(page, category.url)
+            if stalled and not probe and isinstance(target, int)
+            and len(seen) < target else None
+        )
+        if load_more_ui_debug is not None:
+            print(
+                f"Farmatodo {category.id} | diagnóstico navegación: "
+                f"rutas_subcategoria="
+                f"{len(load_more_ui_debug.get('public_subcategory_links', []))} | "
+                f"links_paginación="
+                f"{len(load_more_ui_debug.get('visible_pagination_links', []))} | "
+                f"botones="
+                f"{len(load_more_ui_debug.get('visible_buttons', []))}",
+                flush=True,
+            )
+
         # SKU is certified only by the visible 'Sku:' field on the
         # product page. In probe, inspect three representative PDPs. In
         # capture, inspect all PDPs only if loading has reached the target;
@@ -538,6 +637,7 @@ class FarmatodoScraper:
             "load_more_stalled": stalled,
             "load_more_error": load_more_error,
             "load_more_stop_reason": stop_reason,
+            "load_more_ui_debug": load_more_ui_debug,
             # Remaining work is based on the PUBLISHED product total,
             # not a temporarily rendered/disabled load-more control.
             "load_more_remaining": (
