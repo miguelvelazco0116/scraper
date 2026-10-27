@@ -14,7 +14,8 @@ import pytest
 from scraper.config import load_categories, load_locations
 from scraper.retailers.yza import (
     YzaContextError, YzaScrapeError, YzaScraper, discover_cards,
-    open_online_category, click_catalogue_page, page_url, prices_from_card, product_sku,
+    open_online_category, click_catalogue_page, page_url, prices_from_card,
+    promotion_from_card, product_sku,
     yza_browser_page,
 )
 
@@ -229,6 +230,29 @@ def test_full_two_page_capture_succeeds_without_any_postal_code(monkeypatch):
     assert all(row["store"] is None and row["store_id"] is None for row in rows)
     assert all(row["store_context_verified"] is False for row in rows)
     assert all(row["is_available"] is None for row in rows)
+    assert all(row["promotion"] is None for row in rows)
+
+
+def test_visible_offer_label_and_banners_do_not_invent_availability():
+    first = {
+        "text": "Colgate PerioGard 250ml $213.60 (Oferta) "
+                "Precio reducido de $267.00 (Antes)",
+        "promo_badges": ["ribbons_plan_lealtad3"],
+    }
+    assert promotion_from_card(first, 213.60, 267.00) == (
+        "Oferta | Compra 3 y lleva 1 gratis (válido en sucursal)"
+    )
+    bexident = {
+        "text": "Bexident Aftas Gel 8ml $221.85 (Oferta) "
+                "Precio reducido de $246.50 (Antes)",
+    }
+    assert promotion_from_card(bexident, 221.85, 246.50) == "Oferta"
+    tagged = {"text": "Solo precio $30.00", "promo_badges": ["2DO AL 50%"]}
+    assert promotion_from_card(tagged, 30.0, 30.0) == (
+        "2do al 50% (etiqueta promocional)"
+    )
+    assert promotion_from_card({"text": "Precio regular $50.00"},
+                               50.0, 50.0) is None
 
 
 def test_pager_refuses_number_not_visible_or_ellipsis():
