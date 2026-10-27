@@ -212,6 +212,20 @@ def main() -> int:
             "operador con CP 11590. Usa -UseExistingChrome o -CdpUrl "
             "en run_phase6_pilot.ps1."
         )
+    if "farmacias-yza" in ids:
+        from importlib.metadata import version as installed_version
+        playwright_version = installed_version("playwright")
+        major_minor = tuple(
+            int(part) for part in playwright_version.split(".")[:2]
+        )
+        if major_minor < (1, 60):
+            parser.error(
+                "Para Chrome 144+ con chrome://inspect se requiere "
+                "Playwright >= 1.60; el entorno actual tiene "
+                f"{playwright_version}. En este piloto ejecuta: "
+                "python -m pip install -r requirements-phase6-yza-cdp.txt. "
+                "No cambia requirements.txt ni el master productivo."
+            )
     phase_report = {
         "phase": 6, "run_date": day, "mode": args.mode,
         "requested_retailers": list(ids), "master_modified": False,
