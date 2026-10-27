@@ -269,4 +269,4 @@ En la primera prueba, --attempts 1 es diagnóstico; para capturas certificables 
 
 El informe de prueba mantiene complete=false aunque la subcategoría esté completa. Usa subcategory_trial_complete como estado explícito de este alcance menor. No actualiza output/pilots/farmatodo/catalogo_online.xlsx, ni diagnostics/farmatodo/last_run.json, ni la Fase 6 principal, ni el master. El coordinador de Fase 6 todavía requiere la categoría Respiratorios entera y no puede certificarla con estos datos aislados.
 
-Tests nuevos cubren URL exacta e identidad distinta, rechazo de otras rutas, Excel/cache dedicados y modo probe CLI. Suite completa esperada 392 (pendiente confirmación del operador).
+Tests nuevos cubren URL exacta e identidad distinta, rechazo de otras rutas, Excel/cache dedicados y modo probe CLI. Suite completa esperada 393 (pendiente confirmación del operador): cuatro pruebas nuevas de subcategoría y aislamiento.
