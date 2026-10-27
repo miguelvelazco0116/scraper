@@ -73,6 +73,25 @@ def test_phase6_yza_manual_cdp_is_forwarded_without_automatic_browser():
 
 
 
+def test_phase6_manual_chrome_wrapper_uses_heb_style_port_discovery():
+    """Fail before scraping if Chrome CDP is not reachable or YZA not open."""
+    script = (phase6.ROOT / "scripts" / "run_phase6_pilot.ps1").read_text(
+        encoding="utf-8"
+    )
+    assert 'Get-Process chrome' in script
+    assert 'DevToolsActivePort' in script
+    assert '/json/version' in script
+    assert '/json/list' in script
+    assert 'Pestana YZA detectada' in script
+    assert 'Chrome CDP responde, pero no hay pestaña' in script
+    assert 'Chrome abierto, pero ninguna conexion CDP local responde' in script
+    assert 'if (-not $CdpUrl)' in script
+    # Port 9222 is a checked fallback, never mandatory.
+    assert '$BrowserCandidates += "http://127.0.0.1:9222"' in script
+    assert '$CdpUrl = $MatchingChrome' in script
+    assert '& $PythonExe @argsList' in script
+
+
 def test_phase6_rejects_remote_cdp_endpoint():
     with pytest.raises(ValueError, match="local"):
         phase6.commands_for("probe", "farmacias-yza",
