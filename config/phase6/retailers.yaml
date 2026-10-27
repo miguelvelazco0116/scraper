@@ -6,11 +6,11 @@ retailers:
     categories:
       - medicamentos-respiratorio
       - higiene-bucal
-    postal_mode: FIXED
-    postal_code: "11590"
+    postal_mode: NO_VERIFICATION
+    postal_code: null
     capture_script: scripts/test_yza.py
     probe_script: scripts/probe_yza.py
-    capture_workbook: output/yza_cp11590_test.xlsx
+    capture_workbook: output/yza_online_test.xlsx
     capture_report: diagnostics/yza/last_run.json
   - id: farmatodo
     name: Farmatodo
