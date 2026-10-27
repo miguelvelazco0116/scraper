@@ -35,17 +35,35 @@ def test_similares_discovery_hydrates_without_brittle_selector_gate():
     assert "wait_for_selector('a[href$=\"/p\"]" not in source
 
 
-def test_phase5_integrator_uses_similares_and_heb_only():
+def test_phase5_integrator_uses_four_validated_retailers_and_13_categories():
+    # Phase 5 expanded from Similares+HEB (4 categories) to include
+    # Sam's Club (3) and Mayorista Duero (6). Keep the test aligned with
+    # the production integrator; NEVER reduce the integrator to satisfy
+    # a stale four-category assertion.
+    from scripts.integrate_validated_phase import (
+        PHASES, PHASE5_RETAILER_SOURCES,
+    )
+
+    expected = {
+        "Farmacias Similares": 2,
+        "HEB": 2,
+        "Sam's Club": 3,
+        "Mayorista Duero": 6,
+    }
+    assert PHASES[5]["retailers"] == set(expected)
+    assert "La Comer" not in PHASES[5]["retailers"]
+    assert {retailer: data["categories"]
+            for retailer, data in PHASE5_RETAILER_SOURCES.items()} == expected
+    assert PHASES[5]["categories"] == sum(expected.values()) == 13
+
     source = Path("scripts/integrate_validated_phase.py").read_text(
         encoding="utf-8"
     )
-    phase5 = source.split("5: {", 1)[1].split("} ", 1)[0]
-    assert '"Farmacias Similares"' in phase5
-    assert '"HEB"' in phase5
-    assert '"La Comer"' not in phase5
-    assert '"categories": 4' in phase5
-    assert "def _validate_similares_phase" in source
-    assert "def _validate_heb_phase" in source
+    for validator in (
+        "_validate_similares_phase", "_validate_heb_phase",
+        "_validate_sams_retailer", "_validate_duero_retailer",
+    ):
+        assert f"def {validator}(" in source
 
 
 def test_phase5_requires_previous_phases_and_wrapper_accepts_5():
