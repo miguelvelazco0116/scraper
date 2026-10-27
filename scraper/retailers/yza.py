@@ -377,14 +377,15 @@ def yza_browser_page(playwright, cdp_url: str = ""):
             page for page in context.pages
             if urlparse(page.url).netloc.lower() in {HOST, "yza.mx"}
         ]
-        if matching:
-            yield matching[-1]
-        else:
-            page = context.new_page()
-            try:
-                yield page
-            finally:
-                page.close()
+        if not matching:
+            raise YzaContextError(
+                "No hay pestaña de www.yza.mx en el Chrome conectado. "
+                "Abre YZA en ese Chrome, selecciona CP 11590 y deja "
+                "la pestaña abierta antes del piloto."
+            )
+        # Same procedure as San Pablo: never create a replacement page,
+        # silently switch stores or close the user's selected tab.
+        yield matching[-1]
         return
 
     browser = playwright.chromium.launch(headless=False, channel="chrome")
@@ -399,6 +400,60 @@ def yza_browser_page(playwright, cdp_url: str = ""):
             context.close()
     finally:
         browser.close()
+
+
+
+def verify_operator_ready_category(page, category_url: str, trace: dict | None = None) -> str:
+    """Continue from an operator-prepared YZA tab, without editing the CP.
+
+    The visible applied 11590 must be proved BEFORE navigating to the
+    category, and verified again AFTER navigation. Existing popup inputs,
+    cookies and an operator assertion alone are never sufficient proof.
+    """
+    if trace is None:
+        trace = {}
+    trace["mode"] = "operator_prepared_chrome"
+    trace["stage"] = "inspect_open_yza_tab"
+    if urlparse(page.url).netloc.lower() not in {HOST, "yza.mx"}:
+        trace["stage"] = "wrong_browser_tab"
+        raise YzaContextError(
+            "El Chrome conectado no tiene una pestaña activa de YZA."
+        )
+
+    trace["stage"] = "verify_operator_postal_before_navigation"
+    initial = context_evidence(page)
+    trace["postal_visible_before_navigation"] = bool(initial)
+    if not initial:
+        trace["stage"] = "operator_postal_not_verified"
+        raise YzaContextError(
+            "El CP 11590 no aparece aplicado en la cabecera de YZA. "
+            "Selecciona 11590 en el popup, pulsa ACEPTAR, confirma la "
+            "ubicación en la página y vuelve a ejecutar el piloto. "
+            "El scraper no modificará el CP de tu Chrome."
+        )
+
+    source = urlparse(page.url)
+    target = urlparse(category_url)
+    if target.scheme != "https" or target.netloc != HOST:
+        raise YzaContextError("URL de categoría YZA fuera del dominio permitido.")
+    current_path = source.path.rstrip("/")
+    target_path = target.path.rstrip("/")
+    if current_path != target_path or source.query != target.query:
+        trace["stage"] = "navigate_to_category_with_existing_location"
+        page.goto(category_url, wait_until="domcontentloaded", timeout=75000)
+        page.wait_for_timeout(900)
+
+    trace["stage"] = "verify_operator_postal_after_navigation"
+    after = context_evidence(page)
+    trace["postal_visible_after_navigation"] = bool(after)
+    if not after:
+        trace["stage"] = "operator_postal_lost_after_navigation"
+        raise YzaContextError(
+            "YZA no conserva el CP 11590 al navegar a esta categoría. "
+            "No se certifican los precios; revisa la ubicación en Chrome."
+        )
+    trace["stage"] = "operator_postal_verified"
+    return after
 
 
 class YzaScraper:
@@ -422,15 +477,19 @@ class YzaScraper:
         }
         with sync_playwright() as playwright:
             with yza_browser_page(playwright, self.cdp_url) as page:
-                page.goto(category.url, wait_until="domcontentloaded", timeout=75000)
-                page.wait_for_timeout(800)
-                evidence = apply_postal_code(page)
-                if not evidence:
-                    raise YzaContextError(
-                        "CP 11590 NO confirmado en el selector persistente de YZA. "
-                        "Selecciona una dirección sugerida con ese CP en Chrome. "
-                        "No se atribuyen precios a una ubicación no verificada."
-                    )
+                if self.cdp_url:
+                    # San Pablo-style continuation: operator has already
+                    # opened YZA and applied 11590 in the same Chrome tab.
+                    evidence = verify_operator_ready_category(page, category.url)
+                else:
+                    page.goto(category.url, wait_until="domcontentloaded", timeout=75000)
+                    page.wait_for_timeout(800)
+                    evidence = apply_postal_code(page)
+                    if not evidence:
+                        raise YzaContextError(
+                            "CP 11590 NO confirmado en YZA. "
+                            "No se atribuyen precios a una ubicación no verificada."
+                        )
                 self.run_meta["context_verified"] = True
                 self.run_meta["context_evidence"] = evidence
                 expected_last = None
