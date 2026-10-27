@@ -916,6 +916,18 @@ def test_partial_retries_preserve_best_coverage_not_last_attempt(monkeypatch):
         "button_not_visible_or_enabled_before_target"
     )
 
+    # Explicit fast diagnostic may run one attempt; productive pipeline
+    # still defaults to three attempts when --attempts is omitted.
+    attempts.clear()
+    one_rows, one_summary = runner.run_category(
+        Browser(), SimpleNamespace(id="respiratorios"),
+        max_rounds=100, probe=False, max_attempts=1,
+    )
+    assert attempts == [99]
+    assert len(one_rows) == 99
+    assert one_summary["attempts"] == 1
+    assert one_summary["best_attempt"] == 1
+
 
 def test_probe_can_report_ready_after_three_verified_pdp_skus(monkeypatch):
     from types import SimpleNamespace
