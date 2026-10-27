@@ -39,15 +39,19 @@ categorías de YZA (y tres de Farmatodo) antes de declarar COMPLETE_PILOT.
 
 El scraper encuentra el WebSocket local en DevToolsActivePort y reutiliza
 la pestaña ya abierta. No lanza ni cierra Chrome en el modo CDP.
-Para el modo Chrome 144+ con chrome://inspect se usa Playwright 1.60 en
-el piloto, sin modificar requirements.txt del proyecto productivo.
+**Un solo entorno virtual `(scraper)` para TODOS los retailers.**
+El `requirements.txt` principal fija Playwright 1.60.0, compatible con
+el método de Chrome CDP de YZA. Se eliminó la dependencia extra exclusiva
+de Fase 6. La versión unificada requiere correr tests de regresión de
+los scrapers existentes antes de considerarla validada para producción.
 
 ### Actualizar y validar solo Fase 6
 
     cd C:\Proyectos\scraper
     git switch feat/phase6-yza-farmatodo-cli-20261026
     git pull --ff-only
-    python -m pip install -r requirements-phase6-yza-cdp.txt
+    python -m pip install -r requirements.txt
+    python -m pip check
     python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
 
 ### Probe de YZA desde la misma ventana de Chrome
@@ -117,6 +121,39 @@ python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_f
 ```
 
 No volver a capturar YZA, ya reportó `COMPLETE_PILOT` con 474 productos.
+
+## Corrección del entorno único y Browser.new_context (27/oct/2026)
+
+El operador pidió mantener todos los scrapers en **un solo entorno virtual**
+`C:\\Proyectos\\venvs\\scraper`. Por ello se unificó Playwright 1.60.0
+en `requirements.txt` de la rama Fase 6 y se eliminó el archivo
+`requirements-phase6-yza-cdp.txt`.
+
+El diagnóstico real de Farmatodo falló en las tres categorías con
+`Error: Please use browser.new_context()` **antes de leer productos**.
+La implementación anterior llamaba a `browser.new_page(...)` directamente
+sobre Chrome. Ahora `scripts/test_farmatodo.py` crea un contexto separado
+mediante `browser.new_context(viewport=..., locale="es-MX")`, abre una
+pestaña con `context.new_page()` y cierra **solo ese contexto y sus
+pestañas** al terminar el intento. Si Farmatodo usa CDP, reutiliza el
+contexto del navegador del operador sin cerrarlo. YZA manual no cambia.
+
+El upgrade del `requirements.txt` es un cambio de dependencia común,
+por lo que se deben comprobar pruebas Fases 1-5, Fase 6 y `python -m pip
+check`. **No se ha validado todavía el comportamiento de las fases
+productivas con Playwright 1.60 en Windows.**
+
+```powershell
+cd C:\Proyectos\scraper
+git pull --ff-only
+python -m pip install -r requirements.txt
+python -m pip check
+python -m pytest -q
+& .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmatodo
+```
+
+El master, integración de producción y Streamlit no se alteran por
+este piloto; cualquier integración futura deberá revisarse por separado.
 
 ## Restricciones
 
