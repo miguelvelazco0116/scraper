@@ -492,6 +492,16 @@ def main() -> int:
                 )
                 items[key] = (pd.DataFrame(rows, columns=COLUMNS), summary)
                 save_cp(cp, items)
+                if summary["status"] == "COMPLETE":
+                    persisted = load_cache(cp, day)
+                    if key not in persisted:
+                        raise ValueError(
+                            f"El checkpoint {cp}/{key} no supero la "
+                            "revalidacion despues de guardarse."
+                        )
+                    progress.reuse(
+                        cp, key, products=len(persisted[key][0]),
+                    )
                 state = progress.snapshot()
                 print(
                     f"RESULTADO {cp}/{key}={summary['status']} "
