@@ -12,7 +12,7 @@ import pytest
 from scraper.config import load_categories, load_locations
 from scraper.retailers.yza import (
     POSTAL_CODE, YzaContextError, YzaScraper,
-    page_url, prices_from_card, product_sku,
+    page_url, prices_from_card, product_sku, yza_browser_page,
 )
 
 
@@ -89,6 +89,59 @@ def test_three_attempts_on_same_category_before_advancing():
     assert len(failures) == 3
     assert frame.empty
     assert summary["status"] == "STORE_CONTEXT_ERROR"
+
+
+
+def test_yza_auto_browser_launches_headed_and_cleans_up():
+    log = []
+    page = SimpleNamespace(url="about:blank")
+    class Context:
+        def new_page(self):
+            log.append("new_page")
+            return page
+        def close(self):
+            log.append("close_context")
+    class Browser:
+        def new_context(self, **kwargs):
+            assert kwargs["locale"] == "es-MX"
+            log.append("new_context")
+            return Context()
+        def close(self):
+            log.append("close_browser")
+    class Chromium:
+        def launch(self, **kwargs):
+            assert kwargs == {"headless": False, "channel": "chrome"}
+            log.append("launch")
+            return Browser()
+        def connect_over_cdp(self, url):
+            raise AssertionError("Automatic Chrome must not use CDP")
+    playwright = SimpleNamespace(chromium=Chromium())
+    with yza_browser_page(playwright) as opened:
+        assert opened is page
+    assert log == [
+        "launch", "new_context", "new_page",
+        "close_context", "close_browser",
+    ]
+
+
+def test_yza_manual_cdp_reuses_tab_without_closing_operators_browser():
+    page = SimpleNamespace(url="https://www.yza.mx/")
+    class Browser:
+        contexts = [SimpleNamespace(pages=[page])]
+        def close(self):
+            raise AssertionError("Cannot close operator Chrome")
+    class Chromium:
+        def launch(self, **kwargs):
+            raise AssertionError("CDP fallback must not launch Chrome")
+        def connect_over_cdp(self, url):
+            assert url == "http://127.0.0.1:9222"
+            return Browser()
+    with yza_browser_page(
+        SimpleNamespace(chromium=Chromium()),
+        "http://127.0.0.1:9222",
+    ) as opened:
+        assert opened is page
+
 
 
 def test_valid_cached_rejects_wrong_date_or_cp():
