@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
 from scraper.config import load_categories
 from scraper.retailers.yza_postal_diagnostics import inspect_postal_ui
 from scraper.retailers.yza import (
-    BLOCKED_MARKERS, apply_postal_code, discover_cards, yza_browser_page,
+    BLOCKED_MARKERS, apply_postal_code, context_evidence, discover_cards, yza_browser_page,
 )
 
 REPORT_DIR = ROOT / "diagnostics" / "yza"
@@ -44,6 +44,13 @@ def probe(category_id: str, cdp_url: str = "") -> int:
                 report["site_title"] = page.title()
                 report["landing_url"] = page.url
                 evidence = apply_postal_code(page)
+                if evidence:
+                    # A visible CP before reload is not enough: certify it
+                    # survives a fresh category load, as full capture requires.
+                    page.reload(wait_until="domcontentloaded", timeout=75000)
+                    page.wait_for_timeout(950)
+                    evidence = context_evidence(page)
+                    report["postal_recheck_after_reload"] = bool(evidence)
                 report["context_verified"] = bool(evidence)
                 report["context_evidence"] = evidence
                 if not evidence:
