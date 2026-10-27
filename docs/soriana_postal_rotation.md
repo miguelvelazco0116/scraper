@@ -149,3 +149,29 @@ Después de validar 54030:
 Solo si ambos son COMPLETE, revalidar rotación completa usando
 -PostalCode all. El caché debe reutilizar 83420 y 44220
 por CP y fecha, sin borrarlos.
+
+## Validación completada de Cuidado bucal y arranque desde PowerShell cerrado
+
+El usuario reportó 12/12 tests PASS y cuatro casos completos (fecha local
+2026-10-26):
+- 83420: 273 productos (192 disponibles, 81 agotados)
+- 44220: 338 productos (210 disponibles, 128 agotados)
+- 54030: 349 productos (258 disponibles, 91 agotados)
+- 97245: 338 productos (226 disponibles, 112 agotados)
+
+Para la corrida completa, activar el entorno virtual, volver a la rama y
+ejecutar las seis categorías productivas por cuatro CP. Con el caché validado
+del mismo día, `cuidado-bucal` se reutiliza; no hay motivo para borrarlo:
+
+    & .\scripts\test_soriana_cp_rotation.ps1 -PostalCode all -Category all
+
+**Corrección posterior:** correr solo la nueva Gastrointestinales ya no elimina
+las seis categorías completas del Excel por CP. El runner retiene
+todas las categorías COMPLETE del mismo día al guardar; la auditoría
+de salida sigue evaluando únicamente las categorías solicitadas.
+Después de las seis categorías:
+
+    & .\scripts\test_soriana_cp_rotation.ps1 -PostalCode all -Category gastrointestinales
+
+Se añadió un test de regresión de escritura/lectura de categorías previas.
+No ejecutar cambios de rama mientras hay scraping en curso.
