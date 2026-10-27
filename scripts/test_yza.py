@@ -173,7 +173,7 @@ def run_category(category, location, cdp_url: str, max_pages: int) -> tuple[pd.D
 def main() -> int:
     parser = argparse.ArgumentParser(description="Piloto YZA CP 11590")
     parser.add_argument("--category", default="all")
-    parser.add_argument("--cdp-url", default="", help="Chrome local CDP opcional; por defecto se abre Chrome desde Playwright.")
+    parser.add_argument("--cdp-url", required=True, help="Chrome previamente abierto por el operador, con CP 11590 aplicado.")
     parser.add_argument("--max-pages", type=int, default=100)
     args = parser.parse_args()
     if args.max_pages < 1 or args.max_pages > 200:
