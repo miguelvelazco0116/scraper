@@ -111,8 +111,11 @@ def test_inspect_pdp_reads_visible_sku_and_rejects_redirects():
         def __init__(self):
             self.url = ""
             self.text = "Sku: 7509546653518"
+            self.reloads = 0
         def goto(self, value, **kwargs):
             self.url = value
+        def reload(self, **kwargs):
+            self.reloads += 1
         def wait_for_timeout(self, delay):
             pass
         def locator(self, selector):
@@ -122,15 +125,140 @@ def test_inspect_pdp_reads_visible_sku_and_rejects_redirects():
             )
     page = Page()
     result = inspect_public_product_page(page, url)
-    assert result == {
-        "sku": "7509546653518",
-        "source": "pdp_visible_sku", "verified": True,
-    }
+    assert result["sku"] == "7509546653518"
+    assert result["source"] == "pdp_visible_sku"
+    assert result["verified"] is True
+    assert result["pdp_load_checks"] == 1
+    assert result["pdp_reload_count"] == 0
     page.text = "Producto cargando, sin SKU"
-    assert inspect_public_product_page(page, url)["verified"] is False
+    absent = inspect_public_product_page(page, url)
+    assert absent["verified"] is False
+    assert absent["pdp_load_checks"] == 20
+    assert absent["pdp_reload_count"] == 1
+    assert absent["pdp_sku_label_present"] is False
+    assert page.reloads == 1
     import pytest
     with pytest.raises(FarmatodoCaptureError, match="fuera"):
         inspect_public_product_page(page, "https://example.com/other/p")
+
+
+
+def test_oral_b_pdp_sku_can_appear_only_after_reload():
+    """Actual Oral-B product exposes Sku: 7501086453221 publicly."""
+    from types import SimpleNamespace
+
+    url = ("https://www.farmatodo.com.mx/"
+           "oral-b-enjuague-bucal-gingivitis-envase-c-350-ml/p")
+    class LateSkuPage:
+        def __init__(self):
+            self.url = ""
+            self.round = 0
+            self.checks = 0
+        def goto(self, url, **kwargs):
+            self.url = url
+        def reload(self, **kwargs):
+            self.round += 1
+        def wait_for_timeout(self, milliseconds):
+            pass
+        def locator(self, selector):
+            assert selector == "body"
+            def visible_body(**kwargs):
+                self.checks += 1
+                return ("Oral B Enjuague Bucal Gingivitis Envase C/350 Ml "
+                        "Sku: 7501086453221 $318.00"
+                        if self.round else "Cargando producto...")
+            return SimpleNamespace(inner_text=visible_body)
+
+    page = LateSkuPage()
+    result = inspect_public_product_page(page, url)
+    assert result["sku"] == "7501086453221"
+    assert result["verified"] is True
+    assert result["pdp_load_checks"] == 11
+    assert result["pdp_reload_count"] == 1
+
+
+def test_farmatodo_waits_for_rendered_resp_product_cards(monkeypatch):
+    """Zero products at DOMContentLoaded is not a completed/blocked category."""
+    from types import SimpleNamespace
+    from scraper.retailers import farmatodo as mod
+    cat = load_categories("config/farmatodo/categories.yaml")[0]
+
+    class Page:
+        url = cat.url
+        def __init__(self):
+            self.loads = 0
+            self.waits = 0
+            self.context = SimpleNamespace(
+                new_page=lambda: SimpleNamespace(close=lambda: None)
+            )
+        def goto(self, url, **kwargs):
+            self.loads += 1
+            self.url = url
+        def wait_for_timeout(self, delay):
+            self.waits += 1
+
+    page = Page()
+    calls = []
+    cards = [{
+        "url": f"https://www.farmatodo.com.mx/item-{i}/p",
+        "product": f"Producto {i}", "text": "$80.00",
+    } for i in range(6)]
+    def cards_eventually(page):
+        calls.append("extract")
+        return ([], 460, True) if len(calls) < 5 else (cards, 460, True)
+    monkeypatch.setattr(mod, "extract_catalogue", cards_eventually)
+    monkeypatch.setattr(mod, "validate_category_page", lambda *args: None)
+    monkeypatch.setattr(
+        mod, "inspect_public_product_page",
+        lambda page, url: {
+            "sku": "7501086453221", "source": "pdp_visible_sku",
+            "verified": True,
+        }
+    )
+    # In probe, avoid requiring a real page button after initial load by
+    # setting has_more=False on the fifth, successfully hydrated read.
+    def done_after_load(p):
+        cards_now, total, _ = cards_eventually(p)
+        return cards_now, total, False
+    monkeypatch.setattr(mod, "extract_catalogue", done_after_load)
+
+    rows, meta = FarmatodoScraper(max_rounds=10).capture_category(
+        page, cat, probe=True
+    )
+    assert len(rows) == 6
+    assert meta["initial_load_checks"] == 5
+    assert meta["initial_reload_count"] == 0
+    assert page.loads == 1
+    assert meta["pdp_sku_verified"] == 3
+
+
+def test_farmatodo_reloads_if_initial_catalogue_stays_empty(monkeypatch):
+    from types import SimpleNamespace
+    from scraper.retailers import farmatodo as mod
+    cat = load_categories("config/farmatodo/categories.yaml")[0]
+
+    class Page:
+        url = cat.url
+        loads = 0
+        waits = 0
+        def goto(self, url, **kwargs):
+            self.loads += 1
+            self.url = url
+        def wait_for_timeout(self, ms):
+            self.waits += 1
+        def evaluate(self, source):
+            return {"ready_state": "complete", "visible_product_links": 0,
+                    "visible_prices": False, "title": "Farmatodo"}
+
+    page = Page()
+    monkeypatch.setattr(mod, "validate_category_page", lambda *args: None)
+    monkeypatch.setattr(mod, "extract_catalogue",
+                        lambda page: ([], 460, False))
+
+    with pytest.raises(FarmatodoCaptureError, match="40 verificaciones"):
+        FarmatodoScraper(max_rounds=5).capture_category(page, cat, probe=True)
+    assert page.loads == 2
+    assert page.waits == 40
 
 
 def test_probe_checks_three_pdp_product_skus_without_guessing(monkeypatch):
