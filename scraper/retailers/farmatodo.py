@@ -222,8 +222,18 @@ class FarmatodoScraper:
                 if not button.count() or not button.last.is_visible():
                     break
                 before = len(seen)
-                button.last.click(timeout=8000)
-                page.wait_for_timeout(self.wait_ms)
+                old_urls = sorted(seen)
+                button.last.scroll_into_view_if_needed(timeout=8000)
+                button.last.click(timeout=12000)
+                # Wait for a NEW visible product link, not a fixed delay.
+                # Products can arrive asynchronously in batches of six.
+                page.wait_for_function(
+                    "old => Array.from(document.querySelectorAll('main a[href]'))"
+                    ".some(a => a.getClientRects().length"
+                    " && a.href.endsWith('/p') && !old.includes(a.href))",
+                    arg=old_urls, timeout=25000, polling=250,
+                )
+                page.wait_for_timeout(min(self.wait_ms, 500))
                 validate_category_page(page, category)
                 additional, next_target, more = extract_catalogue(page)
                 if next_target and target and next_target != target:
