@@ -46,19 +46,30 @@ def test_phase6_capture_is_two_retailer_commands():
 
 
 
-def test_phase6_default_launches_browsers_without_cdp():
+def test_phase6_yza_requires_manual_chrome_and_farmatodo_stays_automatic():
     for mode in ("probe", "capture"):
-        for rid in phase6.RETAILERS:
-            commands = phase6.commands_for(mode, rid, "", 20)
-            assert commands
-            assert all("--cdp-url" not in command for command in commands)
-            assert all("--category" in command for command in commands)
-            if rid == "farmatodo":
-                assert all("--headed" in command for command in commands)
-            assert all(
-                str(phase6.ROOT / "scripts") in command[1]
-                for command in commands
-            )
+        with pytest.raises(ValueError, match="operador"):
+            phase6.commands_for(mode, "farmacias-yza", "", 20)
+
+        commands = phase6.commands_for(mode, "farmatodo", "", 20)
+        assert commands
+        assert all("--cdp-url" not in command for command in commands)
+        assert all("--category" in command for command in commands)
+        assert all("--headed" in command for command in commands)
+
+
+def test_phase6_yza_manual_cdp_is_forwarded_without_automatic_browser():
+    for mode in ("probe", "capture"):
+        commands = phase6.commands_for(
+            mode, "farmacias-yza", "http://127.0.0.1:9222", 20
+        )
+        assert commands
+        assert all("--cdp-url" in command for command in commands)
+        assert all(
+            command[command.index("--cdp-url") + 1]
+            == "http://127.0.0.1:9222" for command in commands
+        )
+        assert all("--headed" not in command for command in commands)
 
 
 
