@@ -94,19 +94,17 @@ def test_phase6_manual_chrome_wrapper_accepts_chrome_144_inspect_ws():
     assert '$Version.webSocketDebuggerUrl' in script  # legacy fallback only
 
 
-def test_phase6_yza_playwright_override_is_isolated_from_production():
+def test_shared_playwright_dependency_is_unified():
     root = phase6.ROOT
-    prod = (root / "requirements.txt").read_text(encoding="utf-8")
-    pilot = (root / "requirements-phase6-yza-cdp.txt").read_text(
+    requirements = (root / "requirements.txt").read_text(encoding="utf-8")
+    runner = (root / "scripts" / "run_phase6_pilot.py").read_text(
         encoding="utf-8"
     )
-    phase_runner = (root / "scripts" / "run_phase6_pilot.py").read_text(
-        encoding="utf-8"
-    )
-    assert "playwright==1.54.0" in prod
-    assert "playwright==1.60.0" in pilot
-    assert 'major_minor < (1, 60)' in phase_runner
-    assert "requirements-phase6-yza-cdp.txt" in phase_runner
+    assert "playwright==1.60.0" in requirements
+    assert "requirements-phase6-yza-cdp.txt" not in runner
+    assert "requirements.txt" in runner
+    assert 'major_minor < (1, 60)' in runner
+
 
 
 def test_phase6_rejects_remote_cdp_endpoint():
