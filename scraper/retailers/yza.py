@@ -58,6 +58,27 @@ def prices_from_card(text: str) -> tuple[float | None, float | None]:
     return current, regular
 
 
+def promotion_from_card(card: dict, current: float | None,
+                        regular: float | None) -> str | None:
+    """Store price-off evidence separately from visible promotional badges.
+
+    A 'Compra 3 y llévate +1' badge is explicitly store-only in the
+    operator's screenshot. Never infer eligibility for an online purchase.
+    """
+    notes = []
+    text = card.get("text") or ""
+    if ((current is not None and regular is not None and regular > current)
+            or re.search(r"\\boferta\\b", text, re.I)):
+        notes.append("Oferta")
+    for badge in card.get("promo_badges") or []:
+        label = str(badge).strip()
+        if re.search(r"ribbons_plan_lealtad3", label, re.I):
+            notes.append("Compra 3 y lleva 1 gratis (válido en sucursal)")
+        elif re.search(r"2DO\\s+AL\\s+50%", label, re.I):
+            notes.append("2do al 50% (etiqueta promocional)")
+    return " | ".join(dict.fromkeys(notes)) or None
+
+
 def discover_cards(page) -> tuple[list[dict], int | None]:
     """Discover visible product links, price text and pager without guessing totals."""
     return_value = page.evaluate(
@@ -87,7 +108,15 @@ def discover_cards(page) -> tuple[list[dict], int | None]:
                 text.length > byUrl.get(url).text.length ||
                 (text.length === byUrl.get(url).text.length &&
                  title.length > byUrl.get(url).title.length)))
-              byUrl.set(url, {url, title, text});
+              byUrl.set(url, {
+                url, title, text,
+                promo_badges: [...new Set(
+                  [...box.querySelectorAll('img[alt],img[title]')]
+                    .flatMap(img => [img.alt, img.title])
+                    .map(x => (x || '').trim())
+                    .filter(x => /ribbons_plan_lealtad3|2DO\\s+AL\\s+50%/i.test(x))
+                )].slice(0, 5),
+              });
           }
           const pages = [...document.querySelectorAll('a[href], button, [data-page]')]
             .map(el => {
@@ -306,7 +335,7 @@ class YzaScraper:
                             "sku": sku, "brand": None,
                             "product": card["title"],
                             "price_current": current, "price_regular": regular,
-                            "promotion": "Oferta" if regular and regular > current else None,
+                            "promotion": promotion_from_card(card, current, regular),
                             "availability_status": "UNKNOWN",
                             "is_available": None, "availability_raw": None,
                             "store_context_verified": False,
