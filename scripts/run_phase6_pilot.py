@@ -1,4 +1,4 @@
-"""CLI-only Phase 6 pilot: YZA CP11590 + Farmatodo online catalogue.
+"""CLI-only Phase 6 pilot: YZA + Farmatodo location-unverified online catalogues.
 
 This coordinator is deliberately NOT part of the productive pipeline or master.
 Probe mode tests five category pages; capture mode checks five actual category
@@ -29,7 +29,7 @@ EXPECTED = {
     "farmacias-yza": {
         "categories": {"medicamentos-respiratorio", "higiene-bucal"},
         "report": ROOT / "diagnostics" / "yza" / "last_run.json",
-        "workbook": ROOT / "output" / "yza_cp11590_test.xlsx",
+        "workbook": ROOT / "output" / "yza_online_test.xlsx",
         "name": "Farmacias YZA",
     },
     "farmatodo": {
@@ -65,16 +65,11 @@ def validated_manifest() -> dict:
             raise ValueError(f"YAML de retailer inconsistente: {rid}")
         if item["name"] != EXPECTED[rid]["name"]:
             raise ValueError(f"Nombre de retailer incorrecto: {rid}")
-        if rid == "farmacias-yza" and (
-            item.get("postal_mode") != "FIXED"
-            or str(item.get("postal_code")) != "11590"
-        ):
-            raise ValueError("YZA debe verificar CP fijo 11590.")
-        if rid == "farmatodo" and (
-            item.get("postal_mode") != "NO_VERIFICATION"
-            or item.get("postal_code") is not None
-        ):
-            raise ValueError("Farmatodo no comprueba CP ni sucursal.")
+        if (item.get("postal_mode") != "NO_VERIFICATION"
+                or item.get("postal_code") is not None):
+            raise ValueError(
+                f"{rid}: no debe exigir ni atribuir codigo postal o tienda."
+            )
     return obj
 
 
@@ -84,7 +79,7 @@ def _bools_equal(values, desired: bool) -> bool:
 
 
 def validate_capture(retailer_id: str, day: str) -> dict:
-    """After a subprocess exits 0, certify date, category & location claims.
+    """After a subprocess exits 0, certify catalogue and non-location attribution.
 
     A subprocess exit code alone never certifies the phase.
     """
@@ -98,10 +93,14 @@ def validate_capture(retailer_id: str, day: str) -> dict:
     if report.get("master_modified") is not False:
         raise ValueError(f"{retailer_id}: reporte no declara master intacto.")
     if retailer_id == "farmacias-yza":
-        if report.get("complete_pilot") is not True or str(report.get("postal_code")) != "11590":
-            raise ValueError("YZA: 2 categorías o CP 11590 sin certificar.")
+        if (report.get("complete_pilot") is not True
+                or report.get("postal_code") is not None
+                or report.get("postal_verification_required") is not False
+                or report.get("store_context_verified") is not False
+                or report.get("scope") != "ONLINE_CATALOGUE_NO_LOCATION_VERIFICATION"):
+            raise ValueError("YZA: categoria incompleta o contexto online invalido.")
     elif report.get("complete") is not True or report.get("postal_verification_required") is not False:
-        raise ValueError("Farmatodo: 3 categorías o alcance postal inválido.")
+        raise ValueError("Farmatodo: 3 categorias o alcance postal invalido.")
 
     summary = pd.read_excel(
         output, sheet_name="Resumen", dtype={"category_id": str, "postal_code": str}
@@ -138,22 +137,25 @@ def validate_capture(retailer_id: str, day: str) -> dict:
         if str(item.get("capture_date")) != day:
             raise ValueError(f"{retailer_id}: categoría de otro día.")
 
+    # Both retailers are online catalogues with NO verified locality.
+    # Never let old YZA postal-attributed outputs masquerade as the new pilot.
+    if (frame["postal_code"].notna().any()
+            or frame["store_id"].notna().any()
+            or frame["store"].notna().any()):
+        raise ValueError(f"{retailer_id}: se atribuyo CP o sucursal sin verificar.")
+    if not _bools_equal(frame["store_context_verified"], False):
+        raise ValueError(f"{retailer_id}: contexto de localidad falsamente verificado.")
     if retailer_id == "farmacias-yza":
-        if not frame["postal_code"].astype(str).eq("11590").all():
-            raise ValueError("YZA: CP diferente de 11590.")
-        if not _bools_equal(frame["store_context_verified"], True):
-            raise ValueError("YZA: filas sin prueba de CP.")
-    else:
-        if frame["postal_code"].notna().any() or frame["store_id"].notna().any():
-            raise ValueError("Farmatodo: se atribuyó ubicación no certificada.")
-        if not _bools_equal(frame["store_context_verified"], False):
-            raise ValueError("Farmatodo: contexto postal falsamente certificado.")
+        if ("postal_verification_required" not in summary.columns
+                or not _bools_equal(summary["postal_verification_required"], False)
+                or "store_context_verified" not in summary.columns
+                or not _bools_equal(summary["store_context_verified"], False)):
+            raise ValueError("YZA: Resumen reclama localidad o carece de alcance online.")
     return {
         "retailer": config["name"], "categories": len(summary),
         "products": len(frame), "workbook": str(output),
         "validated_day": day,
-        "scope": ("FIXED_CP_11590" if retailer_id == "farmacias-yza"
-                  else "ONLINE_CATALOGUE_NO_CP_VERIFICATION"),
+        "scope": "ONLINE_CATALOGUE_NO_LOCATION_VERIFICATION",
     }
 
 
@@ -168,7 +170,7 @@ def commands_for(mode: str, rid: str, cdp_url: str = "", max_pages: int = 100) -
     if rid == "farmacias-yza" and not cdp_url:
         raise ValueError(
             "Farmacias YZA ahora requiere Chrome local preparado por el "
-            "operador con CP 11590 y conexión CDP."
+            "operador y conexión CDP (sin CP obligatorio)."
         )
     # Explicit CDP is a fallback; default is a Playwright-owned visible
     # Chrome process for each isolated diagnostic or capture runner.
@@ -200,7 +202,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Fase 6 CLI aislada")
     parser.add_argument("--mode", choices=("probe", "capture"), default="probe")
     parser.add_argument("--retailer", choices=("all", *RETAILERS), default="all")
-    parser.add_argument("--cdp-url", default="", help="Chrome local preparado por operador (obligatorio para YZA, opcional para Farmatodo).")
+    parser.add_argument("--cdp-url", default="", help="Chrome abierto por el operador para YZA, sin localidad obligatoria.")
     parser.add_argument("--max-pages", type=int, default=100)
     args = parser.parse_args()
     validated_manifest()
@@ -209,7 +211,7 @@ def main() -> int:
     if "farmacias-yza" in ids and not args.cdp_url:
         parser.error(
             "YZA requiere una pestaña de Chrome CDP preparada por el "
-            "operador con CP 11590. Usa -UseExistingChrome o -CdpUrl "
+            "operador. No se requiere CP. Usa -UseExistingChrome o -CdpUrl "
             "en run_phase6_pilot.ps1."
         )
     if "farmacias-yza" in ids:
