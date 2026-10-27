@@ -144,6 +144,44 @@ def test_yza_manual_cdp_reuses_tab_without_closing_operators_browser():
 
 
 
+
+def test_yza_postal_probe_metadata_excludes_typed_addresses():
+    """The browser can inspect the modal without exposing address contents."""
+    from scraper.retailers.yza_postal_diagnostics import inspect_postal_ui
+
+    class FakePage:
+        def evaluate(self, js):
+            assert "input_fields" in js
+            assert "location_controls" in js
+            assert "el.value" not in js
+            assert "document.cookie" not in js
+            assert "localStorage" not in js
+            return {
+                "input_fields": [{
+                    "placeholder": (
+                        "Digita la dirección y selecciona una opción "
+                        "de la lista de sugerencias"
+                    ),
+                    "visible": False,
+                    "in_dialog": True,
+                    "aria_label": "",
+                    "type": "text",
+                }],
+                "location_controls": [
+                    {"text": "Consultar disponibilidad", "visible": False,
+                     "in_dialog": True}
+                ],
+                "modal_count": 1,
+                "url": "https://www.yza.mx/medicamentos/respiratorio/",
+            }
+
+    data = inspect_postal_ui(FakePage())
+    assert data["input_fields"][0]["visible"] is False
+    assert data["input_fields"][0]["in_dialog"] is True
+    assert data["location_controls"][0]["text"] == "Consultar disponibilidad"
+
+
+
 def test_valid_cached_rejects_wrong_date_or_cp():
     from scripts.test_yza import _valid_cached
 
