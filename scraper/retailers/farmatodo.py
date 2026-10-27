@@ -439,9 +439,14 @@ class FarmatodoScraper:
             stop_reason = (
                 "published_target_reached"
                 if isinstance(target, int) and len(seen) >= target
-                else "max_rounds_reached"
+                else (
+                    "probe_one_click_verified"
+                    if probe and rounds == 1 and not stalled
+                    else "max_rounds_reached"
+                )
             )
-        if isinstance(target, int) and target > 0 and len(seen) < target:
+        if (not probe and isinstance(target, int)
+                and target > 0 and len(seen) < target):
             # Never silently certify 40/169 as the end of the catalogue.
             # If the URL/price extractor later reports <target, the
             # publication remains blocked regardless of button state.
