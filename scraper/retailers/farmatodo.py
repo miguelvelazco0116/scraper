@@ -320,52 +320,134 @@ class FarmatodoScraper:
         rounds = 0
         stalled = False
         load_more_error = None
-        # A probe must also click Mostrar más ONCE. Otherwise the test may
-        # pass its SKU samples yet fail on the first full-capture click.
-        while more and rounds < (1 if probe else self.max_rounds):
-                button = page.get_by_text(
+        # The storefront briefly hides/disables Mostrar más while updating
+        # its catalogue. 'has_more=False' at that instant is NOT a verified
+        # terminal page. When the site publishes a target, keep trying until
+        # that target is reached or a concrete stall is diagnosed.
+        click_budget = 1 if probe else self.max_rounds
+        stop_reason = "not_started"
+        while rounds < click_budget:
+            pending = (
+                len(seen) < target
+                if isinstance(target, int) and target > 0
+                else more
+            )
+            if not pending:
+                stop_reason = (
+                    "published_target_reached"
+                    if isinstance(target, int) and target > 0
+                    else "no_button_and_no_published_target"
+                )
+                break
+
+            button = None
+            # Poll the real visible/enabled button, NOT the instantaneous
+            # boolean from extract_catalogue. Some VTEX re-renders remove
+            # the button temporarily after each click.
+            for retry in range(16):
+                controls = page.get_by_text(
                     re.compile(r"^\s*Mostrar\s+m[aá]s\s*$", re.I)
                 )
-                if not button.count() or not button.last.is_visible():
-                    stalled = True
-                    break
-                before = len(seen)
-                old_urls = sorted(seen)
-                try:
-                    button.last.scroll_into_view_if_needed(timeout=8000)
-                    button.last.click(timeout=12000)
-                    # Wait for a NEW visible product link, not a fixed delay.
-                    # Products can arrive asynchronously in batches of six.
-                    page.wait_for_function(
-                        "old => Array.from((document.querySelector('main') || "
-                        "document.querySelector('[role=main]') || document.body)"
-                        ".querySelectorAll('a[href]'))"
-                        ".some(a => a.getClientRects().length"
-                        " && a.href.split(/[?#]/)[0].replace(/\\/+$/, '').endsWith('/p')"
-                        " && !old.includes(a.href.split(/[?#]/)[0].replace(/\\/+$/, '')))",
-                        arg=old_urls, timeout=25000, polling=250,
+                if controls.count():
+                    candidate = controls.last
+                    enabled = (
+                        candidate.is_enabled()
+                        if hasattr(candidate, "is_enabled") else True
                     )
-                    page.wait_for_timeout(min(self.wait_ms, 500))
-                except Exception as exc:
-                    stalled = True
-                    load_more_error = type(exc).__name__
-                    print(
-                        f"Farmatodo {category.id} | Mostrar mas sin productos nuevos "
-                        f"({load_more_error})", flush=True,
-                    )
-                    break
+                    if candidate.is_visible() and enabled:
+                        button = candidate
+                        break
+                page.wait_for_timeout(750)
                 validate_category_page(page, category)
-                additional, next_target, more = extract_catalogue(page)
-                if next_target and target and next_target != target:
+                extra, updated_target, more = extract_catalogue(page)
+                if updated_target and target and updated_target != target:
                     raise FarmatodoCaptureError(
-                        f"El total de productos cambió ({target} -> {next_target})"
+                        f"El total de productos cambió ({target} -> {updated_target})"
                     )
-                target = target or next_target
-                seen.update({item["url"]: item for item in additional})
-                rounds += 1
-                if len(seen) <= before:
-                    stalled = True
+                target = target or updated_target
+                seen.update({item["url"]: item for item in extra})
+                if isinstance(target, int) and len(seen) >= target:
                     break
+
+            if button is None:
+                if isinstance(target, int) and len(seen) >= target:
+                    stop_reason = "published_target_reached"
+                    break
+                stalled = True
+                stop_reason = "button_not_visible_or_enabled_before_target"
+                load_more_error = stop_reason
+                print(
+                    f"Farmatodo {category.id} | sin botón Mostrar más "
+                    f"habilitado tras 16 comprobaciones | "
+                    f"tarjetas={len(seen)}/{target or '?'}",
+                    flush=True,
+                )
+                break
+
+            before = len(seen)
+            old_urls = sorted(seen)
+            try:
+                button.scroll_into_view_if_needed(timeout=8000)
+                button.click(timeout=12000)
+                # The DOM may contain new links before the corresponding
+                # cards have their displayed prices. Use the SAME extractor
+                # and wait for a priced, previously unseen product.
+                for _ in range(25):
+                    page.wait_for_timeout(650)
+                    validate_category_page(page, category)
+                    additional, next_target, more = extract_catalogue(page)
+                    if next_target and target and next_target != target:
+                        raise FarmatodoCaptureError(
+                            f"El total de productos cambió ({target} -> {next_target})"
+                        )
+                    target = target or next_target
+                    seen.update({item["url"]: item for item in additional})
+                    if len(seen) > before:
+                        break
+                else:
+                    stalled = True
+                    stop_reason = "click_added_no_priced_products"
+                    load_more_error = stop_reason
+                    print(
+                        f"Farmatodo {category.id} | Mostrar más no añadió "
+                        f"tarjetas con precio | {len(seen)}/{target or '?'}",
+                        flush=True,
+                    )
+                    break
+            except FarmatodoCaptureError:
+                raise
+            except Exception as exc:
+                stalled = True
+                stop_reason = "load_more_click_error"
+                load_more_error = type(exc).__name__
+                print(
+                    f"Farmatodo {category.id} | error en Mostrar más "
+                    f"({load_more_error}) | {len(seen)}/{target or '?'}",
+                    flush=True,
+                )
+                break
+
+            rounds += 1
+            print(
+                f"Farmatodo {category.id} | Mostrar más {rounds} | "
+                f"tarjetas={len(seen)}/{target or '?'} | "
+                f"nuevos={len(seen)-before} | boton_activo={more}",
+                flush=True,
+            )
+
+        if stop_reason == "not_started":
+            stop_reason = (
+                "published_target_reached"
+                if isinstance(target, int) and len(seen) >= target
+                else "max_rounds_reached"
+            )
+        if isinstance(target, int) and target > 0 and len(seen) < target:
+            # Never silently certify 40/169 as the end of the catalogue.
+            # If the URL/price extractor later reports <target, the
+            # publication remains blocked regardless of button state.
+            stalled = True
+            if stop_reason in {"not_started", "max_rounds_reached"}:
+                load_more_error = "target_not_reached"
 
         # SKU is certified only by the visible 'Sku:' field on the
         # product page. In probe, inspect three representative PDPs. In
@@ -449,6 +531,7 @@ class FarmatodoScraper:
             "target_products": target, "load_more_clicks": rounds,
             "load_more_stalled": stalled,
             "load_more_error": load_more_error,
+            "load_more_stop_reason": stop_reason,
             "load_more_remaining": more,
             "probe_load_more_verified": (
                 (target is not None and initial_count >= target)
