@@ -28,7 +28,7 @@ $RequiresYza = ($Retailer -eq "farmacias-yza" -or $Retailer -eq "all")
 
 if ($RequiresYza) {
     if (-not (Get-Process chrome -ErrorAction SilentlyContinue)) {
-        throw "Abre Google Chrome manualmente, habilita depuracion remota desde chrome://inspect/#remote-debugging y prepara YZA CP 11590."
+        throw "Abre Google Chrome manualmente, habilita depuracion remota desde chrome://inspect/#remote-debugging y abre YZA (CP opcional)."
     }
 
     $BrowserCandidates = @()
@@ -111,18 +111,18 @@ if ($RequiresYza) {
             "En ESA MISMA ventana abre chrome://inspect/#remote-debugging; " +
             "activa 'Allow remote debugging for this browser instance'. " +
             "Comprueba que Chrome muestre 'Server running at:' y deja abierta " +
-            "la pestana YZA con CP 11590."
+            "la pestana YZA, con o sin CP."
         )
     }
 
     Write-Host "Chrome remoto detectado: endpoint WebSocket local disponible."
     Write-Host "El scraper buscara la pestana www.yza.mx al conectarse."
     Write-Host "Si Chrome solicita permiso para controlar esta sesion, pulsa Allow."
-    Write-Host "El scraper no cambia el CP ni cierra tu Chrome."
+    Write-Host "YZA: sin verificacion de localidad; el scraper no cierra tu Chrome."
 } elseif ($UseExistingChrome -and -not $CdpUrl) {
     throw "Farmatodo no requiere Chrome manual. Omite -UseExistingChrome."
 }
-Write-Host "FASE 6 | FARMACIAS YZA (CP 11590) + FARMATODO (SIN CP)"
+Write-Host "FASE 6 | YZA + FARMATODO | CATALOGOS ONLINE SIN CP OBLIGATORIO"
 Write-Host "Modo: $Mode | Retailer: $Retailer | MaxPages: $MaxPages"
 if ($CdpUrl) {
     Write-Host "Navegador: Chrome preparado manualmente por operador (CDP)"
