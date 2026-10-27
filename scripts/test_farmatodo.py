@@ -170,12 +170,15 @@ def save_excel(items: dict[str, tuple[pd.DataFrame, dict]]) -> None:
     frames = [x[0] for x in items.values()]
     master = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=COLUMNS)
     master = master.reindex(columns=COLUMNS)
+    audit_cols = ["category_id", "sku", "url", "sku_source", "sku_verified"]
+    audit = pd.concat(frames, ignore_index=True).reindex(columns=audit_cols) if frames else pd.DataFrame(columns=audit_cols)
     summaries = pd.DataFrame([item[1] for item in items.values()])
     temp = OUTPUT.with_name("." + OUTPUT.stem + "." + uuid.uuid4().hex + ".xlsx")
     try:
         with pd.ExcelWriter(temp, engine="openpyxl") as writer:
             master.to_excel(writer, sheet_name="Concentrado", index=False)
             summaries.to_excel(writer, sheet_name="Resumen", index=False)
+            audit.to_excel(writer, sheet_name="SkuAudit", index=False)
         for attempt in range(8):
             try:
                 os.replace(temp, OUTPUT)
