@@ -3,11 +3,14 @@
 **Estado: piloto CLI únicamente.** Aún no se agrega al panel Streamlit ni
 al master productivo; las cinco fases y sus 13 retailers permanecen intactos.
 
-**CAMBIO VIGENTE — 27/oct/2026:** YZA opera como Farmacias San Pablo:
-el operador abre Chrome con depuración local y selecciona CP **11590**
-manualmente; el scraper se conecta a esa pestaña mediante CDP, **no**
-modifica el código postal, comprueba su aplicación visible antes de
-navegar y en cada página. El master productivo permanece intacto.
+**CAMBIO VIGENTE — 27/oct/2026:** YZA opera como HEB:
+el operador abre Chrome normalmente, activa depuración remota desde
+chrome://inspect/#remote-debugging, abre YZA, selecciona CP **11590**
+manualmente y deja la pestaña abierta. El PowerShell descubre el puerto
+CDP real y verifica la pestaña YZA ANTES de correr el probe. El scraper
+se conecta a esa sesión sin iniciar/cerrar Chrome, NO modifica el CP y
+verifica su aplicación antes de navegar y en cada página.
+El master productivo permanece intacto.
 
 Instrucciones actualizadas: docs/phase6_yza_farmatodo_cli.md,
 apartado "Modo San Pablo". Las instrucciones antiguas de Chrome
