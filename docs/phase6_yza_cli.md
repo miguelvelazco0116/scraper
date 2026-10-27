@@ -72,3 +72,34 @@ Después de verificar una captura YZA del mismo día:
 
 **Mercado Libre:** siguiente retailer de Fase 7, desarrollo separado,
 solo scraping, pensado para el esquema común del proyecto.
+
+## Integración segura al master (nuevo)
+
+Con las cinco fases anteriores completas **en el master fechado del día**,
+y tras una captura `COMPLETE_PILOT` de YZA de ese mismo día:
+
+```powershell
+# Diagnóstico / captura (Chrome CDP del operador preparado antes)
+& .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
+& .\scripts\run_phase6_pilot.ps1 -Mode capture -Retailer farmacias-yza
+
+# Valida sin modificar master ni puntero
+python .\scripts\integrate_phase6_yza.py --preview
+
+# Sólo después de revisar preview: integración con respaldo y rollback
+python .\scripts\integrate_phase6_yza.py --commit
+
+# Audita inmediatamente sin volver a capturar
+python .\scripts\audit_master_phases.py
+```
+
+El integrador independiente requiere fecha y categorías exactas, precio,
+SKU, URL de YZA y ausencia de atribución de CP/tienda; exige que Fases 1–5
+figuren completas en el puntero activo del día. Sólo sustituye la partición
+YZA en `Concentrado` y `Resumen`, añade `FASE 6` al `Control` y
+actualiza `current_master.json`. Antes de escribir respalda ambos archivos
+bajo `output/checkpoints_validos/before_phase6_yza_*.{xlsx,json}`.
+
+No se importa el histórico del piloto ni se ejecuta integración automática.
+La validación live en Windows es condición indispensable para tener YZA
+incorporada al master; las pruebas de GitHub no acceden al Chrome del operador.
