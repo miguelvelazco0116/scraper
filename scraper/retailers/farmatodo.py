@@ -538,7 +538,14 @@ class FarmatodoScraper:
             "load_more_stalled": stalled,
             "load_more_error": load_more_error,
             "load_more_stop_reason": stop_reason,
-            "load_more_remaining": more,
+            # Remaining work is based on the PUBLISHED product total,
+            # not a temporarily rendered/disabled load-more control.
+            "load_more_remaining": (
+                len(seen) < target
+                if isinstance(target, int) and target > 0
+                else more
+            ),
+            "load_more_button_visible_at_stop": more,
             "probe_load_more_verified": (
                 (target is not None and initial_count >= target)
                 or (rounds > 0 and len(seen) > initial_count and not stalled)
