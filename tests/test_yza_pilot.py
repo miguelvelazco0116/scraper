@@ -14,7 +14,7 @@ import pytest
 from scraper.config import load_categories, load_locations
 from scraper.retailers.yza import (
     YzaContextError, YzaScrapeError, YzaScraper, discover_cards,
-    open_online_category, page_url, prices_from_card, product_sku,
+    open_online_category, click_catalogue_page, page_url, prices_from_card, product_sku,
     yza_browser_page,
 )
 
@@ -169,13 +169,33 @@ def test_full_two_page_capture_succeeds_without_any_postal_code(monkeypatch):
     location = next(loc for loc in load_locations() if loc.id == "yza-online")
     class Page:
         url = "https://www.yza.mx/"
+        page_number = 1
+        page_clicks = []
         def goto(self, url, **kwargs):
             self.url = url
+            self.page_number = 1
         def wait_for_timeout(self, ms):
             pass
         def locator(self, selector):
             assert selector == "body"
             return SimpleNamespace(inner_text=lambda **kw: "Catálogo YZA")
+        def get_by_role(self, role, name, exact):
+            assert role == "button" and exact is True
+            assert name == "2"
+            page = self
+            class Button:
+                def is_visible(self):
+                    return True
+                def click(self, **kwargs):
+                    page.page_clicks.append(name)
+                    page.page_number = int(name)
+            button = Button()
+            return SimpleNamespace(count=lambda: 1, nth=lambda idx: button)
+        def wait_for_function(self, expression, arg, timeout, polling):
+            assert "MXYZ_" in expression
+            assert timeout == 25000 and polling == 250
+            assert len(arg) == 1 and "111111" in arg[0]
+            assert self.page_number == 2
 
     page = Page()
     @contextmanager
@@ -186,7 +206,7 @@ def test_full_two_page_capture_succeeds_without_any_postal_code(monkeypatch):
         yield SimpleNamespace()
 
     def fake_cards(p):
-        second = "p=2" in p.url
+        second = p.page_number == 2
         suffix = "222222" if second else "111111"
         return ([{
             "url": f"https://www.yza.mx/item/MXYZ_{suffix}.html",
@@ -200,6 +220,7 @@ def test_full_two_page_capture_succeeds_without_any_postal_code(monkeypatch):
         scraper = YzaScraper(cdp_url="http://127.0.0.1:9222", max_pages=2)
         rows = scraper.scrape_category(category, location)
     assert scraper.run_meta["status"] == "SUCCESS"
+    assert page.page_clicks == ["2"]
     assert scraper.run_meta["pages_visited"] == 2
     assert scraper.run_meta["postal_verification_required"] is False
     assert len(rows) == 2
@@ -208,6 +229,48 @@ def test_full_two_page_capture_succeeds_without_any_postal_code(monkeypatch):
     assert all(row["store"] is None and row["store_id"] is None for row in rows)
     assert all(row["store_context_verified"] is False for row in rows)
     assert all(row["is_available"] is None for row in rows)
+
+
+def test_pager_refuses_number_not_visible_or_ellipsis():
+    class Page:
+        def get_by_role(self, *args, **kwargs):
+            return SimpleNamespace(count=lambda: 0)
+    before = [{"url": "https://www.yza.mx/item/MXYZ_111.html"}]
+    with pytest.raises(YzaScrapeError, match="botón único"):
+        click_catalogue_page(Page(), 5, before)
+
+
+def test_pager_never_certifies_same_products_after_click():
+    class Page:
+        def __init__(self):
+            self.clicked = False
+        def get_by_role(self, role, name, exact):
+            assert role == "button" and name == "2" and exact
+            owner = self
+            class Button:
+                def is_visible(self):
+                    return True
+                def click(self, **kwargs):
+                    owner.clicked = True
+            return SimpleNamespace(count=lambda: 1, nth=lambda i: Button())
+        def wait_for_function(self, *args, **kwargs):
+            raise TimeoutError("DOM still shows exactly the same products")
+    page = Page()
+    before = [{"url": "https://www.yza.mx/item/MXYZ_111.html"}]
+    with pytest.raises(YzaScrapeError, match="productos nuevos"):
+        click_catalogue_page(page, 2, before)
+    assert page.clicked
+
+
+def test_offer_and_previous_price_from_user_visible_cards():
+    assert prices_from_card(
+        "COLGATE ENJUAGUE BUCAL PERIOGARD 250ML\\n"
+        "$213.60 (Oferta)\\n$267.00 (Antes)"
+    ) == (213.60, 267.00)
+    assert prices_from_card(
+        "Bexident Aftas Gel 8ml\\n"
+        "$221.85 (Oferta)\\n$246.50 (Antes)"
+    ) == (221.85, 246.50)
 
 
 def test_three_attempts_stay_on_same_category_without_location(monkeypatch):
