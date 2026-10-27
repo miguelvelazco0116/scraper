@@ -135,3 +135,48 @@ Si hay bloqueo o YZA requiere una dirección aplicada manualmente:
     & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza -UseExistingChrome
 
 Estos cambios pertenecen solo a un PR borrador de Fase 6; master intacto.
+
+
+## 27/oct — Chrome automático YZA funciona; CP no confirmado
+
+La segunda ejecución real de YZA (Chrome iniciado desde Playwright)
+detectó 18 productos por página en ambas categorías. La paginación
+mostró 20 páginas para medicamentos-respiratorio y 7 para higiene-bucal.
+El estado fue NEEDS_REVIEW porque context_verified=False en ambas.
+**No se observó un bloqueo.** Los 18 productos son visibles, no una
+captura válida para CP 11590.
+
+La página pública incluye un campo "Digita la dirección y selecciona
+una opción de la lista de sugerencias" dentro de la interfaz
+"Consultar disponibilidad". Ese diálogo puede ser de disponibilidad
+por producto y no demuestra que el código postal se aplique globalmente.
+
+El probe actualizado deja un JSON que explica qué entradas
+de dirección están visibles, cuáles están en un diálogo y qué botones
+de ubicación aparecen, sin leer ni guardar los domicilios escritos.
+Si el CP no es confirmado, también guarda una captura de pantalla
+visible de Chrome en diagnostics/yza/postal_ui_<category>_<timestamp>.png.
+Si el sitio muestra datos personales, ocultarlos antes de compartir
+la captura con terceros.
+
+### Repetir en Chrome automático, solo diagnóstico
+
+    git pull --ff-only
+    python -m pytest tests/test_yza_pilot.py tests/test_phase6_pilot.py tests/test_farmatodo_pilot.py -v
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
+
+### Fallback a navegador ya abierto, solo si se necesita
+
+1. Habilitar depuración remota de Chrome.
+2. Abrir YZA y seleccionar manualmente una dirección de CP 11590
+   mediante una sugerencia válida de la interfaz.
+3. Confirmar que la ubicación aplicada se muestra de forma persistente
+   fuera del campo y de cualquier modal. No basta rellenar el formulario.
+4. Ejecutar:
+
+       & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza -UseExistingChrome
+
+Si el sitio solo permite verificar disponibilidad de UN producto, sin
+mostrar una ubicación global seleccionada, seguir en NEEDS_REVIEW y
+revisar la semántica comercial de precios antes de promover YZA.
+No relajar a context_verified=True ni ejecutar capture productivo.
