@@ -153,7 +153,7 @@ def inspect_public_product_page(page, url: str) -> dict:
         "pdp_reload_count": reload_count,
         "pdp_body_characters": len(last_body),
         "pdp_sku_label_present": bool(
-            re.search(r"(?i)\\bsku\\s*[:：#-]", last_body)
+            re.search(r"(?i)\bsku\s*[:：#-]", last_body)
         ),
         "pdp_url": last_url,
     }
