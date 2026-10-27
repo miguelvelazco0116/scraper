@@ -17,6 +17,7 @@ HOST = "www.farmatodo.com.mx"
 # Disallow adjoining letters/digits and partial matches inside longer IDs.
 CODE_RE = re.compile(r"(?<![A-Za-z0-9])(\d{8,14})(?![A-Za-z0-9])")
 MONEY_RE = re.compile(r"\$\s*([\d,]+(?:\.\d{1,2})?)")
+PDP_SKU_RE = re.compile(r"(?i)\bsku\s*[:：#-]\s*([A-Za-z0-9][A-Za-z0-9_-]{2,31})\b")
 COUNT_RE = re.compile(r"\b([\d,]+)\s+productos?\b", re.I)
 BLOCK_MARKERS = (
     "access denied", "captcha", "verify you are human",
@@ -65,6 +66,40 @@ def sku_from_card(card: dict) -> tuple[str | None, str]:
             if candidates:
                 return candidates[0], "image_ean_candidate"
     return None, "not_found"
+
+
+
+def sku_from_visible_pdp_text(text: str) -> str | None:
+    """Accept only an explicit, readable 'Sku: <identifier>' in a PDP.
+
+    The image URL or the product-name slug is NOT certified evidence.
+    """
+    found = PDP_SKU_RE.search(str(text or ""))
+    return found.group(1) if found else None
+
+
+def inspect_public_product_page(page, url: str) -> dict:
+    """Visit public PDP in the same Chrome context; extract visible SKU text.
+
+    Does not access product APIs, cookies, hidden application state or cart.
+    """
+    parsed = urlparse(str(url))
+    if (parsed.scheme != "https" or parsed.hostname != HOST
+            or not parsed.path.rstrip("/").endswith("/p")):
+        raise FarmatodoCaptureError("Ficha de producto fuera de Farmatodo")
+    page.goto(url, wait_until="domcontentloaded", timeout=65000)
+    page.wait_for_timeout(500)
+    final_url = urlparse(page.url)
+    if final_url.hostname != HOST or not final_url.path.rstrip("/").endswith("/p"):
+        raise FarmatodoCaptureError("Redirección inválida de ficha de producto")
+    body_text = page.locator("body").inner_text(timeout=12000)
+    if any(marker in body_text.casefold() for marker in BLOCK_MARKERS):
+        raise FarmatodoCaptureError("Bloqueo al consultar la ficha de producto")
+    sku = sku_from_visible_pdp_text(body_text)
+    if sku:
+        return {"sku": sku, "source": "pdp_visible_sku", "verified": True}
+    return {"sku": None, "source": "pdp_sku_not_visible", "verified": False}
+
 
 
 def explicit_online_availability(text: str) -> tuple[str, bool | None, str | None]:
