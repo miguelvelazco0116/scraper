@@ -252,6 +252,17 @@ def run_category(browser, category, *, max_rounds: int, probe: bool = False):
                 result["probe_load_more_verified"] = (
                     meta.get("probe_load_more_verified") is True
                 )
+                result["probe_initial_products"] = meta.get("initial_products")
+                result["probe_loaded_products"] = meta.get("loaded_products")
+                result["price_promotion_samples"] = [
+                    {
+                        "product": row.get("product"),
+                        "price_current": row.get("price_current"),
+                        "price_regular": row.get("price_regular"),
+                        "promotion": row.get("promotion"),
+                    }
+                    for row in rows[:5]
+                ]
                 if not (checked >= min(3, len(rows)) and
                         verified == checked and priced == checked and
                         checked > 0):
@@ -344,6 +355,20 @@ def main() -> int:
                         "Mostrar más: "
                         f"{summary.get('probe_load_more_verified', False)}"
                     )
+                    print(
+                        f"Tarjetas: {summary.get('probe_initial_products')}"
+                        f" -> {summary.get('probe_loaded_products')}",
+                        flush=True
+                    )
+                    for sample in summary.get("price_promotion_samples", [])[:3]:
+                        print(
+                            "Precio/promoción: "
+                            f"{str(sample.get('product') or '')[:45]} | "
+                            f"actual={sample.get('price_current')} | "
+                            f"anterior={sample.get('price_regular')} | "
+                            f"promo={sample.get('promotion')}",
+                            flush=True
+                        )
                 if args.probe:
                     REPORT.parent.mkdir(parents=True, exist_ok=True)
                     path = REPORT.parent / f"probe_{category.id}_{today}.json"
