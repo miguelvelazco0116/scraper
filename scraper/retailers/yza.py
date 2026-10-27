@@ -68,13 +68,13 @@ def promotion_from_card(card: dict, current: float | None,
     notes = []
     text = card.get("text") or ""
     if ((current is not None and regular is not None and regular > current)
-            or re.search(r"\\boferta\\b", text, re.I)):
+            or re.search(r"\boferta\b", text, re.I)):
         notes.append("Oferta")
     for badge in card.get("promo_badges") or []:
         label = str(badge).strip()
         if re.search(r"ribbons_plan_lealtad3", label, re.I):
             notes.append("Compra 3 y lleva 1 gratis (válido en sucursal)")
-        elif re.search(r"2DO\\s+AL\\s+50%", label, re.I):
+        elif re.search(r"2DO\s+AL\s+50%", label, re.I):
             notes.append("2do al 50% (etiqueta promocional)")
     return " | ".join(dict.fromkeys(notes)) or None
 
