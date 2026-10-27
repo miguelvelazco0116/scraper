@@ -491,8 +491,51 @@ class FarmatodoScraper:
         seen = {card["url"]: card for card in cards}
         initial_count = len(seen)
         rounds = 0
+        ui_clicks = 0
+        page_fallback_attempts: list[dict] = []
+        attempted_public_pages: set[str] = set()
         stalled = False
         load_more_error = None
+
+        def try_public_page_fallback(trigger: str) -> bool:
+            nonlocal more, target, rounds
+            candidate = next_observed_public_page_url(
+                page.url, category.url
+            )
+            if candidate is None or candidate in attempted_public_pages:
+                return False
+            attempted_public_pages.add(candidate)
+            result = visit_next_observed_public_page(
+                page, category, seen, target
+            )
+            # Only save bounded diagnostic metadata, never whole cards.
+            page_fallback_attempts.append({
+                key: value for key, value in result.items()
+                if key not in ("cards",)
+            } | {"trigger": trigger})
+            if result["status"] != "validated_new_products":
+                print(
+                    f"Farmatodo {category.id} | página pública siguiente "
+                    f"NO validada: página={result.get('candidate_page')} "
+                    f"motivo={result['status']} "
+                    f"error={result.get('error_type', '')}",
+                    flush=True,
+                )
+                return False
+            before = len(seen)
+            seen.update({
+                item["url"]: item for item in result["cards"]
+            })
+            target = target or result.get("published_total")
+            more = bool(result["has_more"])
+            rounds += 1
+            print(
+                f"Farmatodo {category.id} | página pública verificada "
+                f"{result['candidate_page']} | tarjetas={len(seen)}/"
+                f"{target or '?'} | nuevos={len(seen) - before}",
+                flush=True,
+            )
+            return True
         # The storefront briefly hides/disables Mostrar más while updating
         # its catalogue. 'has_more=False' at that instant is NOT a verified
         # terminal page. When the site publishes a target, keep trying until
@@ -546,6 +589,13 @@ class FarmatodoScraper:
                 if isinstance(target, int) and len(seen) >= target:
                     stop_reason = "published_target_reached"
                     break
+                # The site itself exposed ?page=N after clicking
+                # Mostrar más; test N+1 in the browser as a hypothesis.
+                # Continue ONLY if it renders new priced products.
+                if not probe and try_public_page_fallback(
+                    "visible_button_disappeared"
+                ):
+                    continue
                 stalled = True
                 stop_reason = "button_not_visible_or_enabled_before_target"
                 load_more_error = stop_reason
@@ -562,6 +612,7 @@ class FarmatodoScraper:
             try:
                 button.scroll_into_view_if_needed(timeout=8000)
                 button.click(timeout=12000)
+                ui_clicks += 1
                 # The DOM may contain new links before the corresponding
                 # cards have their displayed prices. Use the SAME extractor
                 # and wait for a priced, previously unseen product.
@@ -590,12 +641,54 @@ class FarmatodoScraper:
             except FarmatodoCaptureError:
                 raise
             except Exception as exc:
+                # Clicking can navigate/re-render before Playwright returns,
+                # invalidating the button locator. Check for evidence of
+                # progress before concluding the click failed.
+                error_class = type(exc).__name__
+                progress_recovered = False
+                try:
+                    for _ in range(8):
+                        page.wait_for_timeout(500)
+                        validate_category_page(page, category)
+                        candidates, next_target, more = extract_catalogue(page)
+                        if (next_target and target
+                                and next_target != target):
+                            raise FarmatodoCaptureError(
+                                f"El total cambió ({target} -> {next_target})"
+                            )
+                        target = target or next_target
+                        seen.update({
+                            item["url"]: item for item in candidates
+                        })
+                        if len(seen) > before:
+                            progress_recovered = True
+                            break
+                except FarmatodoCaptureError:
+                    raise
+                except Exception:
+                    # Preserve original click error if recovery also fails.
+                    pass
+                if progress_recovered:
+                    rounds += 1
+                    print(
+                        f"Farmatodo {category.id} | clic recuperado tras "
+                        f"{error_class}: tarjetas={len(seen)}/"
+                        f"{target or '?'} nuevos={len(seen)-before}",
+                        flush=True,
+                    )
+                    continue
+                if not probe and try_public_page_fallback(
+                    "click_error_" + error_class
+                ):
+                    continue
                 stalled = True
                 stop_reason = "load_more_click_error"
-                load_more_error = type(exc).__name__
+                load_more_error = error_class
                 print(
                     f"Farmatodo {category.id} | error en Mostrar más "
-                    f"({load_more_error}) | {len(seen)}/{target or '?'}",
+                    f"({error_class}: {str(exc)[:180]}) "
+                    f"| url_actual={page.url} | {len(seen)}/"
+                    f"{target or '?'}",
                     flush=True,
                 )
                 break
@@ -727,7 +820,9 @@ class FarmatodoScraper:
             "initial_products": initial_count, "loaded_products": len(seen),
             "initial_load_checks": load_attempts,
             "initial_reload_count": initial_reload_count,
-            "target_products": target, "load_more_clicks": rounds,
+            "target_products": target, "load_more_clicks": ui_clicks,
+            "pagination_rounds": rounds,
+            "public_page_fallbacks": page_fallback_attempts,
             "load_more_stalled": stalled,
             "load_more_error": load_more_error,
             "load_more_stop_reason": stop_reason,
