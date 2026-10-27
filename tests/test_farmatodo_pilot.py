@@ -739,8 +739,9 @@ def test_full_capture_survives_temporarily_disappearing_mostrar_mas(monkeypatch)
             "url": f"https://www.farmatodo.com.mx/product-{i}/p",
             "product": f"Producto {i}", "text": "$50.00",
         } for i in range(count)]
-        # Deliberately false after click 1, even though 5 products remain.
-        return cards, 16, page.clicks == 0
+        # False after click 1 though 5 remain; TRUE at published
+        # target after click 2 (stale visible button during SPA update).
+        return cards, 16, page.clicks != 1
 
     monkeypatch.setattr(mod, "validate_category_page", lambda *args: None)
     monkeypatch.setattr(mod, "extract_catalogue", listing)
