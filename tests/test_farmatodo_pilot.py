@@ -143,7 +143,7 @@ def test_probe_checks_three_pdp_product_skus_without_guessing(monkeypatch):
         for i in range(6)
     ]
     monkeypatch.setattr(mod, "extract_catalogue",
-                        lambda page: (cards, 169, True))
+                        lambda page: (cards, 6, False))
     cat = load_categories("config/farmatodo/categories.yaml")[1]
     rows, meta = FarmatodoScraper(max_rounds=5).capture_category(
         Page(), cat, probe=True
@@ -338,6 +338,7 @@ def test_probe_can_report_ready_after_three_verified_pdp_skus(monkeypatch):
                 "category_id": "cuidado-bucal", "capture_date": "2026-10-27",
                 "target_products": 169, "load_more_remaining": True,
                 "pdp_sku_checked": 3, "pdp_sku_verified": 3,
+                "probe_load_more_verified": True,
             }
 
     monkeypatch.setattr(runner, "FarmatodoScraper", ReadyScraper)
@@ -349,6 +350,7 @@ def test_probe_can_report_ready_after_three_verified_pdp_skus(monkeypatch):
     assert summary["status"] == "PROBE"
     assert summary["probe_sku_verified"] == 3
     assert summary["probe_sku_checked"] == 3
+    assert summary["probe_load_more_verified"] is True
 
 
 def test_pilot_does_not_write_productive_master_or_ask_for_postcode():
