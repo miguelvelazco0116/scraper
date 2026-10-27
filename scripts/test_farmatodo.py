@@ -112,6 +112,8 @@ def valid_cached(frame: pd.DataFrame, summary: dict, today: str) -> bool:
         return False
     if str(summary.get("status")) != "COMPLETE":
         return False
+    if int(summary.get("sku_pdp_verified") or 0) != int(summary.get("products") or 0):
+        return False
     cat = str(summary.get("category_id") or "")
     rows = frame.loc[frame["category_id"].astype(str).eq(cat)]
     if rows.empty or len(rows) != int(summary.get("products") or 0):
