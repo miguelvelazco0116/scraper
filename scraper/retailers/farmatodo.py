@@ -92,10 +92,15 @@ def inspect_public_product_page(page, url: str) -> dict:
     final_url = urlparse(page.url)
     if final_url.hostname != HOST or not final_url.path.rstrip("/").endswith("/p"):
         raise FarmatodoCaptureError("Redirección inválida de ficha de producto")
-    body_text = page.locator("body").inner_text(timeout=12000)
-    if any(marker in body_text.casefold() for marker in BLOCK_MARKERS):
-        raise FarmatodoCaptureError("Bloqueo al consultar la ficha de producto")
-    sku = sku_from_visible_pdp_text(body_text)
+    sku = None
+    for _ in range(5):
+        body_text = page.locator("body").inner_text(timeout=12000)
+        if any(marker in body_text.casefold() for marker in BLOCK_MARKERS):
+            raise FarmatodoCaptureError("Bloqueo al consultar la ficha de producto")
+        sku = sku_from_visible_pdp_text(body_text)
+        if sku:
+            break
+        page.wait_for_timeout(500)
     if sku:
         return {"sku": sku, "source": "pdp_visible_sku", "verified": True}
     return {"sku": None, "source": "pdp_sku_not_visible", "verified": False}
