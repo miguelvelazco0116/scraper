@@ -61,28 +61,62 @@ def prices_from_card(text: str) -> tuple[float | None, float | None]:
 
 
 def context_evidence(page) -> str | None:
-    """Visible, persisted location text outside editable fields and popup.
+    """Confirm CP 11590 in a visible, *applied* delivery control.
 
-    An input value, autocomplete option, HTML source or storage cookie is not
-    sufficient evidence that the YZA storefront has applied this postal code.
+    Excludes text from modals, inputs, hidden templates and product cards.
+    Unlike the old generic address selector this also looks for YZA's
+    delivery label ('Entregar productos en') in its persistent header.
     """
     return page.evaluate(
-        """() => {
+        r"""() => {
+          const postal = /(^|\D)11590(\D|$)/;
+          const visible = (el) => !!el.getClientRects().length
+            && getComputedStyle(el).visibility !== 'hidden'
+            && getComputedStyle(el).display !== 'none';
+          const inDialog = (el) => !!el.closest(
+            '[role="dialog"],dialog,[aria-modal="true"],.modal-popup,'
+            + '.pac-container,[class*="modal" i],[class*="popup" i]'
+          );
           const selectors = [
-            'header [class*="address"]', 'header [class*="location"]',
-            'header [class*="postal"]', 'header [class*="zip"]',
-            '[class*="selected-address"]', '[id*="selected-address"]',
-            '[class*="current-address"]', '[class*="current-location"]',
-            '[data-role="selected-address"]', '[data-role="location"]'
+            'header [class*="address" i]',
+            'header [class*="location" i]',
+            'header [class*="postal" i]',
+            'header [class*="zip" i]',
+            'header [class*="deliver" i]',
+            'header [class*="delivery" i]',
+            'header [class*="entrega" i]',
+            'header [class*="direcci" i]',
+            '[class*="selected-address" i]',
+            '[id*="selected-address" i]',
+            '[class*="current-address" i]',
+            '[class*="current-location" i]',
+            '[data-role="selected-address"]',
+            '[data-role="location"]'
           ];
-          const target = /(^|\\D)11590(\\D|$)/;
           for (const selector of selectors) {
             for (const el of document.querySelectorAll(selector)) {
-              if (!el.getClientRects().length ||
-                  el.closest('[role="dialog"], .modal-popup, .pac-container')) continue;
-              const text = (el.innerText || el.textContent || '').trim();
-              if (text.length && text.length < 250 && target.test(text)) {
-                return selector + ': ' + text;
+              if (!visible(el) || inDialog(el)) continue;
+              const value = (el.innerText || '').replace(/\s+/g,' ').trim();
+              if (value && value.length <= 250 && postal.test(value)) {
+                return 'yza_delivery_postal_confirmed:11590';
+              }
+            }
+          }
+          // Header may have no semantic address class: require explicit
+          // delivery-context wording adjacent to the exact postal code.
+          const header = document.querySelector('header,[role="banner"]');
+          if (header) {
+            const nodes = header.querySelectorAll(
+              'button,a,span,div,[role="button"]'
+            );
+            for (const el of nodes) {
+              if (!visible(el) || inDialog(el)) continue;
+              if (el.closest('input,textarea,select')) continue;
+              const value = (el.innerText || '').replace(/\s+/g,' ').trim();
+              if (!value || value.length > 150 || !postal.test(value)) continue;
+              if (/entregar|entrega|env[ií]o|direcci[oó]n|postal|ubicaci[oó]n/i
+                  .test(value)) {
+                return 'yza_delivery_postal_confirmed:11590';
               }
             }
           }
@@ -91,30 +125,92 @@ def context_evidence(page) -> str | None:
     )
 
 
+def _first_visible(locator, limit: int = 12):
+    """Ignore inactive hidden popup copies; return first visible candidate."""
+    try:
+        for index in range(min(locator.count(), limit)):
+            candidate = locator.nth(index)
+            if candidate.is_visible():
+                return candidate
+    except Exception:
+        return None
+    return None
+
+
+def _postal_modal_controls(page):
+    """YZA popup: Ingresa un código postal / Código Postal / ACEPTAR."""
+    field = _first_visible(
+        page.get_by_placeholder(re.compile(r"c[oó]digo\s*postal", re.I))
+    )
+    if field is None:
+        return None, None
+    button = _first_visible(
+        page.get_by_role(
+            "button", name=re.compile(r"^\s*aceptar\s*$", re.I)
+        )
+    )
+    if button is None:
+        button = _first_visible(
+            page.get_by_text(re.compile(r"^\s*aceptar\s*$", re.I), exact=True)
+        )
+    return field, button
+
+
+def _open_postal_modal(page) -> bool:
+    """Use YZA's delivery header control, not product availability dialog."""
+    for pattern in (
+        r"^\s*ingresa\s+tu\s+direcci[oó]n\s*$",
+        r"^\s*entregar\s+productos\s+en\s*$",
+    ):
+        controls = page.get_by_text(re.compile(pattern, re.I), exact=False)
+        trigger = _first_visible(controls)
+        if trigger is None:
+            continue
+        try:
+            trigger.click(timeout=5000)
+            page.wait_for_timeout(400)
+            field, button = _postal_modal_controls(page)
+            if field is not None and button is not None:
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def apply_postal_code(page) -> str | None:
+    """Set 11590 through YZA's visible postal modal, never via hidden APIs.
+
+    Filling input or closing a popup is not confirmation. Only applied,
+    visible header evidence is accepted. If the UI is different, fail closed.
+    """
     proof = context_evidence(page)
     if proof:
         return proof
-    # Only select a suggestion that explicitly mentions CP 11590.
-    field = page.get_by_placeholder(
-        "Digita la dirección y selecciona una opción", exact=False
-    )
+
+    field, button = _postal_modal_controls(page)
+    if field is None or button is None:
+        _open_postal_modal(page)
+        field, button = _postal_modal_controls(page)
+    if field is None or button is None:
+        return None
+
     try:
-        if field.count() and field.first.is_visible():
-            field.first.fill(POSTAL_CODE)
-            page.wait_for_timeout(1100)
-            for selector in (
-                ".pac-item", "[role='option']", ".autocomplete-suggestion",
-                ".ui-menu-item", "[class*='address-suggestion']",
-            ):
-                choices = page.locator(selector).filter(has_text=POSTAL_CODE)
-                if choices.count() and choices.first.is_visible():
-                    choices.first.click(timeout=3500)
-                    page.wait_for_timeout(900)
-                    return context_evidence(page)
+        field.fill(POSTAL_CODE, timeout=5000)
+        if field.input_value(timeout=2000).strip() != POSTAL_CODE:
+            return None
+        button.click(timeout=7000)
     except Exception:
-        # UI differences must not turn an unverified address into success.
-        pass
+        return None
+
+    for _ in range(16):
+        page.wait_for_timeout(500)
+        try:
+            proof = context_evidence(page)
+        except Exception:
+            # SPA location update/navigation can temporarily destroy context.
+            continue
+        if proof:
+            return proof
     return None
 
 
