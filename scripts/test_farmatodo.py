@@ -61,8 +61,21 @@ def quality(rows: list[dict], meta: dict, *, error: str | None = None) -> dict:
         notes.append(f"cobertura {products}/{target} fuera de 90%-100%")
     if meta.get("load_more_stalled") or meta.get("load_more_remaining"):
         notes.append("carga de Mostrar más incompleta")
+    pdp_verified = count(
+        "sku_verified", lambda x: x is True
+        or (pd.notna(x) and str(x).strip().lower() == "true")
+    )
     if products and sku != products:
-        notes.append(f"SKU no certificado en {products - sku}/{products}")
+        notes.append(f"SKU no identificado en {products - sku}/{products}")
+    if products and pdp_verified != products:
+        notes.append(
+            f"SKU sin evidencia visible en PDP: "
+            f"{products - pdp_verified}/{products}"
+        )
+    if products and meta.get("pdp_sku_verified") != products:
+        notes.append(
+            f"PDP verificados {meta.get('pdp_sku_verified', 0)}/{products}"
+        )
     if products and urls != products:
         notes.append(f"URL incorrecta en {products - urls}/{products}")
     if products and prices != products:
@@ -80,7 +93,8 @@ def quality(rows: list[dict], meta: dict, *, error: str | None = None) -> dict:
         "status": "COMPLETE" if not notes else "PARTIAL",
         "products": products, "target_products": target,
         "coverage": products / target if isinstance(target,int) and target else None,
-        "sku_complete": sku, "url_complete": urls, "price_complete": prices,
+        "sku_complete": sku, "sku_pdp_verified": pdp_verified,
+        "url_complete": urls, "price_complete": prices,
         "load_more_clicks": meta.get("load_more_clicks"),
         "load_more_stalled": meta.get("load_more_stalled"),
         "sku_source_counts": json.dumps(
@@ -193,12 +207,19 @@ def run_category(browser, category, *, max_rounds: int, probe: bool = False):
             if probe:
                 # Preview coverage is deliberately partial; require at least
                 # one identifiable priced product before declaring probe-ready.
-                found_sku = sum(bool(row.get("sku")) for row in rows)
-                priced = sum(bool(row.get("price_current")) for row in rows)
+                checked = int(meta.get("pdp_sku_checked") or 0)
+                verified = int(meta.get("pdp_sku_verified") or 0)
+                priced = sum(bool(row.get("price_current")) for row in rows[:checked])
                 result["sku_debug_samples"] = meta.get("sku_debug_samples", [])
-                result["probe_sku_identified"] = found_sku
+                result["pdp_sku_samples"] = meta.get("pdp_sku_samples", [])
+                result["probe_sku_checked"] = checked
+                result["probe_sku_verified"] = verified
                 result["status"] = (
-                    "PROBE" if rows and found_sku and priced else "NEEDS_SKU_REVIEW"
+                    "PROBE" if (
+                        checked >= min(3, len(rows)) and
+                        verified == checked and
+                        priced == checked and checked > 0
+                    ) else "NEEDS_SKU_REVIEW"
                 )
             if result["status"] == "COMPLETE" or probe:
                 return rows, result
