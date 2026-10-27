@@ -175,3 +175,26 @@ Después de las seis categorías:
 
 Se añadió un test de regresión de escritura/lectura de categorías previas.
 No ejecutar cambios de rama mientras hay scraping en curso.
+
+## Auditoría independiente después de la corrida completa
+
+La salida `rotation_<date>.json` registra la selección del último comando y
+no representa necesariamente todos los casos del día. Para certificar los
+cuatro libros por CP usar la nueva auditoría **solo lectura**:
+
+Tras `-PostalCode all -Category all`:
+
+    python .\scripts\audit_soriana_cp_rotation.py
+
+Deberá emitir 24/24 casos COMPLETE (4 CP × 6 categorías). Después de
+`-PostalCode all -Category gastrointestinales`:
+
+    python .\scripts\audit_soriana_cp_rotation.py --include-gastro
+
+Se requieren 28/28 casos COMPLETE (4 CP × 7 categorías). Los tests offline
+de regresión de auditoría corren con:
+
+    python -m pytest tests/test_audit_soriana_cp_rotation.py -v
+
+Ambos comandos son de solo lectura y no alteran los libros, checkpoints
+ni el master productivo.
