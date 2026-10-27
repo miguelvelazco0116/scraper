@@ -298,3 +298,52 @@ def test_other_cp_must_be_verified_after_navigating_category(monkeypatch):
             SimpleNamespace(url="https://www.soriana.com/cuidado-bucal/"),
             FakeScraper(), "54030"
         )
+
+
+def test_category_specific_run_preserves_other_verified_categories_in_cp_excel(
+    tmp_path, monkeypatch
+):
+    from scripts import test_soriana_cp_rotation as cli
+    from main import COLUMNS
+
+    monkeypatch.setattr(cli, "OUTPUT_DIR", tmp_path / "output")
+    monkeypatch.setattr(cli, "DIAG", tmp_path / "diagnostics")
+    day = "2026-10-26"
+    cp = "83420"
+
+    def record(category):
+        row = {
+            "category_id": category,
+            "postal_code": cp,
+            "scrape_timestamp": day + "T10:00:00",
+            "sku": "SKU-" + category,
+            "url": "https://www.soriana.com/" + category + ".html",
+            "price_current": 50,
+        }
+        summary = {
+            "category_id": category,
+            "postal_code": cp,
+            "capture_date": day,
+            "status": "COMPLETE",
+            "postal_context_verified": True,
+            "postal_context_evidence": "header_delivery_cp:" + cp,
+            "products": 1,
+        }
+        return (pd.DataFrame([row], columns=COLUMNS), summary)
+
+    # A previously certified productive category is stored first.
+    cli.save_cp(cp, {"cuidado-bucal": record("cuidado-bucal")})
+    existing = cli.load_cache(cp, day)
+    assert set(existing) == {"cuidado-bucal"}
+
+    # Running only the Gastrointestinales pilot must not erase Cuidado bucal.
+    preserved = dict(existing)
+    preserved["gastrointestinales"] = record("gastrointestinales")
+    cli.save_cp(cp, preserved)
+    categories = pd.read_excel(
+        cli.OUTPUT_DIR / f"soriana_{cp}.xlsx", sheet_name="Concentrado"
+    )["category_id"].tolist()
+    assert set(categories) == {"cuidado-bucal", "gastrointestinales"}
+    assert "items = dict(existing)" in (
+        cli.ROOT / "scripts" / "test_soriana_cp_rotation.py"
+    ).read_text(encoding="utf-8")
