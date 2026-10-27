@@ -468,6 +468,20 @@ def test_probe_can_report_ready_after_three_verified_pdp_skus(monkeypatch):
     assert summary["probe_sku_checked"] == 3
     assert summary["probe_load_more_verified"] is True
 
+    class MissingPagination(ReadyScraper):
+        def capture_category(self, page, category, probe):
+            data, meta = super().capture_category(page, category, probe)
+            meta["probe_load_more_verified"] = False
+            return data, meta
+
+    monkeypatch.setattr(runner, "FarmatodoScraper", MissingPagination)
+    _, no_pagination = runner.run_category(
+        DummyBrowser(), SimpleNamespace(id="cuidado-bucal"),
+        max_rounds=100, probe=True,
+    )
+    assert no_pagination["probe_sku_verified"] == 3
+    assert no_pagination["status"] == "NEEDS_PAGINATION_REVIEW"
+
 
 def test_pilot_does_not_write_productive_master_or_ask_for_postcode():
     text = Path("scripts/test_farmatodo.py").read_text(encoding="utf-8")
