@@ -97,6 +97,7 @@ def quality(rows: list[dict], meta: dict, *, error: str | None = None) -> dict:
         "url_complete": urls, "price_complete": prices,
         "load_more_clicks": meta.get("load_more_clicks"),
         "load_more_stalled": meta.get("load_more_stalled"),
+        "pdp_sku_checked": meta.get("pdp_sku_checked"),
         "sku_source_counts": json.dumps(
             meta.get("sku_source_counts", {}), ensure_ascii=False
         ),
@@ -307,7 +308,7 @@ def main() -> int:
                     print("Diagnóstico: " + str(path))
                 else:
                     results[category.id] = (
-                        pd.DataFrame(rows, columns=COLUMNS), summary
+                        pd.DataFrame(rows), summary
                     )
                     save_excel(results)
                 finished = finished and summary["status"] in ("COMPLETE", "PROBE")
