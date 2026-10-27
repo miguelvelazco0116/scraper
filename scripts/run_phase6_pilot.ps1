@@ -2,7 +2,7 @@ param(
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = "",
     [ValidateSet("probe","capture")][string]$Mode = "probe",
-    [ValidateSet("all","farmacias-yza","farmatodo")][string]$Retailer = "all",
+    [ValidateSet("all","farmacias-yza")][string]$Retailer = "all",
     [string]$CdpUrl = "",
     [switch]$UseExistingChrome,
     [ValidateRange(1, 200)][int]$MaxPages = 100
@@ -24,7 +24,7 @@ if (-not $PythonExe -or -not (Test-Path $PythonExe)) {
 # Chrome M144+ chrome://inspect remote debugging may return HTTP 404 for
 # /json/version and /json/list. Read the ACTUAL browser websocket address
 # from DevToolsActivePort instead of rejecting a valid debugging session.
-$RequiresYza = ($Retailer -eq "farmacias-yza" -or $Retailer -eq "all")
+$RequiresYza = $true
 
 if ($RequiresYza) {
     if (-not (Get-Process chrome -ErrorAction SilentlyContinue)) {
@@ -119,15 +119,13 @@ if ($RequiresYza) {
     Write-Host "El scraper buscara la pestana www.yza.mx al conectarse."
     Write-Host "Si Chrome solicita permiso para controlar esta sesion, pulsa Allow."
     Write-Host "YZA: sin verificacion de localidad; el scraper no cierra tu Chrome."
-} elseif ($UseExistingChrome -and -not $CdpUrl) {
-    throw "Farmatodo no requiere Chrome manual. Omite -UseExistingChrome."
 }
-Write-Host "FASE 6 | YZA + FARMATODO | CATALOGOS ONLINE SIN CP OBLIGATORIO"
+Write-Host "FASE 6 | SOLO FARMACIAS YZA | CATALOGO ONLINE SIN CP OBLIGATORIO"
 Write-Host "Modo: $Mode | Retailer: $Retailer | MaxPages: $MaxPages"
 if ($CdpUrl) {
     Write-Host "Navegador: Chrome preparado manualmente por operador (CDP)"
 } else {
-    Write-Host "Navegador: Chrome automatico visible (solo Farmatodo)"
+    Write-Host "Navegador: Chrome CDP manual obligatorio para YZA"
 }
 Write-Host "Master Fases 1-5: SIN CAMBIOS"
 $argsList = @(".\scripts\run_phase6_pilot.py", "--mode", $Mode, "--retailer", $Retailer, "--max-pages", [string]$MaxPages)
