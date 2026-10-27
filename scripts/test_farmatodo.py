@@ -240,8 +240,9 @@ def run_category(
     existing_context: bool = False,
 ):
     failures = []
-    last_rows: list[dict] = []
-    last_summary: dict | None = None
+    best_rows: list[dict] = []
+    best_summary: dict | None = None
+    best_attempt: int | None = None
     for attempt in range(1, 2 if probe else MAX_ATTEMPTS + 1):
         print(
             f"Farmatodo {category.id} · intento {attempt}"
@@ -274,7 +275,11 @@ def run_category(
             )
             result = quality(rows, meta)
             result["attempts"] = attempt
-            last_rows, last_summary = rows, result
+            result["load_more_ui_debug"] = meta.get("load_more_ui_debug")
+            # Preserve the best complete attempt as evidence when every
+            # retry fails; the last retry can have FEWER products.
+            if (best_summary is None or len(rows) > len(best_rows)):
+                best_rows, best_summary, best_attempt = rows, result, attempt
             if probe:
                 # Preview coverage is deliberately partial; require at least
                 # one identifiable priced product before declaring probe-ready.
@@ -319,6 +324,24 @@ def run_category(
                 return rows, result
             failures.append(result["quality_notes"])
             print("PARTIAL: " + result["quality_notes"])
+            navigation = result.get("load_more_ui_debug") or {}
+            if navigation:
+                print(
+                    f"Diagnóstico de navegación {category.id}: "
+                    f"URL={navigation.get('url', 'no disponible')}; "
+                    f"enlaces_subcategorías="
+                    f"{len(navigation.get('public_subcategory_links', []))}; "
+                    f"links_paginación="
+                    f"{len(navigation.get('visible_pagination_links', []))}",
+                    flush=True,
+                )
+                for link in navigation.get(
+                    "public_subcategory_links", []
+                )[:8]:
+                    print(
+                        f"  Subcategoría: {link.get('label') or '(sin etiqueta)'}"
+                        f" | {link.get('url')}", flush=True,
+                    )
         except Exception as exc:
             failures.append(f"{type(exc).__name__}: {exc}")
             print("ERROR: " + failures[-1])
@@ -329,11 +352,20 @@ def run_category(
                 attempt_context.close()
         if attempt < MAX_ATTEMPTS:
             time.sleep(2)
-    if last_summary is not None:
-        # Preserve incomplete evidence for local diagnosis, but do not cache
-        # it as COMPLETE or integrate it into the productive master.
-        last_summary["quality_notes"] = " | ".join(failures[-3:])
-        return last_rows, last_summary
+    if best_summary is not None:
+        # Preserve the HIGHEST-COVERAGE partial evidence, rather than a
+        # weaker final retry. Partial evidence remains non-integrable.
+        best_summary["attempts"] = len(failures)
+        best_summary["best_attempt"] = best_attempt
+        best_summary["quality_notes"] = " | ".join(failures[-3:])
+        print(
+            f"Farmatodo {category.id} | mejor intento "
+            f"{best_attempt}/{MAX_ATTEMPTS} | "
+            f"productos={len(best_rows)}/"
+            f"{best_summary.get('target_products') or '?'}",
+            flush=True,
+        )
+        return best_rows, best_summary
     return [], {
         "retailer": "Farmatodo", "category_id": category.id,
         "capture_date": datetime.now().astimezone().date().isoformat(),
