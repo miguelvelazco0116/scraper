@@ -20,84 +20,107 @@ if (-not $PythonExe) {
 if (-not $PythonExe -or -not (Test-Path $PythonExe)) {
     throw "Activa el entorno virtual C:\Proyectos\venvs\scraper antes de continuar."
 }
-# YZA: operator opens Chrome first, as in scripts/test_heb.ps1.
-# Auto-discover the *actual* CDP port instead of assuming port 9222.
-# Farmatodo keeps Playwright-owned Chrome when run separately.
+# YZA follows HEB: operator opens Chrome first and enables remote debugging.
+# Chrome M144+ chrome://inspect remote debugging may return HTTP 404 for
+# /json/version and /json/list. Read the ACTUAL browser websocket address
+# from DevToolsActivePort instead of rejecting a valid debugging session.
 $RequiresYza = ($Retailer -eq "farmacias-yza" -or $Retailer -eq "all")
+
 if ($RequiresYza) {
     if (-not (Get-Process chrome -ErrorAction SilentlyContinue)) {
-        throw "Abre Google Chrome MANUALMENTE, visita www.yza.mx, configura CP 11590 y habilita chrome://inspect/#remote-debugging."
+        throw "Abre Google Chrome manualmente, habilita depuracion remota desde chrome://inspect/#remote-debugging y prepara YZA CP 11590."
     }
 
     $BrowserCandidates = @()
-    if (-not $CdpUrl) {
-        $ChromeRoots = @(
+    if ($CdpUrl) {
+        $BrowserCandidates = @($CdpUrl)
+    } else {
+        $Roots = @(
             (Join-Path $env:LOCALAPPDATA "Google\Chrome\User Data"),
             (Join-Path $env:LOCALAPPDATA "ScraperYZAChrome")
         )
         $PortFiles = @()
-        foreach ($Root in $ChromeRoots) {
+        foreach ($Root in $Roots) {
             if (Test-Path -LiteralPath $Root) {
-                $PortFiles += @(Get-ChildItem -LiteralPath $Root -Filter "DevToolsActivePort" -File -Recurse -ErrorAction SilentlyContinue)
+                $PortFiles += @(
+                    Get-ChildItem -LiteralPath $Root -Filter "DevToolsActivePort" -File -Recurse -ErrorAction SilentlyContinue
+                )
             }
         }
+
         foreach ($PortFile in @($PortFiles | Sort-Object LastWriteTime -Descending)) {
-            $PortLines = @(Get-Content -LiteralPath $PortFile.FullName -ErrorAction SilentlyContinue)
-            if ($PortLines.Count -ge 2 -and $PortLines[0].Trim() -match '^\d{2,5}$') {
-                $BrowserCandidates += ("http://127.0.0.1:" + $PortLines[0].Trim())
+            $Lines = @(Get-Content -LiteralPath $PortFile.FullName -ErrorAction SilentlyContinue)
+            if ($Lines.Count -lt 2) { continue }
+            $PortString = $Lines[0].Trim()
+            $BrowserPath = $Lines[1].Trim()
+
+            # Second line is the browser target WebSocket path. A port alone
+            # is not enough for the new Chrome on-demand debugging server.
+            if ($PortString -notmatch '^\d{2,5}$' -or
+                [int]$PortString -gt 65535 -or
+                $BrowserPath -notmatch '^/devtools/browser/[A-Za-z0-9_-]+$') {
+                continue
             }
+            $BrowserCandidates += "ws://127.0.0.1:$PortString$BrowserPath"
         }
-        # Fallback only when it really responds; 9222 is NOT assumed active.
-        $BrowserCandidates += "http://127.0.0.1:9222"
+
+        # Legacy Chrome started with explicit --remote-debugging-port=9222.
+        # Only use HTTP discovery when it actually returns browser metadata.
+        try {
+            $Version = Invoke-RestMethod -Uri "http://127.0.0.1:9222/json/version" -TimeoutSec 2 -ErrorAction Stop
+            if ($Version.webSocketDebuggerUrl) {
+                $BrowserCandidates += [string]$Version.webSocketDebuggerUrl
+            }
+        } catch { }
+
         $BrowserCandidates = @($BrowserCandidates | Select-Object -Unique)
-    } else {
-        $BrowserCandidates = @($CdpUrl)
     }
 
-    $MatchingChrome = $null
-    $RespondingChrome = $false
+    $CdpUrl = ""
     foreach ($Candidate in $BrowserCandidates) {
         try {
             $Endpoint = [uri]$Candidate
             if ($Endpoint.Host -notin @("127.0.0.1", "localhost") -or
-                $Endpoint.Scheme -notin @("http", "ws") -or
-                $Endpoint.Port -lt 1) {
+                $Endpoint.Port -lt 1 -or
+                $Endpoint.Port -gt 65535 -or
+                $Endpoint.Scheme -notin @("ws", "http")) {
                 continue
             }
-            $Base = "http://127.0.0.1:$($Endpoint.Port)"
-            $Version = Invoke-RestMethod -Uri "$Base/json/version" -TimeoutSec 3 -ErrorAction Stop
-            if (-not $Version.webSocketDebuggerUrl) { continue }
-            $RespondingChrome = $true
-            $Tabs = @(Invoke-RestMethod -Uri "$Base/json/list" -TimeoutSec 3 -ErrorAction Stop)
-            $YzaTabs = @($Tabs | Where-Object {
-                $TabUrl = [string]$_.url
-                $TabUrl -match '^https?://(www\.)?yza\.mx(?:/|$|[?#])'
-            })
-            if ($YzaTabs.Count -gt 0) {
-                $MatchingChrome = $Base
-                break
+            if ($Endpoint.Scheme -eq "ws" -and
+                $Endpoint.AbsolutePath -notmatch '^/devtools/browser/[A-Za-z0-9_-]+$') {
+                continue
             }
-        } catch {
-            # Ignore stale DevToolsActivePort files and inactive old ports.
-        }
+
+            # Unlike /json/version, TCP works for Chrome inspect WebSockets.
+            $Socket = New-Object System.Net.Sockets.TcpClient
+            try {
+                $Pending = $Socket.BeginConnect("127.0.0.1", $Endpoint.Port, $null, $null)
+                if (-not $Pending.AsyncWaitHandle.WaitOne(2000)) { continue }
+                $Socket.EndConnect($Pending)
+                $CdpUrl = $Candidate
+                break
+            } finally {
+                $Socket.Dispose()
+            }
+        } catch { }
     }
 
-    if (-not $MatchingChrome) {
-        if ($RespondingChrome) {
-            throw "Chrome CDP responde, pero no hay pestaña de www.yza.mx en esa misma instancia. Abre YZA alli y selecciona CP 11590."
-        }
-        throw ("Chrome abierto, pero ninguna conexion CDP local responde. " +
-            "En ESA MISMA ventana abre chrome://inspect/#remote-debugging, " +
-            "activa 'Allow remote debugging for this browser instance', " +
-            "acepta el permiso y deja abierta una pestaña www.yza.mx. " +
-            "No necesitas adivinar el puerto ni cerrar Chrome.")
+    if (-not $CdpUrl) {
+        throw (
+            "Chrome esta abierto, pero no se encontro depuracion remota activa. " +
+            "En ESA MISMA ventana abre chrome://inspect/#remote-debugging; " +
+            "activa 'Allow remote debugging for this browser instance'. " +
+            "Comprueba que Chrome muestre 'Server running at:' y deja abierta " +
+            "la pestana YZA con CP 11590."
+        )
     }
-    $CdpUrl = $MatchingChrome
-    Write-Host "Chrome YZA encontrado: $CdpUrl"
-    Write-Host "Pestana YZA detectada en la sesion manual."
-    Write-Host "No se abrira ni cerrara Chrome; no se cambiara el CP."
+
+    Write-Host "Chrome remoto detectado: endpoint WebSocket local disponible."
+    Write-Host "El scraper buscara la pestana www.yza.mx al conectarse."
+    Write-Host "Si Chrome solicita permiso para controlar esta sesion, pulsa Allow."
+    Write-Host "El scraper no cambia el CP ni cierra tu Chrome."
 } elseif ($UseExistingChrome -and -not $CdpUrl) {
-    throw "Farmatodo no necesita Chrome manual; omite -UseExistingChrome o indica -CdpUrl."
+    throw "Farmatodo no requiere Chrome manual. Omite -UseExistingChrome."
 }
 Write-Host "FASE 6 | FARMACIAS YZA (CP 11590) + FARMATODO (SIN CP)"
 Write-Host "Modo: $Mode | Retailer: $Retailer | MaxPages: $MaxPages"
