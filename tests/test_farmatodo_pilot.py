@@ -274,6 +274,83 @@ def test_probe_with_visible_products_but_no_sku_is_not_ready(monkeypatch):
 
 
 
+def test_farmatodo_pilot_writes_pdp_audit_in_isolated_excel(tmp_path, monkeypatch):
+    from scripts import test_farmatodo as runner
+    output = tmp_path / "farmatodo.xlsx"
+    report = tmp_path / "farmatodo-reports" / "last_run.json"
+    monkeypatch.setattr(runner, "OUTPUT", output)
+    monkeypatch.setattr(runner, "REPORT", report)
+    item = pd.DataFrame([{
+        "category_id": "cuidado-bucal",
+        "scrape_timestamp": "2026-10-27T10:00:00",
+        "sku": "7509546653518",
+        "url": "https://www.farmatodo.com.mx/colgate/p",
+        "sku_source": "pdp_visible_sku", "sku_verified": True,
+        "price_current": 108.5,
+        "postal_code": None, "store_id": None,
+        "store_context_verified": False,
+    }])
+    summary = {
+        "retailer": "Farmatodo", "category_id": "cuidado-bucal",
+        "capture_date": "2026-10-27", "status": "COMPLETE",
+        "products": 1, "sku_pdp_verified": 1,
+    }
+    runner.save_excel({"cuidado-bucal": (item, summary)})
+    assert output.exists()
+    audit = pd.read_excel(output, sheet_name="SkuAudit", dtype={"sku": str})
+    assert audit["sku"].iloc[0] == "7509546653518"
+    assert bool(audit["sku_verified"].iloc[0]) is True
+    assert audit["sku_source"].iloc[0] == "pdp_visible_sku"
+    reused = runner.load_cache("2026-10-27")
+    assert "cuidado-bucal" in reused
+    assert reused["cuidado-bucal"][0]["sku_verified"].iloc[0] == True
+
+
+def test_probe_can_report_ready_after_three_verified_pdp_skus(monkeypatch):
+    from types import SimpleNamespace
+    from scripts import test_farmatodo as runner
+
+    class DummyPage:
+        def close(self):
+            pass
+
+    class DummyBrowser:
+        def new_page(self, **kwargs):
+            return DummyPage()
+
+    class ReadyScraper:
+        def __init__(self, **kwargs):
+            pass
+        def capture_category(self, page, category, probe):
+            rows = [
+                {
+                    "url": f"https://www.farmatodo.com.mx/example-{i}/p",
+                    "sku": str(7509546653500 + i) if i < 3 else None,
+                    "sku_verified": i < 3,
+                    "sku_source": "pdp_visible_sku" if i < 3
+                                  else "pdp_not_inspected",
+                    "price_current": 108.5, "postal_code": None,
+                    "store_context_verified": False,
+                }
+                for i in range(6)
+            ]
+            return rows, {
+                "category_id": "cuidado-bucal", "capture_date": "2026-10-27",
+                "target_products": 169, "load_more_remaining": True,
+                "pdp_sku_checked": 3, "pdp_sku_verified": 3,
+            }
+
+    monkeypatch.setattr(runner, "FarmatodoScraper", ReadyScraper)
+    rows, summary = runner.run_category(
+        DummyBrowser(), SimpleNamespace(id="cuidado-bucal"),
+        max_rounds=100, probe=True,
+    )
+    assert len(rows) == 6
+    assert summary["status"] == "PROBE"
+    assert summary["probe_sku_verified"] == 3
+    assert summary["probe_sku_checked"] == 3
+
+
 def test_pilot_does_not_write_productive_master_or_ask_for_postcode():
     text = Path("scripts/test_farmatodo.py").read_text(encoding="utf-8")
     assert "MAX_ATTEMPTS = 3" in text
