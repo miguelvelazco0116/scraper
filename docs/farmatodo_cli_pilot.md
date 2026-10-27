@@ -122,6 +122,33 @@ para incluir Farmatodo como nuevo retailer y 3 casos en la fase que se
 acuerde, con fuentes, integrador, auditoría, respaldos y pruebas del panel.
 No declarar existencias por CP hasta que se implemente tal certificación.
 
+## Entorno único y nueva gestión de contextos de Chrome
+
+**Los retailers comparten un solo entorno `(scraper)`.** Playwright
+`1.60.0` está en `requirements.txt` general (sin override específico
+de YZA ni Farmatodo). Para sincronizar el entorno:
+
+```powershell
+cd C:\Proyectos\scraper
+git pull --ff-only
+python -m pip install -r requirements.txt
+python -m pip check
+python -m pytest -q
+```
+
+El 27/oct/2026 el probe de Farmatodo falló en las tres categorías **antes
+de la navegación**, con `Error: Please use browser.new_context()`. No fue
+un bloqueo ni una falla de SKU del sitio. En `scripts/test_farmatodo.py`,
+el modo Chrome automático ahora llama `browser.new_context(...)` seguido
+de `context.new_page()`, y cierra el contexto al finalizar cada intento.
+En CDP manual reutiliza `browser.contexts[0]` y cierra únicamente la
+pestaña creada, sin cerrar el navegador del operador.
+
+Se agregaron pruebas de regresión para verificar ambos modos y la
+limpieza correcta incluso después de los tres reintentos fallidos.
+El entorno único necesita validar las pruebas de las fases anteriores
+antes de declararse estable para producción.
+
 ## Actualización 27/oct/2026 — evidencia real del probe
 - Respiratorios: 6 visibles / 460 publicados, 0 SKU de tarjeta.
 - Cuidado bucal: 6 / 169, 0 SKU de tarjeta.
