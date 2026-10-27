@@ -97,31 +97,66 @@ def sku_from_visible_pdp_text(text: str) -> str | None:
 
 
 def inspect_public_product_page(page, url: str) -> dict:
-    """Visit public PDP in the same Chrome context; extract visible SKU text.
+    """Certify an SKU from public, rendered PDP text, never the URL slug.
 
-    Does not access product APIs, cookies, hidden application state or cart.
+    VTEX PDP widgets hydrate asynchronously; a missing label immediately
+    after DOMContentLoaded is NOT evidence that the product has no SKU.
+    Wait for rendered text, then reload at most once before failing closed.
     """
     parsed = urlparse(str(url))
     if (parsed.scheme != "https" or parsed.hostname != HOST
             or not parsed.path.rstrip("/").endswith("/p")):
         raise FarmatodoCaptureError("Ficha de producto fuera de Farmatodo")
-    page.goto(url, wait_until="domcontentloaded", timeout=65000)
-    page.wait_for_timeout(500)
-    final_url = urlparse(page.url)
-    if final_url.hostname != HOST or not final_url.path.rstrip("/").endswith("/p"):
-        raise FarmatodoCaptureError("Redirección inválida de ficha de producto")
-    sku = None
-    for _ in range(5):
-        body_text = page.locator("body").inner_text(timeout=12000)
-        if any(marker in body_text.casefold() for marker in BLOCK_MARKERS):
-            raise FarmatodoCaptureError("Bloqueo al consultar la ficha de producto")
-        sku = sku_from_visible_pdp_text(body_text)
-        if sku:
-            break
-        page.wait_for_timeout(500)
-    if sku:
-        return {"sku": sku, "source": "pdp_visible_sku", "verified": True}
-    return {"sku": None, "source": "pdp_sku_not_visible", "verified": False}
+
+    attempts = 0
+    reload_count = 0
+    last_body = ""
+    last_url = url
+    for load_round in range(2):
+        if load_round == 0:
+            page.goto(url, wait_until="domcontentloaded", timeout=65000)
+        else:
+            page.reload(wait_until="domcontentloaded", timeout=65000)
+            reload_count += 1
+        final_url = urlparse(page.url)
+        if (final_url.scheme != "https" or final_url.hostname != HOST
+                or not final_url.path.rstrip("/").endswith("/p")):
+            raise FarmatodoCaptureError(
+                "Redirección inválida de ficha de producto"
+            )
+        last_url = page.url
+
+        for _ in range(10):
+            attempts += 1
+            last_body = page.locator("body").inner_text(timeout=12000)
+            if any(
+                marker in last_body.casefold() for marker in BLOCK_MARKERS
+            ):
+                raise FarmatodoCaptureError(
+                    "Bloqueo al consultar la ficha de producto"
+                )
+            sku = sku_from_visible_pdp_text(last_body)
+            if sku:
+                return {
+                    "sku": sku, "source": "pdp_visible_sku",
+                    "verified": True,
+                    "pdp_load_checks": attempts,
+                    "pdp_reload_count": reload_count,
+                }
+            page.wait_for_timeout(600)
+
+    return {
+        "sku": None,
+        "source": "pdp_sku_not_visible",
+        "verified": False,
+        "pdp_load_checks": attempts,
+        "pdp_reload_count": reload_count,
+        "pdp_body_characters": len(last_body),
+        "pdp_sku_label_present": bool(
+            re.search(r"(?i)\\bsku\\s*[:：#-]", last_body)
+        ),
+        "pdp_url": last_url,
+    }
 
 
 
