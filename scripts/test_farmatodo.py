@@ -249,13 +249,17 @@ def run_category(browser, category, *, max_rounds: int, probe: bool = False):
                 result["pdp_sku_samples"] = meta.get("pdp_sku_samples", [])
                 result["probe_sku_checked"] = checked
                 result["probe_sku_verified"] = verified
-                result["status"] = (
-                    "PROBE" if (
-                        checked >= min(3, len(rows)) and
-                        verified == checked and
-                        priced == checked and checked > 0
-                    ) else "NEEDS_SKU_REVIEW"
+                result["probe_load_more_verified"] = (
+                    meta.get("probe_load_more_verified") is True
                 )
+                if not (checked >= min(3, len(rows)) and
+                        verified == checked and priced == checked and
+                        checked > 0):
+                    result["status"] = "NEEDS_SKU_REVIEW"
+                elif not result["probe_load_more_verified"]:
+                    result["status"] = "NEEDS_PAGINATION_REVIEW"
+                else:
+                    result["status"] = "PROBE"
             if result["status"] == "COMPLETE" or probe:
                 return rows, result
             failures.append(result["quality_notes"])
@@ -332,6 +336,14 @@ def main() -> int:
                     f"{category.id} | {summary['status']} | productos="
                     f"{summary['products']} | {summary.get('quality_notes', '')}"
                 )
+                if args.probe:
+                    print(
+                        "Diagnóstico PDP SKU: "
+                        f"{summary.get('probe_sku_verified', 0)}/"
+                        f"{summary.get('probe_sku_checked', 0)} | "
+                        "Mostrar más: "
+                        f"{summary.get('probe_load_more_verified', False)}"
+                    )
                 if args.probe:
                     REPORT.parent.mkdir(parents=True, exist_ok=True)
                     path = REPORT.parent / f"probe_{category.id}_{today}.json"
