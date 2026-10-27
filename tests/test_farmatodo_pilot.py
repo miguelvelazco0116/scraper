@@ -6,6 +6,7 @@ import pandas as pd
 from scraper.config import load_categories
 from scraper.retailers.farmatodo import (
     FarmatodoScraper, prices_from_card, sku_from_card,
+    sku_from_visible_pdp_text, inspect_public_product_page,
     explicit_online_availability, FarmatodoCaptureError
 )
 from scraper.availability import AVAILABLE, UNKNOWN
@@ -72,6 +73,7 @@ def test_farmatodo_quality_requires_coverage_and_sku():
     data = [{
         "url": "https://www.farmatodo.com.mx/item/p",
         "sku": "7509546653518",
+        "sku_source": "pdp_visible_sku", "sku_verified": True,
         "price_current": 108.5,
         "postal_code": None,
         "store_context_verified": False,
@@ -82,7 +84,8 @@ def test_farmatodo_quality_requires_coverage_and_sku():
         "target_products": 1,
         "load_more_stalled": False,
         "load_more_remaining": False,
-        "sku_source_counts": {"image_ean_candidate": 1},
+        "sku_source_counts": {"pdp_visible_sku": 1},
+        "pdp_sku_checked": 1, "pdp_sku_verified": 1,
     }
     ok = quality(data, metadata)
     assert ok["status"] == "COMPLETE"
@@ -108,12 +111,24 @@ def test_only_same_day_locationless_complete_can_be_reused():
     }])
     summary = {
         "capture_date": "2026-10-26",
-        "category_id": "cuidado-bucal", "status": "COMPLETE", "products": 1
+        "category_id": "cuidado-bucal", "status": "COMPLETE", "products": 1,
+        "sku_pdp_verified": 1,
     }
-    assert valid_cached(df, summary, "2026-10-26") is True
-    assert valid_cached(df, summary, "2026-10-27") is False
+    audit = pd.DataFrame([{
+        "category_id": "cuidado-bucal",
+        "sku": "7509546653518",
+        "url": "https://www.farmatodo.com.mx/colgate/p",
+        "sku_verified": True, "sku_source": "pdp_visible_sku",
+    }])
+    assert valid_cached(df, summary, "2026-10-26", audit) is True
+    assert valid_cached(df, summary, "2026-10-27", audit) is False
+    assert valid_cached(df, summary, "2026-10-26") is False
     assert valid_cached(
-        df.assign(postal_code="11590"), summary, "2026-10-26"
+        df.assign(postal_code="11590"), summary, "2026-10-26", audit
+    ) is False
+    assert valid_cached(
+        df, summary, "2026-10-26",
+        audit.assign(sku_verified=False),
     ) is False
 
 
@@ -155,7 +170,7 @@ def test_probe_with_visible_products_but_no_sku_is_not_ready(monkeypatch):
         max_rounds=20, probe=True,
     )
     assert summary["status"] == "NEEDS_SKU_REVIEW"
-    assert summary["probe_sku_identified"] == 0
+    assert summary["probe_sku_verified"] == 0
     assert summary["sku_debug_samples"][0]["sku_source"] == "not_found"
 
 
