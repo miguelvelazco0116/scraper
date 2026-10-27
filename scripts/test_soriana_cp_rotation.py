@@ -388,7 +388,8 @@ def capture_case(page, category, location, cp: str, max_pages: int, on_attempt=N
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Soriana CP 4 zonas, no master")
-    parser.add_argument("--cdp-url", required=True)
+    parser.add_argument("--cdp-url", default="")
+    parser.add_argument("--dry-run", action="store_true", help="Mostrar COMPLETE/REINTENTAR sin navegador")
     parser.add_argument("--category", default="cuidado-bucal")
     parser.add_argument("--cp", default="all")
     parser.add_argument("--max-pages", type=int, default=100)
@@ -433,6 +434,17 @@ def main() -> int:
     )
     print(f"Progreso JSON: {progress.path}", flush=True)
     print("Master productivo: SIN CAMBIOS", flush=True)
+    if args.dry_run:
+        print("INVENTARIO DE CASOS (sin navegar):", flush=True)
+        for case in progress.snapshot()["cases"]:
+            print(
+                f"  CP {case['postal_code']} | {case['category_id']:<30} | "
+                f"{case['estado']:<9} | {case['accion']:<10} | "
+                f"{case['productos_validados']} productos", flush=True,
+            )
+        return 0
+    if not args.cdp_url:
+        parser.error("--cdp-url es obligatorio al capturar. Abre Chrome o usa --dry-run.")
     with sync_playwright() as playwright:
         browser = playwright.chromium.connect_over_cdp(args.cdp_url)
         page = find_soriana_page(browser)
