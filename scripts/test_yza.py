@@ -193,7 +193,7 @@ def main() -> int:
     existing = load_cached(day)
     items = dict(existing)
     print("PILOTO FARMACIAS YZA | CP 11590 | SIN INTEGRACIÓN AL MASTER")
-    print("Navegador: " + ("Chrome manual por CDP" if args.cdp_url else "Chrome automático visible"))
+    print("Navegador: Chrome del operador por CDP; el scraper NO modifica el CP")
     print("Solo se aceptará la ubicación CP 11590 verificada en la página.")
     complete = True
     for category in categories:
