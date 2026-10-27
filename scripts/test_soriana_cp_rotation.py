@@ -25,6 +25,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_pla
 
 from main import COLUMNS
 from scraper.availability import AVAILABLE, UNAVAILABLE, UNKNOWN
+from scraper.capture_progress import CaptureProgress
 from scraper.config import load_categories, load_locations
 from scraper.quality_rules import meets_rate
 from scraper.retailers.soriana import PRODUCT_SELECTOR, SorianaBlocked, SorianaScraper
@@ -277,10 +278,18 @@ def record_ui_diagnostics(page, scraper, cp: str, category_id: str, attempt: int
     except Exception as exc:
         print(f"Diagnóstico visual no disponible: {exc}", flush=True)
 
-def capture_case(page, category, location, cp: str, max_pages: int):
+def capture_case(page, category, location, cp: str, max_pages: int, on_attempt=None):
+    """Retry up to 3 times within the same CP/category; report each attempt.
+
+    The optional callback is used by the shared CLI progress contract.
+    It never changes the product schema or touches the master.
+    """
     last = ([], None)
+    history = []
     for attempt in range(1, MAX_ATTEMPTS + 1):
-        print(f"Soriana CP={cp} {category.id} intento {attempt}/{MAX_ATTEMPTS}")
+        print(f"  Intento {attempt}/{MAX_ATTEMPTS}: {category.id} / CP {cp}", flush=True)
+        if on_attempt is not None:
+            on_attempt("start", attempt, None)
         rows: list[dict] = []
         target = None
         proof = None
@@ -332,20 +341,48 @@ def capture_case(page, category, location, cp: str, max_pages: int):
             target=target, page_meta=page_meta, proof=proof,
             error=error, attempts=attempt,
         )
+        attempt_status = "BLOCKED" if blocked else summary["status"]
+        history.append({
+            "attempt": attempt, "status": attempt_status,
+            "rows": int(summary["products"]), "error": error,
+            "quality_notes": summary["quality_notes"],
+            "diagnostic": (
+                str(DIAG / cp / category.id / f"cp_attempt_{attempt}.json")
+                if error else None
+            ),
+        })
+        summary["retry_history"] = json.dumps(history, ensure_ascii=False)
+        if on_attempt is not None:
+            on_attempt("finish", attempt, summary)
         print(
-            f"{summary['status']}: {summary['products']} productos, "
+            f"  {attempt_status}: {summary['products']} productos, "
             f"{summary['available_online']} disponibles, "
             f"{summary['unavailable_online']} agotados, "
             f"{summary['availability_unknown']} UNKNOWN; "
-            f"CP verificado={summary['postal_context_verified']}"
+            f"CP verificado={summary['postal_context_verified']}",
+            flush=True,
         )
         if summary["quality_notes"]:
-            print("Observaciones: " + summary["quality_notes"])
+            print("  Observaciones: " + summary["quality_notes"], flush=True)
         last = (frame.to_dict("records"), summary)
-        if summary["status"] == "COMPLETE" or blocked:
+        if summary["status"] == "COMPLETE":
+            if attempt > 1:
+                print(f"  Categoria recuperada en intento {attempt}/{MAX_ATTEMPTS}", flush=True)
+            break
+        if blocked:
+            print("  BLOQUEADO: no se reintentara para respetar las protecciones del sitio.", flush=True)
             break
         if attempt < MAX_ATTEMPTS:
+            print(
+                f"  Reintento {attempt + 1}/{MAX_ATTEMPTS} sobre la MISMA categoria "
+                f"y CP {cp} antes de avanzar.", flush=True,
+            )
             page.wait_for_timeout(1500)
+        else:
+            print(
+                f"  Agotados {MAX_ATTEMPTS} intentos; caso REINTENTAR. "
+                "Se continua con el siguiente.", flush=True,
+            )
     return last
 
 
@@ -372,6 +409,30 @@ def main() -> int:
         if loc.id == "cdmx"
     )
     results = {}
+    # Same per-case vocabulary as Chedraui: COMPLETE vs REINTENTAR;
+    # record each of the three attempts and persist read-only progress JSON.
+    scope = f"{args.cp}_{args.category}"
+    progress = CaptureProgress(
+        path=DIAG / f"progress_{day}_{scope}.json",
+        retailer="Soriana", capture_date=day,
+        cases=[(cp, cat.id) for cp in codes for cat in cats],
+    )
+    cached_by_cp = {cp: load_cache(cp, day) for cp in codes}
+    for cp in codes:
+        for cat in cats:
+            if cat.id in cached_by_cp[cp]:
+                progress.reuse(
+                    cp, cat.id,
+                    products=len(cached_by_cp[cp][cat.id][0]),
+                )
+    progress.save()
+    print(
+        f"SORIANA INCREMENTAL - {day} | casos {len(progress.cases)} | "
+        f"COMPLETE reutilizados {progress.snapshot()['complete_cases']} | "
+        f"REINTENTAR {progress.snapshot()['pending_cases']}", flush=True,
+    )
+    print(f"Progreso JSON: {progress.path}", flush=True)
+    print("Master productivo: SIN CAMBIOS", flush=True)
     with sync_playwright() as playwright:
         browser = playwright.chromium.connect_over_cdp(args.cdp_url)
         page = find_soriana_page(browser)
@@ -379,7 +440,10 @@ def main() -> int:
             print("Abre una pestaña de www.soriana.com en Chrome.")
             return 11
         for cp in codes:
-            existing = load_cache(cp, day)
+            if datetime.now().astimezone().date().isoformat() != day:
+                print("FECHA CAMBIO: se detiene para no mezclar capturas.", flush=True)
+                return 3
+            existing = cached_by_cp[cp]
             # Preserve every previously COMPLETE category for this CP/day,
             # including categories outside this CLI request. In particular,
             # running Gastrointestinales after the six regular categories
@@ -387,14 +451,53 @@ def main() -> int:
             items = dict(existing)
             for cat in cats:
                 key = cat.id
+                if datetime.now().astimezone().date().isoformat() != day:
+                    print("FECHA CAMBIO: se detiene para no mezclar capturas.", flush=True)
+                    return 3
+                state = progress.snapshot()
+                print(
+                    f"AVANCE {state['complete_cases']}/{state['total_cases']} COMPLETE | "
+                    f"pendientes {state['pending_cases']} | "
+                    f"validos {state['products_validated']} | "
+                    f"actual CP={cp} categoria={key}", flush=True,
+                )
                 if key in existing:
-                    print(f"REUTILIZADO hoy CP {cp}: {key}")
+                    print(f"REUTILIZADO CP {cp}/{key}: checkpoint certificado del dia", flush=True)
                     continue
+
+                def report_attempt(event, attempt, summary, _cp=cp, _key=key):
+                    if event == "start":
+                        progress.start(_cp, _key, attempt=attempt)
+                        return
+                    progress.finish_attempt(
+                        _cp, _key, attempt=attempt,
+                        status=(
+                            "BLOCKED" if "BLOCKED:" in (summary.get("quality_notes") or "")
+                            else summary["status"]
+                        ),
+                        products=int(summary["products"]),
+                        quality_notes=summary.get("quality_notes") or "",
+                        error=next(
+                            (x.get("error") for x in json.loads(summary["retry_history"])[-1:]
+                             if x.get("error")), None
+                        ),
+                        diagnostic=next(
+                            (x.get("diagnostic") for x in json.loads(summary["retry_history"])[-1:]
+                             if x.get("diagnostic")), None
+                        ),
+                    )
+
                 rows, summary = capture_case(
-                    page, cat, base, cp, args.max_pages
+                    page, cat, base, cp, args.max_pages, on_attempt=report_attempt,
                 )
                 items[key] = (pd.DataFrame(rows, columns=COLUMNS), summary)
                 save_cp(cp, items)
+                state = progress.snapshot()
+                print(
+                    f"RESULTADO {cp}/{key}={summary['status']} "
+                    f"| avance {state['complete_cases']}/{state['total_cases']} "
+                    f"| reintentar {state['pending_cases']}", flush=True,
+                )
             # Only the requested categories determine this run's status:
             # preserved data from earlier category-specific runs cannot
             # mask an unfinished requested case.
@@ -414,10 +517,21 @@ def main() -> int:
             "postcodes": codes, "categories": [x.id for x in cats],
             "status": "COMPLETE" if status else "PARTIAL",
             "cases": results, "master_modified": False,
+            "progress_file": str(progress.path),
+            "progress_contract": progress.snapshot()["schema_version"],
+            "complete_cases": progress.snapshot()["complete_cases"],
+            "total_cases": progress.snapshot()["total_cases"],
         }, ensure_ascii=False, indent=2, default=str), encoding="utf-8",
     )
     print("Reporte:", report)
     print("Archivos:", OUTPUT_DIR)
+    print("PROGRESO FINAL:", json.dumps({
+        key: progress.snapshot()[key] for key in (
+            "complete_cases", "total_cases", "pending_cases",
+            "attempts_total", "products_validated"
+        )
+    }, ensure_ascii=False), flush=True)
+    print("Detalle de reintentos:", progress.path)
     print("MASTER PRODUCTIVO: SIN CAMBIOS")
     return 0 if status else 2
 
