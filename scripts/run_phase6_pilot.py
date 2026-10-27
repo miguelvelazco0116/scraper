@@ -145,6 +145,32 @@ def validate_capture(retailer_id: str, day: str) -> dict:
         raise ValueError(f"{retailer_id}: se atribuyo CP o sucursal sin verificar.")
     if not _bools_equal(frame["store_context_verified"], False):
         raise ValueError(f"{retailer_id}: contexto de localidad falsamente verificado.")
+    if retailer_id == "farmatodo":
+        # PDP verification is auditable per product without changing
+        # main.COLUMNS or any productive master format.
+        audit = pd.read_excel(
+            output, sheet_name="SkuAudit",
+            dtype={"category_id": str, "sku": str, "url": str},
+        )
+        if (len(audit) != len(frame)
+                or audit[["category_id", "url"]].duplicated().any()
+                or not _bools_equal(audit["sku_verified"], True)
+                or not audit["sku_source"].astype(str).eq("pdp_visible_sku").all()):
+            raise ValueError("Farmatodo: faltan SKU certificados en ficha PDP.")
+        base = frame[["category_id", "url", "sku"]].sort_values(
+            ["category_id", "url"]
+        ).reset_index(drop=True).fillna("")
+        certified = audit[["category_id", "url", "sku"]].sort_values(
+            ["category_id", "url"]
+        ).reset_index(drop=True).fillna("")
+        if not base.equals(certified):
+            raise ValueError("Farmatodo: la hoja SkuAudit no coincide con el catálogo.")
+        if ("sku_pdp_verified" not in summary.columns
+                or not all(
+                    int(item["sku_pdp_verified"]) == int(item["products"])
+                    for _, item in summary.iterrows()
+                )):
+            raise ValueError("Farmatodo: conteos de SKU PDP incompletos.")
     if retailer_id == "farmacias-yza":
         if ("postal_verification_required" not in summary.columns
                 or not _bools_equal(summary["postal_verification_required"], False)
