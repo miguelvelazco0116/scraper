@@ -247,6 +247,7 @@ class FarmatodoScraper:
         initial_count = len(seen)
         rounds = 0
         stalled = False
+        load_more_error = None
         # A probe must also click Mostrar más ONCE. Otherwise the test may
         # pass its SKU samples yet fail on the first full-capture click.
         while more and rounds < (1 if probe else self.max_rounds):
@@ -258,20 +259,29 @@ class FarmatodoScraper:
                     break
                 before = len(seen)
                 old_urls = sorted(seen)
-                button.last.scroll_into_view_if_needed(timeout=8000)
-                button.last.click(timeout=12000)
-                # Wait for a NEW visible product link, not a fixed delay.
-                # Products can arrive asynchronously in batches of six.
-                page.wait_for_function(
-                    "old => Array.from((document.querySelector('main') || "
-                    "document.querySelector('[role=main]') || document.body)"
-                    ".querySelectorAll('a[href]'))"
-                    ".some(a => a.getClientRects().length"
-                    " && a.href.split(/[?#]/)[0].replace(/\\/+$/, '').endsWith('/p')"
-                    " && !old.includes(a.href.split(/[?#]/)[0].replace(/\\/+$/, '')))",
-                    arg=old_urls, timeout=25000, polling=250,
-                )
-                page.wait_for_timeout(min(self.wait_ms, 500))
+                try:
+                    button.last.scroll_into_view_if_needed(timeout=8000)
+                    button.last.click(timeout=12000)
+                    # Wait for a NEW visible product link, not a fixed delay.
+                    # Products can arrive asynchronously in batches of six.
+                    page.wait_for_function(
+                        "old => Array.from((document.querySelector('main') || "
+                        "document.querySelector('[role=main]') || document.body)"
+                        ".querySelectorAll('a[href]'))"
+                        ".some(a => a.getClientRects().length"
+                        " && a.href.split(/[?#]/)[0].replace(/\\/+$/, '').endsWith('/p')"
+                        " && !old.includes(a.href.split(/[?#]/)[0].replace(/\\/+$/, '')))",
+                        arg=old_urls, timeout=25000, polling=250,
+                    )
+                    page.wait_for_timeout(min(self.wait_ms, 500))
+                except Exception as exc:
+                    stalled = True
+                    load_more_error = type(exc).__name__
+                    print(
+                        f"Farmatodo {category.id} | Mostrar mas sin productos nuevos "
+                        f"({load_more_error})", flush=True,
+                    )
+                    break
                 validate_category_page(page, category)
                 additional, next_target, more = extract_catalogue(page)
                 if next_target and target and next_target != target:
@@ -364,6 +374,7 @@ class FarmatodoScraper:
             "initial_products": initial_count, "loaded_products": len(seen),
             "target_products": target, "load_more_clicks": rounds,
             "load_more_stalled": stalled,
+            "load_more_error": load_more_error,
             "load_more_remaining": more,
             "probe_load_more_verified": (
                 (target is not None and initial_count >= target)
