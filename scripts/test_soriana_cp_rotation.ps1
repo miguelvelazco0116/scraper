@@ -4,7 +4,8 @@ param(
     [ValidateSet("all","83420","44220","54030","97245")][string]$PostalCode = "all",
     [string]$Category = "cuidado-bucal",
     [string]$CdpUrl = "",
-    [ValidateRange(1,200)][int]$MaxPages = 100
+    [ValidateRange(1,200)][int]$MaxPages = 100,
+    [switch]$DryRun
 )
 $ErrorActionPreference = "Stop"
 Set-Location $ProjectDir
@@ -19,6 +20,13 @@ if (-not $PythonExe) {
 }
 if (-not $PythonExe -or -not (Test-Path $PythonExe)) {
     throw "Activa el entorno virtual scraper antes de iniciar."
+}
+
+# Match Chedraui: inspect SAME-DAY cases before starting a browser.
+if ($DryRun) {
+    Write-Host "SORIANA - SOLO INVENTARIO, sin abrir Chrome ni modificar el master"
+    & $PythonExe ".\\scripts\\test_soriana_cp_rotation.py" --cp $PostalCode --category $Category --max-pages $MaxPages --dry-run
+    exit $LASTEXITCODE
 }
 
 # Match YZA: Chrome is started and remote debugging enabled manually.
