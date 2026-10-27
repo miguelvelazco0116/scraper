@@ -101,6 +101,7 @@ def test_shared_playwright_dependency_is_unified():
         encoding="utf-8"
     )
     assert "playwright==1.60.0" in requirements
+    assert not (root / "requirements-phase6-yza-cdp.txt").exists()
     assert "requirements-phase6-yza-cdp.txt" not in runner
     assert "requirements.txt" in runner
     assert 'major_minor < (1, 60)' in runner
