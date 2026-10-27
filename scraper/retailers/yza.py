@@ -166,6 +166,63 @@ def open_online_category(page, category_url: str) -> None:
         page.wait_for_timeout(900)
 
 
+
+def click_catalogue_page(page, target_page: int, previous_cards: list[dict]) -> None:
+    """Advance YZA's JavaScript BUTTON pagination and verify new products.
+
+    The storefront uses buttons (1, 2, 3, 4, ..., last), not links.
+    Navigating to ?p=2 can leave page 1 displayed even with HTTP success.
+    Never silently count a repeated page as a completed category.
+    """
+    if target_page < 2:
+        raise ValueError("La navegación por botones empieza desde la página 2.")
+    before = sorted({str(card.get("url") or "").split("?")[0]
+                     for card in previous_cards if card.get("url")})
+    if not before:
+        raise YzaScrapeError(
+            f"No hay huellas de la página anterior para avanzar a {target_page}."
+        )
+
+    # Only use the real, visible numbered pager BUTTON, never an invented URL
+    # or the ellipsis, which could skip products.
+    candidates = page.get_by_role("button", name=str(target_page), exact=True)
+    visible = []
+    for i in range(min(candidates.count(), 30)):
+        button = candidates.nth(i)
+        if button.is_visible():
+            visible.append(button)
+    if len(visible) != 1:
+        raise YzaScrapeError(
+            f"No se encontró un botón único y visible para página "
+            f"{target_page} (coincidencias visibles={len(visible)}). "
+            "No se saltan páginas ni se utiliza la elipsis."
+        )
+
+    try:
+        visible[0].click(timeout=12000)
+        # Clicking an SPA pager can leave old cards visible for a while.
+        # Wait for a NEW product URL in the rendered grid before reading.
+        page.wait_for_function(
+            """previous => {
+              const old = new Set(previous);
+              const links = [...document.querySelectorAll('a[href*="MXYZ_"]')]
+                .filter(a => a.getClientRects().length)
+                .map(a => a.href.split('?')[0]);
+              return links.some(url => !old.has(url));
+            }""",
+            arg=before, timeout=25000, polling=250,
+        )
+        page.wait_for_timeout(350)
+    except Exception as exc:
+        raise YzaScrapeError(
+            f"YZA no mostró productos nuevos tras hacer clic en página "
+            f"{target_page}: {type(exc).__name__}. "
+            "La paginación no está certificada."
+        ) from exc
+
+
+
+
 class YzaScraper:
     def __init__(self, cdp_url: str = "", max_pages: int = 100):
         self.cdp_url = cdp_url
@@ -194,16 +251,21 @@ class YzaScraper:
                     page.wait_for_timeout(800)
                 expected_last = None
 
+                previous_cards: list[dict] = []
                 for number in range(1, self.max_pages + 1):
-                    page.goto(page_url(category.url, number),
-                              wait_until="domcontentloaded", timeout=75000)
-                    page.wait_for_timeout(700)
+                    if number == 1:
+                        # Category was already opened; keep the real first-page
+                        # state rather than a query-param reconstruction.
+                        page.wait_for_timeout(650)
+                    else:
+                        click_catalogue_page(page, number, previous_cards)
                     if urlparse(page.url).netloc.lower() not in {HOST, "yza.mx"}:
                         raise YzaScrapeError("Redirección fuera de YZA")
                     body = page.locator("body").inner_text(timeout=10000)
                     if any(marker in body.lower() for marker in BLOCKED_MARKERS):
                         raise YzaScrapeError("YZA presentó bloqueo o verificación.")
                     cards, last = discover_cards(page)
+                    previous_cards = cards
                     if number == 1:
                         expected_last = last
                         if expected_last is None:
@@ -253,9 +315,14 @@ class YzaScraper:
                         })
                     if number > 1 and fresh == 0:
                         raise YzaScrapeError(
-                            f"La página {number} repite todos los productos "
-                            "o no tiene precios/SKU válidos. Paginación no verificada."
+                            f"La página {number} repite productos o carece "
+                            "de precios/SKU válidos. Paginación no verificada."
                         )
+                    print(
+                        f"YZA | {category.id} | pagina {number}/"
+                        f"{expected_last} | tarjetas={len(cards)} | "
+                        f"nuevos_validos={fresh}", flush=True,
+                    )
                     pages.append({
                         "page": number, "cards": len(cards),
                         "new_valid": fresh, "last_page": expected_last,
