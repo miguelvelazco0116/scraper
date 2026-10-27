@@ -39,12 +39,29 @@ Nunca resetear modificaciones locales para cambiar de rama.
 
     python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
 
-## Preparar Chrome
+## Modo de navegador: primero Chrome automático
 
-Abrir Chrome con remote debugging habilitado desde
-chrome://inspect/#remote-debugging, y una pestaña en www.yza.mx.
-Seleccionar en la UI de YZA una dirección real con CP 11590. Si el
-sitio no confirma la selección, la prueba falla; no se inventa contexto.
+**No hace falta abrir Chrome previamente.** Los runners de Fase 6 lanzan
+Google Chrome visible mediante Playwright, visitan las URLs configuradas y
+cierran solo los navegadores que ellos mismos abrieron. YZA intenta elegir
+una dirección sugerida del CP **11590** y solo certifica resultados cuando
+ese código se confirma en la página fuera de los campos editables.
+Farmatodo captura catálogo online sin CP, sin inferir disponibilidad local.
+
+Si YZA muestra bloqueo o no permite confirmar una dirección, no se fuerza
+ninguna captura. Para probar una sesión Chrome abierta previamente:
+
+1. Abrir Google Chrome, habilitar
+   chrome://inspect/#remote-debugging y abrir una pestaña de www.yza.mx.
+2. Confirmar manualmente en YZA un domicilio válido con CP **11590**.
+3. Repetir el piloto con el parámetro `-UseExistingChrome`:
+
+       & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza -UseExistingChrome
+
+El runner localiza el puerto de depuración activo en DevToolsActivePort. Si
+esa detección falla, se puede pasar el endpoint real de la máquina con
+`-CdpUrl 'http://127.0.0.1:9222'` (solo si Chrome usa ese puerto).
+En modo CDP, no se cierra el navegador ni la pestaña existente del operador.
 
 ## Prueba A: cinco diagnósticos
 
@@ -52,7 +69,12 @@ sitio no confirma la selección, la prueba falla; no se inventa contexto.
 
 Dos diagnósticos YZA y tres Farmatodo. Un resultado READY_FOR_CAPTURE
 es solo una señal de que pueden intentarse capturas; NO certifica los
-cinco catálogos completos.
+cinco catálogos completos. El probe de Farmatodo NO espera cargar toda la
+paginación, pero ahora rechaza un diagnóstico sin ningún SKU identificado:
+estado NEEDS_SKU_REVIEW. Guardará hasta tres ejemplos públicos de URL e
+imagen de los productos con SKU faltante en
+diagnostics/farmatodo/probe_<category>_<date>.json.
+**No ejecutar capture completo hasta resolver esos faltantes.**
 
 ## Prueba B: cinco categorías, captura real
 
@@ -85,3 +107,31 @@ COMPLETE_PILOT equivale por sí solo a una fase integrada/productiva.
 Cuando ambas tiendas sean verificadas en Chrome y sus archivos pasen
 los gates, habilitar formalmente Fase 6 en runner, auditor, integrador
 y panel mediante una segunda modificación con respaldo del master.
+
+
+## Evidencia del probe real del 27 de octubre de 2026
+
+La versión anterior, con CDP obligatorio, produjo:
+- YZA: 2 errores porque no había pestaña YZA en el Chrome CDP; no se observó
+  un bloqueo real ni se certificó CP 11590.
+- Farmatodo Respiratorios: 9 tarjetas de 460 publicados, 9 SKU faltantes.
+- Farmatodo Cuidado bucal: 6 tarjetas de 169, 6 SKU faltantes.
+- Farmatodo Higiene personal: 6 tarjetas de 140, 6 SKU faltantes.
+
+Los 769 artículos publicados NO son un resultado capturado; 21 fueron solo
+tarjetas visibles de una muestra y requieren resolver el SKU. La nueva prueba
+usa Chrome propio y registra muestras de las imágenes para diagnosticar el
+código. No declarar READY_FOR_CAPTURE para Farmatodo con 0 SKU.
+
+### Comandos de revalidación
+
+    git pull --ff-only
+    python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmatodo
+
+Si hay bloqueo o YZA requiere una dirección aplicada manualmente:
+
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza -UseExistingChrome
+
+Estos cambios pertenecen solo a un PR borrador de Fase 6; master intacto.
