@@ -240,6 +240,19 @@ class FarmatodoScraper:
                 key: sum(sku_from_card(x)[1] == key for x in seen.values())
                 for key in {sku_from_card(x)[1] for x in seen.values()}
             },
+            # Public image/link evidence only, to diagnose missing identifiers.
+            # A card without a provable SKU cannot pass production quality.
+            "sku_debug_samples": [
+                {
+                    "url": x.get("url"),
+                    "image_url": x.get("image_url"),
+                    "image_alt": x.get("image_alt"),
+                    "sku": sku_from_card(x)[0],
+                    "sku_source": sku_from_card(x)[1],
+                }
+                for x in list(seen.values())
+                if sku_from_card(x)[0] is None
+            ][:3],
             "probe": probe,
         }
         return rows, meta
