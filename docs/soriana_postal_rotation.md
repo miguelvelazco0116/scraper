@@ -198,3 +198,61 @@ de regresión de auditoría corren con:
 
 Ambos comandos son de solo lectura y no alteran los libros, checkpoints
 ni el master productivo.
+
+
+## Estandarizacion con Chedraui — progreso y reintentos (27/10)
+
+Se toma como referencia la ejecucion incremental de Chedraui:
+`COMPLETE` reutiliza evidencia del dia, `REINTENTAR` mantiene el caso
+pendiente, hasta **tres intentos por CP/categoria** antes de continuar.
+Los bloqueos explicitos de la web detienen los reintentos de ese caso.
+Un caso no se declara COMPLETE antes de guardar y revalidar el Excel.
+
+El piloto CLI Soriana ahora conserva en JSON, por caso:
+
+- `postal_code`, `category_id`, `estado`, `accion`,
+  `productos_validados`, `attempts`, `retry_history`, `quality_notes`.
+- Totales de casos, completos, pendientes, productos y total de intentos.
+- Un registro de cada intento con estado, filas, error y diagnostico.
+- Contrato `capture-progress-v1`, sin dependencia de Streamlit y
+  con escritura atomica resistente a bloqueos transitorios de Windows.
+
+El archivo es:
+`diagnostics/soriana_cp_rotation/progress_<YYYY-MM-DD>_<CP|all>_<categoria|all>.json`.
+
+### Ver progreso sin Chrome (mismo patron que Chedraui)
+
+```powershell
+cd C:\Proyectos\scraper
+git switch feat/soriana-zip-rotation-20261026
+git pull --ff-only
+
+# Solo leer los checkpoints COMPLETE del dia; cero navegacion
+.\scripts\test_soriana_cp_rotation.ps1 -PostalCode all -Category all -DryRun
+
+# Comprobar contratos offline
+python -m pytest -q tests/test_capture_progress.py tests/test_soriana_cp_rotation.py
+```
+
+### Prueba en Chrome
+
+Antes de la captura abrir **Google Chrome** y una pestana con
+`https://www.soriana.com/`. En otra pestana de esa misma ventana abrir
+`chrome://inspect/#remote-debugging` y activar
+`Allow remote debugging for this browser instance`. El wrapper verifica
+el proceso y el endpoint CDP **local**, sin abrir automaticamente el navegador.
+
+```powershell
+Get-Process chrome
+
+.\scripts\test_soriana_cp_rotation.ps1 -PostalCode 83420 -Category cuidado-bucal
+```
+
+El terminal anuncia el caso activo, intentos 1/3, 2/3 y 3/3 cuando apliquen,
+resultado final y progreso COMPLETE/pendientes acumulado. Los archivos se
+mantienen aislados del master de Fase 2 y no modifican el dashboard actual.
+
+**Integracion visual posterior:** cuando la auditoria de 24/24 casos del dia
+este validada, usar este contrato en el monitor existente de Streamlit junto
+a su historial, logs y control de paro, sin crear otra interfaz. Hasta entonces
+la PR sigue aislada de `main`.
