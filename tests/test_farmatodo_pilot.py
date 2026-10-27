@@ -205,7 +205,7 @@ def test_farmatodo_waits_for_rendered_resp_product_cards(monkeypatch):
     } for i in range(6)]
     def cards_eventually(page):
         calls.append("extract")
-        return ([], 460, True) if len(calls) < 5 else (cards, 460, True)
+        return ([], 6, True) if len(calls) < 5 else (cards, 6, False)
     monkeypatch.setattr(mod, "extract_catalogue", cards_eventually)
     monkeypatch.setattr(mod, "validate_category_page", lambda *args: None)
     monkeypatch.setattr(
@@ -647,16 +647,6 @@ def test_probe_clicks_mostrar_mas_and_detects_new_cards(monkeypatch):
             return SimpleNamespace(inner_text=lambda **kw: "Farmatodo")
         def get_by_text(self, pattern):
             return SimpleNamespace(count=lambda: 1, last=Button(self))
-        def wait_for_function(self, expression, arg, timeout, polling):
-            assert timeout == 25000
-            assert len(arg) == 6
-            assert "document.body" in expression
-            assert "querySelectorAll('a[href]')" in expression
-            assert "replace(" in expression
-            assert self.clicked
-            if getattr(self, "force_timeout", False):
-                raise TimeoutError("Mostrar más no agregó fichas nuevas")
-
     def make_cards(size):
         return [{
             "url": f"https://www.farmatodo.com.mx/item-{7509546653500+i}/p",
@@ -664,6 +654,8 @@ def test_probe_clicks_mostrar_mas_and_detects_new_cards(monkeypatch):
         } for i in range(size)]
 
     def read_listing(page):
+        if getattr(page, "force_timeout", False):
+            return make_cards(6), 169, True
         return (make_cards(12) if page.clicked else make_cards(6)), 169, True
 
     monkeypatch.setattr(mod, "extract_catalogue", read_listing)
@@ -676,6 +668,7 @@ def test_probe_clicks_mostrar_mas_and_detects_new_cards(monkeypatch):
     assert len(rows) == 12
     assert meta["load_more_clicks"] == 1
     assert meta["probe_load_more_verified"] is True
+    assert meta["load_more_stop_reason"] == "probe_one_click_verified"
     assert meta["pdp_sku_verified"] == 3
 
     timed_out = Page()
@@ -685,7 +678,8 @@ def test_probe_clicks_mostrar_mas_and_detects_new_cards(monkeypatch):
     )
     assert len(failed_rows) == 6
     assert failed_meta["load_more_stalled"] is True
-    assert failed_meta["load_more_error"] == "TimeoutError"
+    assert failed_meta["load_more_error"] == "click_added_no_priced_products"
+    assert failed_meta["load_more_stop_reason"] == "click_added_no_priced_products"
     assert failed_meta["probe_load_more_verified"] is False
     assert failed_meta["pdp_sku_verified"] == 3
 
