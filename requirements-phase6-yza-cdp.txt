@@ -1,6 +1,0 @@
-# Solo piloto Fase 6 / Farmacias YZA con Chrome 144+ inspect CDP.
-# requirements.txt productivo permanece fijado a playwright==1.54.0.
-# Instalar este override DESPUES de las dependencias actuales del scraper:
-# python -m pip install -r requirements-phase6-yza-cdp.txt
-# Para regresar a version productiva local: python -m pip install -r requirements.txt
-playwright==1.60.0
