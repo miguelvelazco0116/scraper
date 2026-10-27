@@ -306,6 +306,74 @@ def test_farmatodo_pilot_writes_pdp_audit_in_isolated_excel(tmp_path, monkeypatc
     assert reused["cuidado-bucal"][0]["sku_verified"].iloc[0] == True
 
 
+
+def test_probe_clicks_mostrar_mas_and_detects_new_cards(monkeypatch):
+    from types import SimpleNamespace
+    from scraper.retailers import farmatodo as mod
+
+    class DetailPage:
+        url = ""
+        def goto(self, url, **kwargs):
+            self.url = url
+        def wait_for_timeout(self, ms):
+            pass
+        def locator(self, selector):
+            return SimpleNamespace(
+                inner_text=lambda **kw: "Sku: " +
+                self.url.split("/")[-2].split("-")[-1]
+            )
+        def close(self):
+            pass
+
+    class Button:
+        def __init__(self, page):
+            self.page = page
+        def is_visible(self):
+            return True
+        def scroll_into_view_if_needed(self, **kw):
+            pass
+        def click(self, **kw):
+            self.page.clicked = True
+
+    class Page:
+        url = "https://www.farmatodo.com.mx/cuidado-personal-y-belleza/cuidado-bucal"
+        context = SimpleNamespace(new_page=lambda: DetailPage())
+        clicked = False
+        def goto(self, url, **kw):
+            self.url = url
+        def wait_for_timeout(self, ms):
+            pass
+        def locator(self, selector):
+            return SimpleNamespace(inner_text=lambda **kw: "Farmatodo")
+        def get_by_text(self, pattern):
+            return SimpleNamespace(count=lambda: 1, last=Button(self))
+        def wait_for_function(self, expression, arg, timeout, polling):
+            assert timeout == 25000
+            assert len(arg) == 6
+            assert self.clicked
+
+    def make_cards(size):
+        return [{
+            "url": f"https://www.farmatodo.com.mx/item-{7509546653500+i}/p",
+            "product": f"Test {i}", "text": "$108.50",
+        } for i in range(size)]
+
+    def read_listing(page):
+        return (make_cards(12) if page.clicked else make_cards(6)), 169, True
+
+    monkeypatch.setattr(mod, "extract_catalogue", read_listing)
+    page = Page()
+    cat = load_categories("config/farmatodo/categories.yaml")[1]
+    rows, meta = FarmatodoScraper(max_rounds=100).capture_category(
+        page, cat, probe=True
+    )
+    assert page.clicked is True
+    assert len(rows) == 12
+    assert meta["load_more_clicks"] == 1
+    assert meta["probe_load_more_verified"] is True
+    assert meta["pdp_sku_verified"] == 3
+
+
 def test_probe_can_report_ready_after_three_verified_pdp_skus(monkeypatch):
     from types import SimpleNamespace
     from scripts import test_farmatodo as runner
