@@ -219,3 +219,24 @@ Comandos para un único intento de diagnóstico (no certificación):
 No aplicar aún una paginación alternativa con URLs supuestas. Primero
 se inspeccionarán los enlaces y controles **realmente publicados**
 por Farmatodo. Mantener como PARTIAL y fuera del master productivo.
+
+## 27/oct — Validación de ruta pública paginada observada
+
+Prueba con un único intento: Respiratorios recuperó 86/460 y el sexto clic en Mostrar más falló. La URL pública observada era /medicamentos/respiratorios?page=6. Hubo 0 enlaces tradicionales de paginación; los filtros incluían Antihistamínicos, Antitusivos y Antiasmáticos.
+
+El parámetro page se observó realmente hasta página 6; **eso no prueba** que la página 7 sea válida ni que se pueda alcanzar el total 460. Se prohíbe tratar una URL construida como catálogo válido sin comprobar productos nuevos.
+
+Corrección: si un clic de Mostrar más genera excepción, se esperan productos nuevos. Si aparecieron tarjetas con precio, se registra el clic como recuperado. Si no, y SOLO si la URL observada incluye page=N bajo la misma ruta de categoría, se prueba page=N+1 en Chrome. Cada avance exige una respuesta en la misma categoría, mismo total publicado y al menos una tarjeta nueva con precio. Redirecciones, página vacía y cambios de total causan PARTIAL, nunca COMPLETE.
+
+Registrar metadatos de cada intento público en public_page_fallbacks: página observada, candidata, resultado, conteo de productos nuevos y motivo del fallo. pagination_rounds incluye clics recuperados y continuaciones verificadas; load_more_clicks mide clics del control devueltos correctamente.
+
+Se agregaron cinco pruebas offline: validación de la ruta page=N, continuación page=6 a page=7 con tarjeta nueva, rechazo cuando no aparece una tarjeta nueva, captura completa simulada mediante la ruta pública y recuperación de un clic con DOM desmontado. Se esperan 389 tests, pendiente de confirmación Windows.
+
+En el único venv (scraper):
+
+    cd C:\Proyectos\scraper
+    git pull --ff-only
+    python -m pytest -q
+    python .\scripts\test_farmatodo.py --category respiratorios --headed --max-rounds 100 --attempts 1
+
+Si aparece el mensaje página pública siguiente NO validada, no volver a repetir capturas completas hasta revisar ese diagnóstico. El master Fases 1-5 permanece intacto.
