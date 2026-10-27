@@ -1,0 +1,261 @@
+"""CLI-only Phase 6 pilot: Farmacias YZA, online catalogue without CP.
+
+This coordinator remains isolated from productive phases 1-5, their master,
+and the dashboard. Farmatodo is retired from active phase-6 scope.
+Probe tests YZA's two categories; capture validates its dated workbook.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import pandas as pd
+import yaml
+
+from scraper.config import load_categories
+
+MANIFEST = ROOT / "config" / "phase6" / "retailers.yaml"
+PHASE6_REPORT = ROOT / "diagnostics" / "phase6" / "last_run.json"
+RETAILERS = ("farmacias-yza",)
+EXPECTED = {
+    "farmacias-yza": {
+        "categories": {"medicamentos-respiratorio", "higiene-bucal"},
+        "report": ROOT / "diagnostics" / "yza" / "last_run.json",
+        "workbook": ROOT / "output" / "yza_online_test.xlsx",
+        "name": "Farmacias YZA",
+    },
+
+}
+
+
+def local_day() -> str:
+    return datetime.now().astimezone().date().isoformat()
+
+
+def validated_manifest() -> dict:
+    obj = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))
+    if obj.get("phase") != 6 or obj.get("status") != "PILOT_CLI":
+        raise ValueError("Contrato de piloto Fase 6 incorrecto.")
+    items = obj.get("retailers") or []
+    if [item.get("id") for item in items] != list(RETAILERS):
+        raise ValueError("Fase 6 requiere únicamente Farmacias YZA.")
+    catalogues = {
+        "farmacias-yza": ROOT / "config" / "yza" / "categories.yaml",
+    }
+    for item in items:
+        rid = item["id"]
+        if set(item.get("categories") or []) != EXPECTED[rid]["categories"]:
+            raise ValueError(f"Categorías Fase 6 inválidas: {rid}")
+        actual = {cat.id for cat in load_categories(catalogues[rid])}
+        if actual != EXPECTED[rid]["categories"]:
+            raise ValueError(f"YAML de retailer inconsistente: {rid}")
+        if item["name"] != EXPECTED[rid]["name"]:
+            raise ValueError(f"Nombre de retailer incorrecto: {rid}")
+        if (item.get("postal_mode") != "NO_VERIFICATION"
+                or item.get("postal_code") is not None):
+            raise ValueError(
+                f"{rid}: no debe exigir ni atribuir codigo postal o tienda."
+            )
+    return obj
+
+
+def _bools_equal(values, desired: bool) -> bool:
+    return all(str(item).strip().lower() == str(desired).lower()
+               for item in values)
+
+
+def validate_capture(retailer_id: str, day: str) -> dict:
+    """After a subprocess exits 0, certify catalogue and non-location attribution.
+
+    A subprocess exit code alone never certifies the phase.
+    """
+    config = EXPECTED[retailer_id]
+    output, report_path = config["workbook"], config["report"]
+    if not report_path.is_file() or not output.is_file():
+        raise ValueError(f"{retailer_id}: faltan Excel o reporte de captura.")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    if report.get("capture_date") != day:
+        raise ValueError(f"{retailer_id}: reporte de una fecha diferente.")
+    if report.get("master_modified") is not False:
+        raise ValueError(f"{retailer_id}: reporte no declara master intacto.")
+    if retailer_id != "farmacias-yza":
+        raise ValueError("Fase 6 solo permite Farmacias YZA.")
+    if (report.get("complete_pilot") is not True
+            or report.get("postal_code") is not None
+            or report.get("postal_verification_required") is not False
+            or report.get("store_context_verified") is not False
+            or report.get("scope") != "ONLINE_CATALOGUE_NO_LOCATION_VERIFICATION"):
+        raise ValueError("YZA: categoría incompleta o contexto online inválido.")
+
+    summary = pd.read_excel(
+        output, sheet_name="Resumen", dtype={"category_id": str, "postal_code": str}
+    )
+    frame = pd.read_excel(
+        output, sheet_name="Concentrado",
+        dtype={"sku": str, "category_id": str, "postal_code": str, "store_id": str}
+    )
+    if frame.empty or len(summary) != len(config["categories"]):
+        raise ValueError(f"{retailer_id}: filas o Resumen incompletos.")
+    actual = set(summary["category_id"].astype(str))
+    if actual != config["categories"]:
+        raise ValueError(f"{retailer_id}: categorías inesperadas: {actual}")
+    if set(frame["category_id"].astype(str)) != actual:
+        raise ValueError(f"{retailer_id}: faltan filas de alguna categoría.")
+    if not frame["scrape_timestamp"].astype(str).str.startswith(day).all():
+        raise ValueError(f"{retailer_id}: mezcla capturas de otros días.")
+    if not frame["retailer"].eq(config["name"]).all():
+        raise ValueError(f"{retailer_id}: retailer incorrecto en filas.")
+    if (frame["sku"].fillna("").astype(str).str.strip().eq("").any()
+        or frame["url"].fillna("").astype(str).str.strip().eq("").any()
+        or not pd.to_numeric(frame["price_current"], errors="coerce").gt(0).all()
+        or frame.duplicated(subset=["category_id", "sku", "url"]).any()):
+        raise ValueError(f"{retailer_id}: SKU, precios, URLs o duplicados inválidos.")
+    if "products" not in summary.columns:
+        raise ValueError(f"{retailer_id}: conteos de Resumen ausentes.")
+    for _, item in summary.iterrows():
+        num = len(frame.loc[frame["category_id"] == item["category_id"]])
+        if num != int(item["products"]):
+            raise ValueError(f"{retailer_id}: conteos inconsistentes en Resumen.")
+        expected_status = "SUCCESS"
+        if str(item.get("status")) != expected_status:
+            raise ValueError(f"{retailer_id}: categoría no {expected_status}.")
+        if str(item.get("capture_date")) != day:
+            raise ValueError(f"{retailer_id}: categoría de otro día.")
+
+    # Both retailers are online catalogues with NO verified locality.
+    # Never let old YZA postal-attributed outputs masquerade as the new pilot.
+    if (frame["postal_code"].notna().any()
+            or frame["store_id"].notna().any()
+            or frame["store"].notna().any()):
+        raise ValueError(f"{retailer_id}: se atribuyo CP o sucursal sin verificar.")
+    if not _bools_equal(frame["store_context_verified"], False):
+        raise ValueError(f"{retailer_id}: contexto de localidad falsamente verificado.")
+    if retailer_id == "farmacias-yza":
+        if ("postal_verification_required" not in summary.columns
+                or not _bools_equal(summary["postal_verification_required"], False)
+                or "store_context_verified" not in summary.columns
+                or not _bools_equal(summary["store_context_verified"], False)):
+            raise ValueError("YZA: Resumen reclama localidad o carece de alcance online.")
+    return {
+        "retailer": config["name"], "categories": len(summary),
+        "products": len(frame), "workbook": str(output),
+        "validated_day": day,
+        "scope": "ONLINE_CATALOGUE_NO_LOCATION_VERIFICATION",
+    }
+
+
+def commands_for(mode: str, rid: str, cdp_url: str = "", max_pages: int = 100) -> list[list[str]]:
+    py = sys.executable
+    if mode not in ("probe", "capture") or rid not in RETAILERS:
+        raise ValueError("Modo o retailer no autorizado.")
+    if cdp_url and not cdp_url.startswith(("ws://127.0.0.1:", "http://127.0.0.1:", "ws://localhost:", "http://localhost:")):
+        raise ValueError("La conexión CDP debe ser al Chrome local.")
+    if not 1 <= max_pages <= 200:
+        raise ValueError("max-pages fuera de rango.")
+    if rid == "farmacias-yza" and not cdp_url:
+        raise ValueError(
+            "Farmacias YZA ahora requiere Chrome local preparado por el "
+            "operador y conexión CDP (sin CP obligatorio)."
+        )
+    # Always reuse the operator's Chrome for YZA.
+    optional_cdp = ["--cdp-url", cdp_url]
+    if mode == "probe":
+        return [[
+            py, str(ROOT / "scripts" / "probe_yza.py"),
+            "--category", category, *optional_cdp,
+        ] for category in ("medicamentos-respiratorio", "higiene-bucal")]
+    return [[
+        py, str(ROOT / "scripts" / "test_yza.py"),
+        "--category", "all", *optional_cdp,
+        "--max-pages", str(max_pages),
+    ]]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Fase 6 CLI aislada")
+    parser.add_argument("--mode", choices=("probe", "capture"), default="probe")
+    parser.add_argument("--retailer", choices=("all", *RETAILERS), default="all")
+    parser.add_argument("--cdp-url", default="", help="Chrome abierto por el operador para YZA, sin localidad obligatoria.")
+    parser.add_argument("--max-pages", type=int, default=100)
+    args = parser.parse_args()
+    validated_manifest()
+    day = local_day()
+    ids = RETAILERS if args.retailer == "all" else (args.retailer,)
+    if "farmacias-yza" in ids and not args.cdp_url:
+        parser.error(
+            "YZA requiere una pestaña de Chrome CDP preparada por el "
+            "operador. No se requiere CP. Usa -UseExistingChrome o -CdpUrl "
+            "en run_phase6_pilot.ps1."
+        )
+    if "farmacias-yza" in ids:
+        from importlib.metadata import version as installed_version
+        playwright_version = installed_version("playwright")
+        major_minor = tuple(
+            int(part) for part in playwright_version.split(".")[:2]
+        )
+        if major_minor < (1, 60):
+            parser.error(
+                "Para Chrome 144+ con chrome://inspect se requiere "
+                "Playwright >= 1.60; el entorno actual tiene "
+                f"{playwright_version}. En este piloto ejecuta: "
+                "python -m pip install -r requirements.txt. "
+                "No cambia requirements.txt ni el master productivo."
+            )
+    phase_report = {
+        "phase": 6, "run_date": day, "mode": args.mode,
+        "requested_retailers": list(ids), "master_modified": False,
+        "browser_mode": "manual_cdp",
+        "phase_status": "IN_PROGRESS", "retailers": [],
+    }
+    success = True
+    for rid in ids:
+        print(f"\nFASE 6 | {rid} | {args.mode} | {day}", flush=True)
+        statuses = []
+        for cmd in commands_for(args.mode, rid, args.cdp_url, args.max_pages):
+            # shell=False, allowlisted scripts; never execute uploaded commands.
+            proc = subprocess.run(cmd, cwd=ROOT, check=False)
+            statuses.append(proc.returncode)
+        info = {"id": rid, "exit_codes": statuses}
+        if any(code != 0 for code in statuses):
+            info["status"] = "ERROR"
+            success = False
+        elif args.mode == "probe":
+            info["status"] = "DIAGNOSTIC_OK_NOT_CERTIFIED"
+        else:
+            try:
+                info.update(validate_capture(rid, day))
+                info["status"] = "COMPLETE_PILOT"
+            except (ValueError, KeyError, OSError, TypeError) as exc:
+                info["status"] = "PARTIAL"
+                info["error"] = str(exc)
+                success = False
+        phase_report["retailers"].append(info)
+        print(f"FASE 6 | {rid} | {info['status']}", flush=True)
+
+    phase_report["phase_status"] = (
+        ("READY_FOR_CAPTURE" if args.mode == "probe" else "COMPLETE_PILOT")
+        if success and len(ids) == len(RETAILERS)
+        else ("PARTIAL_PILOT" if args.mode == "capture" else "DIAGNOSTIC_PARTIAL")
+    )
+    PHASE6_REPORT.parent.mkdir(parents=True, exist_ok=True)
+    PHASE6_REPORT.write_text(
+        json.dumps(phase_report, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    print(f"\nReporte de Fase 6: {PHASE6_REPORT}")
+    print("Master Fases 1-5: SIN CAMBIOS")
+    if args.mode == "probe":
+        print("El diagnóstico NO certifica una captura completa.")
+    return 0 if success else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

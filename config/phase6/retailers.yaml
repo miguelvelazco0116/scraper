@@ -1,0 +1,14 @@
+phase: 6
+status: PILOT_CLI
+retailers:
+  - id: farmacias-yza
+    name: Farmacias YZA
+    categories:
+      - medicamentos-respiratorio
+      - higiene-bucal
+    postal_mode: NO_VERIFICATION
+    postal_code: null
+    capture_script: scripts/test_yza.py
+    probe_script: scripts/probe_yza.py
+    capture_workbook: output/yza_online_test.xlsx
+    capture_report: diagnostics/yza/last_run.json

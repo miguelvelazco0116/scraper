@@ -144,3 +144,21 @@ locations:
     store: Sam's Club online
     store_id: null
     enabled: true
+
+  - id: yza-online
+    city: Catálogo online
+    state: Nacional
+    country: México
+    postal_code: null
+    store: null
+    store_id: null
+    enabled: true
+
+  - id: yza-cp-11590
+    city: Miguel Hidalgo
+    state: CDMX
+    country: México
+    postal_code: "11590"
+    store: null
+    store_id: null
+    enabled: true

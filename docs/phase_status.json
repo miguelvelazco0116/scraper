@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-18",
+  "updated_at": "2026-10-27",
   "operating_rule": "A validated phase remains validated and must not be reworked unless a new concrete failure proves necessary. A pending phase is added only after a successful live Windows Server run.",
   "phases": {
     "1": {
@@ -299,6 +299,18 @@
         }
       },
       "note": "Fase 5: Farmacias Similares 2 + HEB 2 + Sam's Club 3 + Mayorista Duero 6 = 13 categorías. Duero requiere validación live de paginación, empaque y contexto de tienda."
+    },
+    "6": {
+      "name": "Fase 6",
+      "status": "PENDING_LIVE_VALIDATION",
+      "categories": 2,
+      "retailers": [
+        "Farmacias YZA"
+      ],
+      "source_workbook": "output/yza_online_test.xlsx",
+      "integration_command": "python scripts/integrate_phase6_yza.py --preview && python scripts/integrate_phase6_yza.py --commit",
+      "scope": "ONLINE_CATALOGUE_NO_LOCATION_VERIFICATION",
+      "note": "GitHub code/CI is not a live Windows capture. Requires both categories COMPLETE_PILOT same day and phases 1-5 COMPLETE before any master integration. Farmatodo not active."
     }
   }
 }
