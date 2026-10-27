@@ -248,3 +248,25 @@ Para el próximo diagnóstico aislado:
 no ampliar ni relajar la prueba de CP**: examinar el encabezado real después
 de aceptar. Una dirección escrita o guardada sin confirmación visual del
 CP 11590 no certifica el precio contextual.
+
+
+## Confirmación adicional del operador: modal postal primero
+
+Al cargar por primera vez YZA, el usuario ve inmediatamente el popup
+"Ingresa un código postal" (campo "Código Postal", botón "ACEPTAR").
+Por tanto, el orden correcto es:
+
+1. Comprobar si ese popup YA ESTÁ VISIBLE y utilizarlo sin hacer clic
+   en el encabezado.
+2. Esperar brevemente a que se hidraten campo y botón si el título del
+   popup aparece antes de que terminen de cargar sus controles.
+3. Rellenar CP 11590, pulsar ACEPTAR y buscar confirmación en el
+   selector de entrega visible fuera del modal.
+4. Solo si NO hay popup visible, intentar abrirlo desde el encabezado.
+5. Si el popup está visible y no se reconoce el formulario, mantener
+   NEEDS_REVIEW y registrar stage=initial_popup_visible_but_controls_missing,
+   sin intentar hacer clic detrás del modal.
+6. Recargar y volver a verificar el CP antes de certificar READY_FOR_FULL_CAPTURE.
+
+Nuevos tests offline comprueban que el modal inicial tenga prioridad
+sobre el encabezado y que un popup visible sin campo no pueda pasar.
