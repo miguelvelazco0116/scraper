@@ -81,5 +81,35 @@ class MasterPhaseInventoryTests(unittest.TestCase):
         self.assertTrue(any("Soriana" in x and "Resumen=3" in x for x in facts["warnings"]))
 
 
+    def test_phase6_yza_is_reported_only_when_two_cases_complete(self):
+        for category in ("medicamentos-respiratorio", "higiene-bucal"):
+            self.frame.loc[len(self.frame)] = {
+                "retailer": "Farmacias YZA", "category_id": category,
+                "sku": category, "price_current": 75,
+                "url": "https://www.yza.mx/" + category,
+                "is_available": None, "store_context_verified": False,
+            }
+            self.summary.loc[len(self.summary)] = {
+                "source_phase": "FASE 6", "retailer": "Farmacias YZA",
+                "category_id": category, "status": "COMPLETE", "products": 1,
+            }
+        self.control.loc[0, "phase6_status"] = "COMPLETE"
+        phases, retailers, _, facts = self.run_audit()
+        phase = phases.loc[phases["fase"].eq(6)].iloc[0]
+        self.assertEqual(phase["estado_calculado"], "COMPLETE")
+        self.assertEqual(facts["phases_complete"], 1)
+        self.assertEqual(
+            retailers.loc[retailers["retailer"].eq("Farmacias YZA"), "casos_master"].iloc[0],
+            2,
+        )
+
+    def test_phase6_missing_on_old_master_is_pending_not_a_warning(self):
+        phases, _, _, facts = self.run_audit()
+        row = phases.loc[phases["fase"].eq(6)].iloc[0]
+        self.assertEqual(row["estado_calculado"], "PENDING")
+        self.assertTrue(row["control_coincide"])
+        self.assertFalse(facts["warnings"])
+
+
 if __name__ == "__main__":
     unittest.main()
