@@ -117,6 +117,49 @@ def test_only_same_day_locationless_complete_can_be_reused():
     ) is False
 
 
+
+def test_probe_with_visible_products_but_no_sku_is_not_ready(monkeypatch):
+    from types import SimpleNamespace
+    from scripts import test_farmatodo as runner
+
+    class DummyPage:
+        def close(self):
+            pass
+
+    class DummyBrowser:
+        def new_page(self, **kwargs):
+            return DummyPage()
+
+    class DummyScraper:
+        def __init__(self, max_rounds):
+            pass
+        def capture_category(self, page, category, probe):
+            assert probe is True
+            return ([{
+                "url": "https://www.farmatodo.com.mx/example/p",
+                "sku": None, "price_current": 50, "postal_code": None,
+                "store_context_verified": False,
+            }], {
+                "category_id": "respiratorios", "capture_date": "2026-10-27",
+                "target_products": 460, "load_more_remaining": True,
+                "sku_debug_samples": [{
+                    "url": "https://www.farmatodo.com.mx/example/p",
+                    "image_url": "https://img.example/no_ean.webp",
+                    "sku_source": "not_found",
+                }],
+            })
+
+    monkeypatch.setattr(runner, "FarmatodoScraper", DummyScraper)
+    _, summary = runner.run_category(
+        DummyBrowser(), SimpleNamespace(id="respiratorios"),
+        max_rounds=20, probe=True,
+    )
+    assert summary["status"] == "NEEDS_SKU_REVIEW"
+    assert summary["probe_sku_identified"] == 0
+    assert summary["sku_debug_samples"][0]["sku_source"] == "not_found"
+
+
+
 def test_pilot_does_not_write_productive_master_or_ask_for_postcode():
     text = Path("scripts/test_farmatodo.py").read_text(encoding="utf-8")
     assert "MAX_ATTEMPTS = 3" in text
