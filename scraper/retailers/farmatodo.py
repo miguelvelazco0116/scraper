@@ -13,7 +13,9 @@ from ..availability import AVAILABLE, UNAVAILABLE, UNKNOWN
 from ..parsers import clean_text
 
 HOST = "www.farmatodo.com.mx"
-CODE_RE = re.compile(r"\b\d{8,14}\b")
+# Underscore is a word character, so \\b misses EANs in 750..._01.webp.
+# Disallow adjoining letters/digits and partial matches inside longer IDs.
+CODE_RE = re.compile(r"(?<![A-Za-z0-9])(\d{8,14})(?![A-Za-z0-9])")
 MONEY_RE = re.compile(r"\$\s*([\d,]+(?:\.\d{1,2})?)")
 COUNT_RE = re.compile(r"\b([\d,]+)\s+productos?\b", re.I)
 BLOCK_MARKERS = (
