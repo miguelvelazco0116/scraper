@@ -176,3 +176,13 @@ No ejecutar captura completa hasta los tres probes correctos.
 El último probe mostró 0 tarjetas en Respiratorios, 27 en Cuidado bucal (SKU 2/3) y 14 en Higiene personal (SKU 3/3). Las dos últimas categorías avanzaron con Mostrar más. El sitio público sí presenta el campo Sku en la ficha Oral-B que no se identificó durante el probe.
 
 El piloto actualizado espera la hidratación inicial, recarga la categoría una sola vez si el catálogo permanece vacío y vuelve a verificar la ficha individual cuando no encuentra el SKU visible. Conserva los criterios de cobertura y nunca inventa identificadores. Los productos no inspeccionados no se cuentan como SKU ausentes durante el probe. Validar con pytest antes de repetir el diagnóstico; no ejecutar capture todavía.
+
+## 27/oct — Captura completa: paginación transitoria
+
+El usuario confirmó en capture nueve intentos parciales. Mejor resultado: Respiratorios 31 de 460, Cuidado bucal 40 de 169, Higiene personal 27 de 140. Cada categoría se reintentó tres veces, sin modificar el master.
+
+La causa probable es el indicador momentáneo has_more: durante el renderizado de Mostrar más, el botón puede estar oculto o inhabilitado aunque todavía falten productos. Se sustituyó la condición de parada por la comparación con el número publicado de productos. El scraper espera hasta 16 comprobaciones por el botón habilitado y exige productos NUEVOS con precios tras cada clic; registra cantidad, avance y stop_reason. Si el botón no reaparece o no hay tarjetas nuevas, rechaza la captura como PARTIAL.
+
+Una vez alcanzado el total publicado, se verifican todos los SKU en fichas PDP; esta verificación ya no depende del estado transitorio del botón. Los SKU de tarjetas no inspeccionadas se reportan como pendientes, no inexistentes. Se agregaron pruebas offline de control desaparecido temporalmente, control desaparecido definitivamente y botón residual visible al alcanzar el total.
+
+Nuevo ciclo de verificación desde el mismo venv: actualizar con git pull, ejecutar python -m pytest -q y repetir el capture Farmatodo. Se esperan 382 tests (aún sin ejecución local validada). Integración al master y dashboard solo tras certificar las tres categorías.
