@@ -240,3 +240,33 @@ En el único venv (scraper):
     python .\scripts\test_farmatodo.py --category respiratorios --headed --max-rounds 100 --attempts 1
 
 Si aparece el mensaje página pública siguiente NO validada, no volver a repetir capturas completas hasta revisar ese diagnóstico. El master Fases 1-5 permanece intacto.
+
+## 27/oct — Prueba aislada: Descongestionantes nasales
+
+URL pública exacta elegida por el operador:
+
+    https://www.farmatodo.com.mx/medicamentos/respiratorios/descongestionantes-nasales
+
+En lugar de volver a exigir 460 productos de Respiratorios en una sola navegación, se evaluará el volumen publicado específicamente para Descongestionantes nasales. El total de esa subcategoría todavía debe verificarse en la página y en la salida del scraper. Este enfoque prepara una futura partición y reconciliación sin sumar resultados de forma especulativa.
+
+El CLI acepta una prueba explícita con --category respiratorios y --subcategory-url exactamente igual a esa URL. Internamente genera un identificador distinto (respiratorios-descongestionantes-nasales), con departamento Medicamentos, subcategoría Respiratorios y sub-subcategoría Descongestionantes nasales. La configuración canónica de las tres categorías de Farmatodo NO se modifica.
+
+**Probe (solo JSON diagnóstico, sin Excel):**
+
+    python .\scripts\test_farmatodo.py --category respiratorios --subcategory-url "https://www.farmatodo.com.mx/medicamentos/respiratorios/descongestionantes-nasales" --headed --probe
+
+**Captura aislada (tres intentos de forma predeterminada):**
+
+    python .\scripts\test_farmatodo.py --category respiratorios --subcategory-url "https://www.farmatodo.com.mx/medicamentos/respiratorios/descongestionantes-nasales" --headed --max-rounds 100 --attempts 1
+
+En la primera prueba, --attempts 1 es diagnóstico; para capturas certificables se elimina esa opción, conservando 3 intentos por defecto. Tras comprobar navegación, precio, SKU PDP y el total real, se evaluará integrar la partición con las demás subcategorías de Respiratorios.
+
+**Salidas independientes:**
+
+- Excel: output/pilots/farmatodo/subcategories/descongestionantes-nasales.xlsx
+- Informe: diagnostics/farmatodo/subcategories/descongestionantes-nasales_last_run.json
+- Probe: diagnostics/farmatodo/subcategories/probe_respiratorios-descongestionantes-nasales_FECHA.json
+
+El informe de prueba mantiene complete=false aunque la subcategoría esté completa. Usa subcategory_trial_complete como estado explícito de este alcance menor. No actualiza output/pilots/farmatodo/catalogo_online.xlsx, ni diagnostics/farmatodo/last_run.json, ni la Fase 6 principal, ni el master. El coordinador de Fase 6 todavía requiere la categoría Respiratorios entera y no puede certificarla con estos datos aislados.
+
+Tests nuevos cubren URL exacta e identidad distinta, rechazo de otras rutas, Excel/cache dedicados y modo probe CLI. Suite completa esperada 392 (pendiente confirmación del operador).
