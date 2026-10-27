@@ -346,6 +346,27 @@ def run_category(
                         f"  Subcategoría: {link.get('label') or '(sin etiqueta)'}"
                         f" | {link.get('url')}", flush=True,
                     )
+                filter_names = [
+                    x.get("label") for x in
+                    navigation.get("filter_labels", [])
+                    if x.get("visible") and x.get("label")
+                ][:15]
+                if filter_names:
+                    print(
+                        "  Filtros visibles: " + " | ".join(filter_names),
+                        flush=True,
+                    )
+                controls = [
+                    f"{x.get('text')}"
+                    f"(visible={x.get('visible')},"
+                    f"disabled={x.get('disabled')})"
+                    for x in navigation.get("visible_buttons", [])
+                ][:10]
+                if controls:
+                    print(
+                        "  Controles Mostrar más/paginación: "
+                        + " | ".join(controls), flush=True,
+                    )
         except Exception as exc:
             failures.append(f"{type(exc).__name__}: {exc}")
             print("ERROR: " + failures[-1])
