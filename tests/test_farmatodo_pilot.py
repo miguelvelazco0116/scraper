@@ -684,6 +684,129 @@ def test_probe_clicks_mostrar_mas_and_detects_new_cards(monkeypatch):
     assert failed_meta["pdp_sku_verified"] == 3
 
 
+
+def test_full_capture_survives_temporarily_disappearing_mostrar_mas(monkeypatch):
+    """A transient has_more=False after a click must NOT finish capture."""
+    from types import SimpleNamespace
+    from scraper.retailers import farmatodo as mod
+    cat = load_categories("config/farmatodo/categories.yaml")[0]
+
+    class Button:
+        def __init__(self, page):
+            self.page = page
+        def is_visible(self):
+            return True
+        def is_enabled(self):
+            return True
+        def scroll_into_view_if_needed(self, **kw):
+            pass
+        def click(self, **kw):
+            self.page.clicks += 1
+
+    class Page:
+        url = cat.url
+        def __init__(self):
+            self.clicks = 0
+            self.button_absent_checks = 0
+            self.context = SimpleNamespace(
+                new_page=lambda: SimpleNamespace(close=lambda: None)
+            )
+        def goto(self, url, **kw):
+            self.url = url
+        def wait_for_timeout(self, ms):
+            pass
+        def get_by_text(self, regex):
+            def count():
+                if self.clicks == 1 and self.button_absent_checks < 2:
+                    self.button_absent_checks += 1
+                    return 0
+                return 1
+            return SimpleNamespace(count=count, last=Button(self))
+
+    def listing(page):
+        count = min(6 + 5 * page.clicks, 16)
+        cards = [{
+            "url": f"https://www.farmatodo.com.mx/product-{i}/p",
+            "product": f"Producto {i}", "text": "$50.00",
+        } for i in range(count)]
+        # Deliberately false after click 1, even though 5 products remain.
+        return cards, 16, page.clicks == 0
+
+    monkeypatch.setattr(mod, "validate_category_page", lambda *args: None)
+    monkeypatch.setattr(mod, "extract_catalogue", listing)
+    monkeypatch.setattr(
+        mod, "inspect_public_product_page",
+        lambda page, url: {
+            "sku": url.rstrip("/").split("/")[-2].replace("product-", "SKU-"),
+            "source": "pdp_visible_sku", "verified": True,
+        },
+    )
+    page = Page()
+    rows, meta = FarmatodoScraper(max_rounds=10).capture_category(
+        page, cat, probe=False
+    )
+    assert page.clicks == 2
+    assert page.button_absent_checks == 2
+    assert len(rows) == 16
+    assert meta["load_more_clicks"] == 2
+    assert meta["pdp_sku_checked"] == 16
+    assert meta["pdp_sku_verified"] == 16
+    assert meta["load_more_stalled"] is False
+    assert meta["load_more_stop_reason"] == "published_target_reached"
+    assert quality(rows, meta)["status"] == "COMPLETE"
+
+
+def test_full_capture_rejects_missing_button_before_target(monkeypatch):
+    """When the control never returns, fail closed with a clear reason."""
+    from types import SimpleNamespace
+    from scraper.retailers import farmatodo as mod
+    cat = load_categories("config/farmatodo/categories.yaml")[1]
+    cards = [{
+        "url": f"https://www.farmatodo.com.mx/product-{i}/p",
+        "product": f"Producto {i}", "text": "$100.00",
+    } for i in range(6)]
+
+    class Page:
+        url = cat.url
+        def __init__(self):
+            self.waits = 0
+            self.context = SimpleNamespace(
+                new_page=lambda: SimpleNamespace(close=lambda: None)
+            )
+        def goto(self, url, **kw):
+            self.url = url
+        def wait_for_timeout(self, ms):
+            self.waits += 1
+        def get_by_text(self, regex):
+            return SimpleNamespace(count=lambda: 0)
+
+    monkeypatch.setattr(mod, "validate_category_page", lambda *args: None)
+    monkeypatch.setattr(
+        mod, "extract_catalogue", lambda page: (cards, 169, False)
+    )
+    monkeypatch.setattr(
+        mod, "inspect_public_product_page",
+        lambda page, url: {
+            "sku": "7509546653518", "source": "pdp_visible_sku",
+            "verified": True,
+        },
+    )
+    page = Page()
+    rows, meta = FarmatodoScraper(max_rounds=100).capture_category(
+        page, cat, probe=False
+    )
+    assert len(rows) == 6
+    assert page.waits == 16
+    assert meta["load_more_stalled"] is True
+    assert meta["load_more_clicks"] == 0
+    assert meta["load_more_error"] == (
+        "button_not_visible_or_enabled_before_target"
+    )
+    assert meta["load_more_stop_reason"] == meta["load_more_error"]
+    assert meta["pdp_sku_checked"] == 3
+    assert quality(rows, meta)["status"] == "PARTIAL"
+
+
 def test_probe_can_report_ready_after_three_verified_pdp_skus(monkeypatch):
     from types import SimpleNamespace
     from scripts import test_farmatodo as runner
