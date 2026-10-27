@@ -186,3 +186,36 @@ La causa probable es el indicador momentáneo has_more: durante el renderizado d
 Una vez alcanzado el total publicado, se verifican todos los SKU en fichas PDP; esta verificación ya no depende del estado transitorio del botón. Los SKU de tarjetas no inspeccionadas se reportan como pendientes, no inexistentes. Se agregaron pruebas offline de control desaparecido temporalmente, control desaparecido definitivamente y botón residual visible al alcanzar el total.
 
 Nuevo ciclo de verificación desde el mismo venv: actualizar con git pull, ejecutar python -m pytest -q y repetir el capture Farmatodo. Se esperan 382 tests (aún sin ejecución local validada). Integración al master y dashboard solo tras certificar las tres categorías.
+
+## 27/oct — Respiratorios: tope repetible cercano a 100 resultados
+
+El operador confirmó 3 intentos con recorrido: 99/460, 96/460,
+96/460, siempre después de cinco clics en Mostrar más. Aunque el
+catálogo público anuncia 460 productos, el control no volvió a
+mostrarse habilitado después de 16 comprobaciones. Este patrón es
+compatible con un límite de resultados, cambio de navegación o filtros
+por subcategoría, pero **el límite exacto NO está verificado**.
+
+Para obtener evidencia sin recurrir a APIs internas ni inventar rutas:
+- Al detenerse antes del total, el piloto lee solo el DOM público:
+  botones visibles/deshabilitados, enlaces reales a subcategorías de
+  la misma categoría, enlaces de paginación y etiquetas de filtros.
+- Guarda evidencia acotada en diagnostics/farmatodo/last_run.json,
+  dentro de categories[].load_more_ui_debug.
+- Imprime una muestra de subcategorías y controles en la consola.
+- Conserva el intento parcial con mayor cobertura: 99/460 debe
+  prevalecer sobre un tercer intento con 96/460.
+- Admite **solo para una ejecución CLI explícita** el parámetro
+  --attempts 1. El orquestador principal conserva siempre tres
+  reintentos porque no pasa ese parámetro.
+
+Comandos para un único intento de diagnóstico (no certificación):
+
+    cd C:\Proyectos\scraper
+    git pull --ff-only
+    python -m pytest -q
+    python .\scripts\test_farmatodo.py --category respiratorios --headed --max-rounds 100 --attempts 1
+
+No aplicar aún una paginación alternativa con URLs supuestas. Primero
+se inspeccionarán los enlaces y controles **realmente publicados**
+por Farmatodo. Mantener como PARTIAL y fuera del master productivo.
