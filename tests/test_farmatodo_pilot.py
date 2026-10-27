@@ -171,12 +171,15 @@ def test_probe_checks_three_pdp_product_skus_without_guessing(monkeypatch):
         }
         for i in range(6)
     ]
+    cards[0]["promo_badge"] = "3+1"
     monkeypatch.setattr(mod, "extract_catalogue",
                         lambda page: (cards, 6, False))
     cat = load_categories("config/farmatodo/categories.yaml")[1]
     rows, meta = FarmatodoScraper(max_rounds=5).capture_category(
         Page(), cat, probe=True
     )
+    assert rows[0]["promotion"] == "3+1 (condiciones no verificadas)"
+    assert rows[0]["price_regular"] == 108.5
     assert meta["pdp_sku_checked"] == 3
     assert meta["pdp_sku_verified"] == 3
     assert sum(row["sku_verified"] for row in rows) == 3
