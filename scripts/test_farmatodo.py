@@ -13,6 +13,7 @@ import shutil
 import sys
 import time
 import uuid
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
@@ -31,6 +32,38 @@ from scraper.retailers.farmatodo import FarmatodoScraper, FarmatodoCaptureError
 OUTPUT = ROOT / "output" / "pilots" / "farmatodo" / "catalogo_online.xlsx"
 REPORT = ROOT / "diagnostics" / "farmatodo" / "last_run.json"
 MAX_ATTEMPTS = 3
+NASAL_DECONGESTANTS_URL = (
+    "https://www.farmatodo.com.mx/medicamentos/"
+    "respiratorios/descongestionantes-nasales"
+)
+NASAL_TRIAL_ID = "respiratorios-descongestionantes-nasales"
+NASAL_TRIAL_OUTPUT = (
+    ROOT / "output" / "pilots" / "farmatodo" / "subcategories"
+    / "descongestionantes-nasales.xlsx"
+)
+NASAL_TRIAL_REPORT = (
+    ROOT / "diagnostics" / "farmatodo" / "subcategories"
+    / "descongestionantes-nasales_last_run.json"
+)
+
+
+def narrow_to_nasal_decongestants(category, url: str):
+    """Explicit standalone trial; never relabel the full Respiratorios data.
+
+    Scope is intentionally restricted to the one exact user-selected public
+    subcategory route. No search strings or inferred category URLs.
+    """
+    if category.id != "respiratorios" or url != NASAL_DECONGESTANTS_URL:
+        raise ValueError(
+            "La prueba aislada solo acepta Descongestionantes nasales "
+            "de Respiratorios en la URL acordada."
+        )
+    return replace(
+        category, id=NASAL_TRIAL_ID, url=NASAL_DECONGESTANTS_URL,
+        name="Descongestionantes nasales",
+        subcategory="Respiratorios",
+        sub_subcategory="Descongestionantes nasales",
+    )
 
 
 def quality(rows: list[dict], meta: dict, *, error: str | None = None) -> dict:
@@ -172,19 +205,22 @@ def valid_cached(frame: pd.DataFrame, summary: dict, today: str, sku_audit: pd.D
     return expected.equals(found)
 
 
-def load_cache(today: str) -> dict[str, tuple[pd.DataFrame, dict]]:
-    if not OUTPUT.is_file():
+def load_cache(
+    today: str, *, output_path: Path | None = None,
+) -> dict[str, tuple[pd.DataFrame, dict]]:
+    output_path = OUTPUT if output_path is None else output_path
+    if not output_path.is_file():
         return {}
     try:
         frame = pd.read_excel(
-            OUTPUT, sheet_name="Concentrado",
+            output_path, sheet_name="Concentrado",
             dtype={"sku": str, "postal_code": str, "category_id": str}
         )
         summaries = pd.read_excel(
-            OUTPUT, sheet_name="Resumen", dtype={"category_id": str}
+            output_path, sheet_name="Resumen", dtype={"category_id": str}
         )
         sku_audit = pd.read_excel(
-            OUTPUT, sheet_name="SkuAudit",
+            output_path, sheet_name="SkuAudit",
             dtype={"category_id": str, "sku": str, "url": str},
         )
     except (OSError, ValueError, KeyError, ImportError):
@@ -207,22 +243,29 @@ def load_cache(today: str) -> dict[str, tuple[pd.DataFrame, dict]]:
     return cache
 
 
-def save_excel(items: dict[str, tuple[pd.DataFrame, dict]]) -> None:
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    REPORT.parent.mkdir(parents=True, exist_ok=True)
-    if OUTPUT.is_file():
-        backup = REPORT.parent / (
+def save_excel(
+    items: dict[str, tuple[pd.DataFrame, dict]], *,
+    output_path: Path | None = None, report_path: Path | None = None,
+) -> None:
+    output_path = OUTPUT if output_path is None else output_path
+    report_path = REPORT if report_path is None else report_path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.is_file():
+        backup = report_path.parent / (
             "before_farmatodo_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f")
             + ".xlsx"
         )
-        shutil.copy2(OUTPUT, backup)
+        shutil.copy2(output_path, backup)
     frames = [x[0] for x in items.values()]
     master = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=COLUMNS)
     master = master.reindex(columns=COLUMNS)
     audit_cols = ["category_id", "sku", "url", "sku_source", "sku_verified"]
     audit = pd.concat(frames, ignore_index=True).reindex(columns=audit_cols) if frames else pd.DataFrame(columns=audit_cols)
     summaries = pd.DataFrame([item[1] for item in items.values()])
-    temp = OUTPUT.with_name("." + OUTPUT.stem + "." + uuid.uuid4().hex + ".xlsx")
+    temp = output_path.with_name(
+        "." + output_path.stem + "." + uuid.uuid4().hex + ".xlsx"
+    )
     try:
         with pd.ExcelWriter(temp, engine="openpyxl") as writer:
             master.to_excel(writer, sheet_name="Concentrado", index=False)
@@ -230,7 +273,7 @@ def save_excel(items: dict[str, tuple[pd.DataFrame, dict]]) -> None:
             audit.to_excel(writer, sheet_name="SkuAudit", index=False)
         for attempt in range(8):
             try:
-                os.replace(temp, OUTPUT)
+                os.replace(temp, output_path)
                 break
             except PermissionError:
                 if attempt >= 7:
@@ -408,6 +451,11 @@ def run_category(
 def main() -> int:
     p = argparse.ArgumentParser(description="Farmatodo online sin verificación de CP")
     p.add_argument("--category", default="all")
+    p.add_argument(
+        "--subcategory-url",
+        default="",
+        help="Prueba aislada de Descongestionantes nasales (URL exacta)",
+    )
     p.add_argument("--headed", action="store_true")
     p.add_argument("--cdp-url", default="")
     p.add_argument("--max-rounds", type=int, default=100)
@@ -422,14 +470,40 @@ def main() -> int:
         p.error("max-rounds debe ser 1..200")
     if args.probe and args.category == "all":
         p.error("--probe requiere una categoría individual")
+    if args.subcategory_url and args.category != "respiratorios":
+        p.error("--subcategory-url requiere --category respiratorios")
 
     categories = load_categories(ROOT / "config" / "farmatodo" / "categories.yaml")
     if args.category != "all":
         categories = [c for c in categories if c.id == args.category]
     if not categories:
         p.error("Categoría Farmatodo desconocida")
+    subcategory_trial = bool(args.subcategory_url)
+    if subcategory_trial:
+        try:
+            categories = [
+                narrow_to_nasal_decongestants(categories[0], args.subcategory_url)
+            ]
+        except ValueError as exc:
+            p.error(str(exc))
+        output_path, report_path = NASAL_TRIAL_OUTPUT, NASAL_TRIAL_REPORT
+        print(
+            "FARMATODO | PRUEBA AISLADA DE SUBCATEGORÍA | "
+            "Descongestionantes nasales",
+            flush=True,
+        )
+        print("URL: " + categories[0].url, flush=True)
+        print(
+            "No acredita la categoría Respiratorios completa; "
+            "no modifica la salida principal ni el master.",
+            flush=True,
+        )
+    else:
+        output_path, report_path = OUTPUT, REPORT
     today = datetime.now().astimezone().date().isoformat()
-    cache = {} if args.probe else load_cache(today)
+    cache = {} if args.probe else load_cache(
+        today, output_path=output_path
+    )
     expected = {cat.id for cat in categories}
     results = {cat: value for cat, value in cache.items() if cat in expected}
     finished = True
@@ -480,8 +554,8 @@ def main() -> int:
                             flush=True
                         )
                 if args.probe:
-                    REPORT.parent.mkdir(parents=True, exist_ok=True)
-                    path = REPORT.parent / f"probe_{category.id}_{today}.json"
+                    report_path.parent.mkdir(parents=True, exist_ok=True)
+                    path = report_path.parent / f"probe_{category.id}_{today}.json"
                     path.write_text(
                         json.dumps(summary, ensure_ascii=False, indent=2),
                         encoding="utf-8",
@@ -491,27 +565,47 @@ def main() -> int:
                     results[category.id] = (
                         pd.DataFrame(rows), summary
                     )
-                    save_excel(results)
+                    save_excel(
+                        results, output_path=output_path,
+                        report_path=report_path,
+                    )
                 finished = finished and summary["status"] in ("COMPLETE", "PROBE")
         finally:
             if not args.cdp_url:
                 browser.close()
 
     if not args.probe:
-        REPORT.parent.mkdir(parents=True, exist_ok=True)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
         report = {
             "capture_date": today, "retailer": "Farmatodo",
             "master_modified": False,
             "postal_verification_required": False,
             "categories": [entry[1] for entry in results.values()],
-            "excel": str(OUTPUT),
-            "complete": finished,
+            "excel": str(output_path),
+            # The phase-6 coordinator only validates the ORIGINAL output;
+            # this trial must never be treated as complete Respiratorios.
+            "complete": finished if not subcategory_trial else False,
+            "subcategory_trial": subcategory_trial,
+            "subcategory_trial_complete": (
+                finished if subcategory_trial else None
+            ),
+            "scope": (
+                "ISOLATED_SUBCATEGORY_NOT_PARENT_COMPLETE"
+                if subcategory_trial else "FARMATODO_ONLINE_CATALOGUE"
+            ),
         }
-        REPORT.write_text(
+        report_path.write_text(
             json.dumps(report, ensure_ascii=False, indent=2, default=str),
             encoding="utf-8"
         )
-        print("Excel: " + str(OUTPUT))
+        print("Excel: " + str(output_path))
+        if subcategory_trial:
+            print(
+                "PRUEBA SUBCATEGORÍA: "
+                + ("COMPLETE" if finished else "PARTIAL")
+                + " | Respiratorios sigue PENDIENTE de certificación",
+                flush=True,
+            )
     print("MASTER PRODUCTIVO: SIN CAMBIOS")
     return 0 if finished else 2
 
