@@ -1,5 +1,13 @@
 # Farmacias YZA · Validación inicial por línea de comandos
 
+> **DOCUMENTO HISTÓRICO.** La estrategia CP 11590 de YZA ya no está vigente.
+> Desde el 27/oct/2026, YZA se captura como catálogo online sin CP ni
+> localidad verificada; Chrome sigue abierto por el operador vía CDP.
+> Las instrucciones correctas están en
+> `docs/phase6_yza_farmatodo_cli.md`. No usar los comandos antiguos
+> de este documento para el nuevo piloto.
+
+
 **Estado: piloto CLI únicamente.** Aún no se agrega al panel Streamlit ni
 al master productivo; las cinco fases y sus 13 retailers permanecen intactos.
 
