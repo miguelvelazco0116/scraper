@@ -235,13 +235,50 @@ class FarmatodoScraper:
         self.wait_ms = wait_ms
 
     def capture_category(self, page, category, *, probe: bool = False) -> tuple[list[dict], dict]:
-        page.goto(category.url, wait_until="domcontentloaded", timeout=90000)
-        page.wait_for_timeout(1000)
-        validate_category_page(page, category)
-        cards, target, more = extract_catalogue(page)
+        # Hydration of the VTEX catalogue is variable, especially in
+        # Respiratorios. DOMContentLoaded is not catalogue readiness.
+        # Wait for an ACTUAL priced card from our extractor; if the SPA
+        # remains empty, reload just once, then fail closed with evidence.
+        cards: list[dict] = []
+        target: int | None = None
+        more = False
+        load_attempts = 0
+        initial_reload_count = 0
+        for reload_index in range(2):
+            page.goto(category.url, wait_until="domcontentloaded", timeout=90000)
+            validate_category_page(page, category)
+            for _ in range(20):
+                load_attempts += 1
+                cards, target, more = extract_catalogue(page)
+                if cards:
+                    break
+                page.wait_for_timeout(750)
+                validate_category_page(page, category)
+            if cards:
+                break
+            if reload_index == 0:
+                initial_reload_count += 1
+                print(
+                    f"Farmatodo {category.id} | aún sin tarjetas después "
+                    "de esperar la carga inicial; recargando categoría",
+                    flush=True,
+                )
         if not cards:
+            signals = page.evaluate(
+                """() => ({
+                  ready_state: document.readyState,
+                  visible_product_links: [...document.querySelectorAll('a[href]')]
+                    .filter(a => a.getClientRects().length &&
+                      a.href.split(/[?#]/)[0].endsWith('/p')).length,
+                  visible_prices: [...document.querySelectorAll('main,body')]
+                    .some(el => /\\$\\s*[0-9]/.test(el.innerText || '')),
+                  title: document.title.slice(0, 100)
+                })"""
+            )
             raise FarmatodoCaptureError(
-                "No hay tarjetas con URL /p y precio: revisar DOM."
+                f"Catálogo {category.id} sin tarjetas con precio ni URL /p "
+                f"tras {load_attempts} verificaciones y "
+                f"{initial_reload_count} recarga; DOM={signals}"
             )
         seen = {card["url"]: card for card in cards}
         initial_count = len(seen)
@@ -372,6 +409,8 @@ class FarmatodoScraper:
             "category_id": category.id, "capture_date": now[:10],
             "product_links": len(seen), "products": len(rows),
             "initial_products": initial_count, "loaded_products": len(seen),
+            "initial_load_checks": load_attempts,
+            "initial_reload_count": initial_reload_count,
             "target_products": target, "load_more_clicks": rounds,
             "load_more_stalled": stalled,
             "load_more_error": load_more_error,
