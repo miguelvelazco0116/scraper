@@ -184,6 +184,86 @@ def test_nasal_trial_cli_probe_uses_exact_url_and_isolated_diagnostic(
     assert runner.NASAL_TRIAL_ID in files[0].name
 
 
+
+def test_nasal_trial_complete_never_sets_full_farmatodo_complete(
+    monkeypatch, tmp_path,
+):
+    from types import SimpleNamespace
+    import json
+    import sys
+    from scripts import test_farmatodo as runner
+
+    url = runner.NASAL_DECONGESTANTS_URL
+    standard_report = tmp_path / "farmatodo" / "last_run.json"
+    standard_report.parent.mkdir(parents=True)
+    standard_report.write_text(
+        '{"original": true}', encoding="utf-8"
+    )
+    standard_workbook = tmp_path / "catalogo_online.xlsx"
+    standard_workbook.write_bytes(b"original")
+    isolated_report = tmp_path / "subcat" / "last_run.json"
+    isolated_workbook = tmp_path / "subcat" / "nasal.xlsx"
+    monkeypatch.setattr(runner, "REPORT", standard_report)
+    monkeypatch.setattr(runner, "OUTPUT", standard_workbook)
+    monkeypatch.setattr(runner, "NASAL_TRIAL_REPORT", isolated_report)
+    monkeypatch.setattr(runner, "NASAL_TRIAL_OUTPUT", isolated_workbook)
+    monkeypatch.setattr(
+        runner, "load_cache",
+        lambda today, *, output_path: {},
+    )
+    writes = []
+    monkeypatch.setattr(
+        runner, "save_excel",
+        lambda items, *, output_path, report_path: writes.append(
+            (set(items), output_path, report_path)
+        ),
+    )
+    monkeypatch.setattr(
+        runner, "run_category",
+        lambda browser, category, **kw: (
+            [{"category_id": category.id, "sku": "1234567"}],
+            {
+                "retailer": "Farmatodo",
+                "category_id": category.id, "products": 1,
+                "status": "COMPLETE",
+                "capture_date": "2026-10-27",
+                "sku_pdp_verified": 1,
+                "quality_notes": "",
+            },
+        ),
+    )
+
+    class Browser:
+        def close(self):
+            pass
+    class Session:
+        def __enter__(self):
+            return SimpleNamespace(chromium=SimpleNamespace(
+                launch=lambda **kw: Browser()
+            ))
+        def __exit__(self, *args):
+            pass
+
+    monkeypatch.setattr(runner, "sync_playwright", Session)
+    monkeypatch.setattr(sys, "argv", [
+        "test_farmatodo.py", "--category", "respiratorios",
+        "--subcategory-url", url, "--headed", "--attempts", "1",
+    ])
+    assert runner.main() == 0
+    assert writes == [(
+        {runner.NASAL_TRIAL_ID}, isolated_workbook, isolated_report,
+    )]
+    report = json.loads(isolated_report.read_text(encoding="utf-8"))
+    assert report["subcategory_trial"] is True
+    assert report["subcategory_trial_complete"] is True
+    assert report["complete"] is False
+    assert report["scope"] == "ISOLATED_SUBCATEGORY_NOT_PARENT_COMPLETE"
+    assert report["categories"][0]["category_id"] == runner.NASAL_TRIAL_ID
+    assert standard_report.read_text(encoding="utf-8") == '{"original": true}'
+    assert standard_workbook.read_bytes() == b"original"
+
+
+
 def test_farmatodo_offer_prices_and_identifier():
     assert prices_from_card("De $145.00 Para $108.50") == (108.5, 145.0)
     assert prices_from_card("$29.50") == (29.5, 29.5)
