@@ -176,7 +176,13 @@ def load_cache(today: str) -> dict[str, tuple[pd.DataFrame, dict]]:
         cat = str(row.get("category_id") or "")
         if valid_cached(frame, row, today, sku_audit):
             cache[cat] = (
-                frame.loc[frame["category_id"].astype(str).eq(cat)].copy(), row
+                frame.loc[frame["category_id"].astype(str).eq(cat)].copy().merge(
+                    sku_audit.loc[
+                        sku_audit["category_id"].astype(str).eq(cat),
+                        ["category_id", "sku", "url", "sku_source", "sku_verified"],
+                    ], on=["category_id", "sku", "url"], how="left",
+                    validate="one_to_one",
+                ), row
             )
     return cache
 
