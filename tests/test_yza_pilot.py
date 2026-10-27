@@ -288,6 +288,41 @@ def test_yza_postal_input_or_clicked_aceptar_alone_is_not_proof():
     assert page.header_cp == "52164"
 
 
+def test_yza_first_load_popup_is_processed_without_clicking_header():
+    """The actual YZA screenshot shows the CP dialog on first navigation."""
+    class InitialPopup(FakeYzaPostalPage):
+        def get_by_text(self, text, exact=False):
+            if text.search("Ingresa un código postal"):
+                return FakeYzaPostalLocator([FakeYzaPostalControl()])
+            return super().get_by_text(text, exact=exact)
+
+    page = InitialPopup(popup_open=True)
+    trace = {}
+    result = apply_postal_code(page, trace=trace)
+    assert result == "yza_delivery_postal_confirmed:11590"
+    assert page.events == ["fill", "accept"]
+    assert trace["initial_postal_popup_visible"] is True
+    assert trace["accept_clicked"] is True
+    assert trace.get("delivery_header_clicked") is None
+
+
+def test_yza_open_popup_without_input_never_clicks_covered_header():
+    """Visible popup with changed DOM must fail closed, not click behind it."""
+    class PopupWithoutField(FakeYzaPostalPage):
+        def get_by_text(self, text, exact=False):
+            if text.search("Ingresa un código postal"):
+                return FakeYzaPostalLocator([FakeYzaPostalControl()])
+            return super().get_by_text(text, exact=exact)
+
+    page = PopupWithoutField(popup_open=False)
+    trace = {}
+    assert apply_postal_code(page, trace=trace) is None
+    assert page.events == []
+    assert trace["initial_postal_popup_visible"] is True
+    assert trace["stage"] == "initial_popup_visible_but_controls_missing"
+    assert trace.get("delivery_header_clicked") is None
+
+
 def test_yza_two_step_address_chooser_to_postal_modal():
     """Header can open address chooser; a second click opens postal input."""
     class NestedPostalPage(FakeYzaPostalPage):
