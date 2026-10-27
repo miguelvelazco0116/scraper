@@ -1,363 +1,104 @@
-# Fase 6 · Farmacias YZA + Farmatodo (validación por CLI)
+# Fase 6 — Farmacias YZA y Farmatodo (piloto aislado)
 
-## Contrato de la nueva fase
+## Alcance vigente desde 27/oct/2026
 
-- Farmacias YZA, 2 categorías: medicamentos-respiratorio e higiene-bucal;
-  CP obligatorio 11590.
-- Farmatodo, 3 categorías: respiratorios, cuidado-bucal e higiene-personal;
-  catálogo online sin verificación de código postal.
-- Total esperado: 2 retailers y 5 casos.
-- La asignación está declarada en config/phase6/retailers.yaml.
-  Aún no es integración productiva ni una página de Streamlit.
+| Retailer | Categorías | Ubicación | Navegador |
+|---|---|---|---|
+| Farmacias YZA | medicamentos-respiratorio, higiene-bucal | **NO se verifica CP ni sucursal** | Chrome abierto por el operador y conectado mediante CDP, como HEB |
+| Farmatodo | respiratorios, cuidado-bucal, higiene-personal | **NO se verifica CP ni sucursal** | Chrome automático visible de Playwright |
 
-## Orden acordado
+**YZA ya NO requiere ni registra CP 11590.** Si su sitio muestra un
+popup de ubicación, el usuario puede cerrarlo manualmente sin seleccionar
+ningún CP. El scraper no intenta escribir, aceptar ni verificar un CP.
 
-1. Soriana: probar primero rotación 83420 → 44220 → 54030 → 97245
-   desde la rama feat/soriana-zip-rotation-20261026.
-2. Terminar y cerrar los procesos de Soriana.
-3. Cambiar a esta rama de Fase 6 y ejecutar tests unitarios.
-4. Diagnóstico de dos categorías YZA y tres Farmatodo.
-5. Captura de los cinco casos y auditoría del reporte resultante.
-6. Después de certificarlos, desarrollar la integración en master
-   y Streamlit con controles de seis fases.
+Las capturas de ambos sitios tienen alcance
+ONLINE_CATALOGUE_NO_LOCATION_VERIFICATION:
+- postal_code = null, store = null, store_id = null
+- store_context_verified = false
+- disponibilidad local y existencia en tienda **no certificadas**
+- city = Catálogo online, state = Nacional: etiquetas genéricas del
+  canal, **no** afirmaciones de que el precio sea uniforme en México
+- los precios son los observados en la sesión del navegador; pueden variar
+  según la ubicación, sin que el piloto detecte ni certifique esa variación.
 
-## Preparar el entorno (después de terminar Soriana)
+Se exige integridad de producto: SKU, URL, precio positivo, ausencia de
+duplicados, fecha válida y cobertura de todas las páginas de las dos
+categorías de YZA (y tres de Farmatodo) antes de declarar COMPLETE_PILOT.
 
-Ejecutar desde C:\Proyectos\scraper en Windows PowerShell con el venv
-C:\Proyectos\venvs\scraper\Scripts\Activate.ps1 activo.
+## Preparación del Chrome manual de YZA (igual que HEB)
 
-    git status --short
-    git fetch origin
-    git switch --track origin/feat/phase6-yza-farmatodo-cli-20261026
+1. Abrir Google Chrome personalmente.
+2. Abrir chrome://inspect/#remote-debugging
+3. Activar "Allow remote debugging for this browser instance" y permitir
+   el acceso si Chrome presenta un cuadro de confirmación.
+4. Abrir https://www.yza.mx/ en esa misma instancia y dejar la pestaña.
+   **NO es necesario seleccionar localidad ni código postal.**
+5. Si el popup postal tapa los productos, cerrarlo manualmente mediante
+   Cancelar o la X, sin rellenar ningún CP.
+6. Mantener Chrome abierto mientras dura el piloto.
 
-Si la rama ya existe localmente:
+El scraper encuentra el WebSocket local en DevToolsActivePort y reutiliza
+la pestaña ya abierta. No lanza ni cierra Chrome en el modo CDP.
+Para el modo Chrome 144+ con chrome://inspect se usa Playwright 1.60 en
+el piloto, sin modificar requirements.txt del proyecto productivo.
 
-    git switch feat/phase6-yza-farmatodo-cli-20261026
-    git pull --ff-only
-
-Nunca resetear modificaciones locales para cambiar de rama.
-
-    python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
-
-## Modo HEB: abrir YZA manualmente y conectar el scraper
-
-**Este es el método VIGENTE para Farmacias YZA.** El operador abre Google
-Chrome de manera normal, visita https://www.yza.mx/ y acepta manualmente
-el CP 11590 en el popup. El scraper solo lee la ubicación ya aplicada y
-continúa en la misma pestaña por CDP; nunca rellena el popup ni cierra
-el Chrome del operador.
-
-**Chrome necesita la depuración remota activada**. No es posible conectar
-Playwright a un navegador arbitrario que no expone ese protocolo.
-
-### A. En Chrome (el usuario controla la sesión)
-
-1. Abrir Google Chrome normalmente.
-2. En la barra de direcciones abrir chrome://inspect/#remote-debugging
-3. Activar **Allow remote debugging for this browser instance** y aceptar
-   el permiso, si Chrome lo solicita. Este es el flujo ya usado por HEB.
-4. En otra pestaña DE LA MISMA VENTANA abrir https://www.yza.mx/
-5. En el popup **Ingresa un código postal**, escribir **11590** y
-   pulsar **ACEPTAR**.
-6. Confirmar visualmente que YZA muestra el CP aplicado en el contexto
-   persistente de entrega, y **dejar abierta la pestaña y Chrome**.
-
-### B. Desde PowerShell, reutilizar ese Chrome
-
-En Chrome 144+ con el control de chrome://inspect activo, **no usar**
-las rutas HTTP /json/version ni /json/list como condición para conectar:
-el servidor bajo demanda puede devolver 404 en esas rutas y aceptar
-solo su WebSocket de navegador.
-
-Se necesita Playwright >= 1.60 para el nuevo protocolo. El repositorio
-productivo fija Playwright 1.54; NO modificar requirements.txt ni master.
-La rama de Fase 6 tiene un override aislado
-requirements-phase6-yza-cdp.txt, que actualiza SOLO Playwright en el
-entorno local donde se ejecuta este piloto. Para preservar la instalación
-productiva local, considerar un entorno virtual separado.
+### Actualizar y validar solo Fase 6
 
     cd C:\Proyectos\scraper
+    git switch feat/phase6-yza-farmatodo-cli-20261026
     git pull --ff-only
     python -m pip install -r requirements-phase6-yza-cdp.txt
-    python -m pip show playwright
     python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
 
-Después:
+### Probe de YZA desde la misma ventana de Chrome
 
     & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
 
-El wrapper:
-- No inicia Chrome y no presupone puerto 9222.
-- Busca DevToolsActivePort en el perfil Chrome del operador y en el perfil
-  de testing ScraperYZAChrome.
-- Obtiene el puerto de la PRIMERA línea y la ruta
-  /devtools/browser/<id> de la SEGUNDA, construyendo el WebSocket real.
-- Valida únicamente que el puerto local esté escuchando con TCP (no
-  requiere /json/version ni /json/list).
-- Pasa ese WebSocket directamente a Playwright y deja a Playwright buscar
-  la pestaña YZA existente por dominio; nunca crea una pestaña.
-- Si Chrome solicita autorizar el control remoto, el operador debe
-  pulsar **Allow** en su ventana Chrome.
-- Si CDP funciona pero falta CP 11590 en el contexto persistente de YZA,
-  la categoría falla segura en NEEDS_REVIEW.
-- Chrome y el popup siguen bajo control del operador.
+Las dos categorías deben mostrar enlaces, tarjetas y paginación para
+READY_FOR_FULL_CAPTURE. El resultado NO certifica una captura completa.
+Si hay bloqueo, cero tarjetas o falta paginación, queda NEEDS_REVIEW.
 
-Si **no existe DevToolsActivePort**, en la misma ventana de Chrome abrir
-chrome://inspect/#remote-debugging, verificar que la casilla esté
-activada y que se muestre "Server running at:". Sin depuración remota,
-Playwright no puede conectarse a una ventana arbitraria.
-
-Se conserva el método alternativo con Chrome abierto manualmente usando
-un perfil no predeterminado y --remote-debugging-port=9222, válido solo
-si realmente responde el puerto. Este método no es el principal.
-
-### C. Farmatodo permanece automático
+### Probe de Farmatodo por separado
 
     & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmatodo
 
-Farmatodo no solicita CP y no certifica existencias regionales.
-Si su probe devuelve NEEDS_SKU_REVIEW, revisar los ejemplos de identificadores
-antes de lanzar una captura completa.
+El diagnóstico de Farmatodo sigue independiente. Si no identifica SKU,
+queda NEEDS_SKU_REVIEW y se inspeccionan las imágenes/productos antes
+de cualquier captura completa.
 
-## Prueba A: cinco diagnósticos
+### Capturas piloto (solo tras probes limpios)
 
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer all
-
-Dos diagnósticos YZA y tres Farmatodo. Un resultado READY_FOR_CAPTURE
-es solo una señal de que pueden intentarse capturas; NO certifica los
-cinco catálogos completos. El probe de Farmatodo NO espera cargar toda la
-paginación, pero ahora rechaza un diagnóstico sin ningún SKU identificado:
-estado NEEDS_SKU_REVIEW. Guardará hasta tres ejemplos públicos de URL e
-imagen de los productos con SKU faltante en
-diagnostics/farmatodo/probe_<category>_<date>.json.
-**No ejecutar capture completo hasta resolver esos faltantes.**
-
-## Prueba B: cinco categorías, captura real
-
-    & .\scripts\run_phase6_pilot.ps1 -Mode capture -Retailer all
-
-La ejecución usa YZA (2 categorías y CP fijo 11590), seguido de
-Farmatodo (3 categorías sin CP). Debe verificar fecha, URL, precio,
-SKU, categorías, duplicados y contexto por retailer antes de declarar
-COMPLETE_PILOT.
-
-Se pueden aislar fallas por retailer con:
-
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmatodo
     & .\scripts\run_phase6_pilot.ps1 -Mode capture -Retailer farmacias-yza
     & .\scripts\run_phase6_pilot.ps1 -Mode capture -Retailer farmatodo
 
-## Archivos de diagnóstico
-
-- output/yza_cp11590_test.xlsx
+Archivos:
+- output/yza_online_test.xlsx
 - output/pilots/farmatodo/catalogo_online.xlsx
 - diagnostics/yza/last_run.json
 - diagnostics/farmatodo/last_run.json
 - diagnostics/phase6/last_run.json
 
-En modo captura el resultado correcto es COMPLETE_PILOT. Los pilotos
-no tocan el master de Fases 1–5, su puntero ni Streamlit. Ningún
-COMPLETE_PILOT equivale por sí solo a una fase integrada/productiva.
+El libro anterior output/yza_cp11590_test.xlsx se considera **LEGACY**:
+no se sobreescribe, no se reutiliza ni se usa para validar el nuevo
+alcance online sin localidad. La configuración antigua yza-cp-11590 de
+ubicaciones es histórica y no se utiliza en este piloto.
 
-Cuando ambas tiendas sean verificadas en Chrome y sus archivos pasen
-los gates, habilitar formalmente Fase 6 en runner, auditor, integrador
-y panel mediante una segunda modificación con respaldo del master.
+## Restricciones
 
+Fase 6 sigue en PR borrador. No se edita el master de las Fases 1–5,
+la integración principal ni el dashboard Streamlit. Completar un piloto
+no integra los resultados en producción.
 
-## Evidencia del probe real del 27 de octubre de 2026
+El WebSocket de depuración concede acceso de control al Chrome del usuario:
+no compartirlo y desactivar la depuración cuando haya terminado el trabajo.
 
-La versión anterior, con CDP obligatorio, produjo:
-- YZA: 2 errores porque no había pestaña YZA en el Chrome CDP; no se observó
-  un bloqueo real ni se certificó CP 11590.
-- Farmatodo Respiratorios: 9 tarjetas de 460 publicados, 9 SKU faltantes.
-- Farmatodo Cuidado bucal: 6 tarjetas de 169, 6 SKU faltantes.
-- Farmatodo Higiene personal: 6 tarjetas de 140, 6 SKU faltantes.
+## Historial mínimo de decisiones
 
-Los 769 artículos publicados NO son un resultado capturado; 21 fueron solo
-tarjetas visibles de una muestra y requieren resolver el SKU. La nueva prueba
-usa Chrome propio y registra muestras de las imágenes para diagnosticar el
-código. No declarar READY_FOR_CAPTURE para Farmatodo con 0 SKU.
-
-### Comandos de revalidación
-
-    git pull --ff-only
-    python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmatodo
-
-Si hay bloqueo o YZA requiere una dirección aplicada manualmente:
-
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza -UseExistingChrome
-
-Estos cambios pertenecen solo a un PR borrador de Fase 6; master intacto.
-
-
-## 27/oct — Chrome automático YZA funciona; CP no confirmado
-
-La segunda ejecución real de YZA (Chrome iniciado desde Playwright)
-detectó 18 productos por página en ambas categorías. La paginación
-mostró 20 páginas para medicamentos-respiratorio y 7 para higiene-bucal.
-El estado fue NEEDS_REVIEW porque context_verified=False en ambas.
-**No se observó un bloqueo.** Los 18 productos son visibles, no una
-captura válida para CP 11590.
-
-La página pública incluye un campo "Digita la dirección y selecciona
-una opción de la lista de sugerencias" dentro de la interfaz
-"Consultar disponibilidad". Ese diálogo puede ser de disponibilidad
-por producto y no demuestra que el código postal se aplique globalmente.
-
-El probe actualizado deja un JSON que explica qué entradas
-de dirección están visibles, cuáles están en un diálogo y qué botones
-de ubicación aparecen, sin leer ni guardar los domicilios escritos.
-Si el CP no es confirmado, también guarda una captura de pantalla
-visible de Chrome en diagnostics/yza/postal_ui_<category>_<timestamp>.png.
-Si el sitio muestra datos personales, ocultarlos antes de compartir
-la captura con terceros.
-
-### Repetir en Chrome automático, solo diagnóstico
-
-    git pull --ff-only
-    python -m pytest tests/test_yza_pilot.py tests/test_phase6_pilot.py tests/test_farmatodo_pilot.py -v
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
-
-### Fallback a navegador ya abierto, solo si se necesita
-
-1. Habilitar depuración remota de Chrome.
-2. Abrir YZA y seleccionar manualmente una dirección de CP 11590
-   mediante una sugerencia válida de la interfaz.
-3. Confirmar que la ubicación aplicada se muestra de forma persistente
-   fuera del campo y de cualquier modal. No basta rellenar el formulario.
-4. Ejecutar:
-
-       & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza -UseExistingChrome
-
-Si el sitio solo permite verificar disponibilidad de UN producto, sin
-mostrar una ubicación global seleccionada, seguir en NEEDS_REVIEW y
-revisar la semántica comercial de precios antes de promover YZA.
-No relajar a context_verified=True ni ejecutar capture productivo.
-
-
-## 27/oct 08:40 — Modal postal confirmado en imagen y prueba real
-
-El usuario aportó captura del modal de YZA: título **Ingresa un código
-postal**, texto "Introduce el código postal en donde deseas recibir tu pedido",
-input con placeholder **Código Postal**, botón **CANCELAR** y botón verde
-**ACEPTAR**. Además, el probe Chrome automático sigue reportando 18 tarjetas
-por página y 20/7 páginas, sin CP 11590 certificado. El diagnóstico encontró
-los controles "INGRESA TU DIRECCIÓN" e "Ingresa un código postal" en el DOM.
-
-Se corrigió el extractor en scraper/retailers/yza.py:
-- Detectar el input **visible** de placeholder Código Postal; si no aparece,
-  abrir el selector mediante el encabezado **INGRESA TU DIRECCIÓN**.
-- Completar exactamente 11590 y hacer clic visible en **ACEPTAR**.
-- Esperar hasta 8 segundos a que YZA muestre el CP **aplicado** en el control
-  persistente del encabezado, excluyendo modales, formularios y elementos ocultos.
-- El probe vuelve a cargar la categoría y repite la verificación antes de
-  permitir READY_FOR_FULL_CAPTURE; el scraper completo la repite en cada página.
-- Una cifra visible en el campo editable NO certifica CP ni permite
-  context_verified=True. Sin prueba persistente la respuesta es NEEDS_REVIEW.
-- No usar sugerencias de autocompletado: corresponden a otra interfaz distinta.
-
-Probar:
-
-    git pull --ff-only
-    python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
-
-Si sigue CP confirmado False después de hacer clic en ACEPTAR, revisar
-la captura local diagnostics/yza/postal_ui_* y la variable postal_ui
-en el JSON; no iniciar captura completa sin evidencia. Para el modo Chrome
-manual, usar -UseExistingChrome con un CP aplicado previamente.
-
-
-## 27/oct — diagnóstico de YZA tras probar el modal Código Postal
-
-Nuevo probe real del operador:
-- Respiratorio: 18 tarjetas, 20 páginas, CP 11590 no confirmado.
-- Higiene bucal: 18 tarjetas, 7 páginas, CP 11590 no confirmado.
-- El inventario DOM del navegador listó múltiples controles, incluidos
-  "INGRESA TU DIRECCIÓN", "Ingresa un código postal" y
-  "Actualizar una dirección".
-
-El scraper podría estar abriendo el selector general de direcciones sin
-abrir el submodal postal, o pulsando ACEPTAR sin que la interfaz aplique el CP.
-Para distinguir esas situaciones, se añadió un segundo paso al operador de UI:
-abrir el submodal "Ingresa un código postal" si después de abrir el selector
-principal todavía no se encuentra el input Código Postal visible.
-
-El probe registra un bloque postal_flow en el JSON con requested_cp, stage,
-postal_field_visible, accept_visible, field_filled, accept_clicked,
-delivery_header_clicked, postal_subdialog_clicked, y, cuando proceda,
-postal_field_still_visible_after_accept. Solo contiene booleanos y etiquetas
-de estado: nunca registra el valor escrito en campos de direcciones.
-La pantalla del diagnóstico todavía se guarda localmente en
-diagnostics/yza/postal_ui_<category>_<timestamp>.png.
-
-Para el próximo diagnóstico aislado:
-
-    git pull --ff-only
-    python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
-    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
-
-**Si el reporte muestra accept_clicked=true pero context_verified=false,
-no ampliar ni relajar la prueba de CP**: examinar el encabezado real después
-de aceptar. Una dirección escrita o guardada sin confirmación visual del
-CP 11590 no certifica el precio contextual.
-
-
-## Confirmación adicional del operador: modal postal primero
-
-Al cargar por primera vez YZA, el usuario ve inmediatamente el popup
-"Ingresa un código postal" (campo "Código Postal", botón "ACEPTAR").
-Por tanto, el orden correcto es:
-
-1. Comprobar si ese popup YA ESTÁ VISIBLE y utilizarlo sin hacer clic
-   en el encabezado.
-2. Esperar brevemente a que se hidraten campo y botón si el título del
-   popup aparece antes de que terminen de cargar sus controles.
-3. Rellenar CP 11590, pulsar ACEPTAR y buscar confirmación en el
-   selector de entrega visible fuera del modal.
-4. Solo si NO hay popup visible, intentar abrirlo desde el encabezado.
-5. Si el popup está visible y no se reconoce el formulario, mantener
-   NEEDS_REVIEW y registrar stage=initial_popup_visible_but_controls_missing,
-   sin intentar hacer clic detrás del modal.
-6. Recargar y volver a verificar el CP antes de certificar READY_FOR_FULL_CAPTURE.
-
-Nuevos tests offline comprueban que el modal inicial tenga prioridad
-sobre el encabezado y que un popup visible sin campo no pueda pasar.
-
-
-## Cambio de estrategia aprobado: continuación manual (27/oct/2026)
-
-El operador decidió abandonar la selección automática del popup de YZA:
-"yo abro el navegador y de ahí continúas, al estilo Farmacias San Pablo".
-
-En la rama del PR #99, toda ejecución oficial de YZA por
-run_phase6_pilot.py/.ps1 requiere un endpoint CDP local. El helper de
-navegador exige una pestaña YZA ya abierta y NO crea ni cierra pestañas
-del operador. El scraper y el probe invocan verify_operator_ready_category
-y se niegan a escribir/modificar el CP: comprueban 11590 persistente primero
-en la pestaña y después de navegar a la categoría.
-
-Las secciones anteriores de esta página sobre intentos automáticos con el
-popup se conservan como **historial de diagnóstico**, no como estrategia
-vigente. La estrategia activa se describe en "Modo San Pablo" arriba.
-
-
-## 27/oct: causa de falso error «ninguna conexión CDP local responde»
-
-El operador abrió Chrome normalmente y activó la depuración desde
-chrome://inspect, pero el preflight de Fase 6 consultaba **obligatoriamente**
-/json/version y /json/list, endpoints HTTP que el modo Chrome 144+ inspect
-puede no exponer. Por tanto, el error no demuestra falta de un WebSocket
-activo. Corrección: la conexión usa directamente las dos líneas
-DevToolsActivePort para construir ws://127.0.0.1:<puerto>/devtools/browser/<id>,
-y el preflight comprueba apertura de puerto TCP (sin HTTP JSON).
-La compatibilidad del protocolo en Playwright requiere versión 1.60+
-en el piloto, mediante requirements-phase6-yza-cdp.txt. El pin original
-de requirements.txt queda intacto.
-
-La URL del WebSocket de depuración concede control del navegador;
-no se debe compartir públicamente ni dejar habilitado el acceso después
-de ejecutar las pruebas.
+- Primeros diagnósticos: YZA presentó 18 tarjetas por página y paginación
+  de 20 y 7 páginas. Se trabajó inicialmente con CP fijo 11590.
+- Se adoptó Chrome manual por CDP, igual que HEB, con descubrimiento del
+  endpoint desde DevToolsActivePort. YZA confirmó ambos probes con CP.
+- **Decisión más reciente:** eliminar toda validación y atribución de
+  localidad de YZA. El CP deja de ser necesario; se conserva el browser CDP.
+- Farmatodo tuvo primeras pruebas con 9/460, 6/169 y 6/140 tarjetas
+  visibles, pero SKU no identificado. No confundir esos probes con captura.
