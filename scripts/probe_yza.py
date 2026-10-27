@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
 from scraper.config import load_categories
 from scraper.retailers.yza import (
     BLOCKED_MARKERS, click_catalogue_page, discover_cards,
-    open_online_category, yza_browser_page,
+    open_online_category, prices_from_card, promotion_from_card, yza_browser_page,
 )
 
 REPORT_DIR = ROOT / "diagnostics" / "yza"
@@ -56,6 +56,17 @@ def probe(category_id: str, cdp_url: str = "") -> int:
                 report["visible_product_links"] = len(cards)
                 report["pager_last_page"] = last_page
                 report["samples"] = cards[:3]
+                report["price_samples"] = [
+                    {
+                        "product": card["title"],
+                        "price_current": prices_from_card(card["text"])[0],
+                        "price_regular": prices_from_card(card["text"])[1],
+                        "promotion": promotion_from_card(
+                            card, *prices_from_card(card["text"])
+                        ),
+                    }
+                    for card in cards[:3]
+                ]
                 # A first-page-only probe falsely passed when ?p=2 just
                 # reloaded page 1. Validate the REAL page 2 button too.
                 next_page_ok = last_page == 1
@@ -100,6 +111,14 @@ def probe(category_id: str, cdp_url: str = "") -> int:
     print("CP obligatorio     : No")
     print("Contexto geográfico: NO CERTIFICADO")
     print("Tarjetas visibles  : " + str(report.get("visible_product_links", 0)))
+    for sample in report.get("price_samples", [])[:2]:
+        print(
+            "Precio muestra     : "
+            + str(sample.get("product", ""))[:45]
+            + " | actual=" + str(sample.get("price_current"))
+            + " | anterior=" + str(sample.get("price_regular"))
+            + " | promo=" + str(sample.get("promotion"))
+        )
     print("Ultima pagina      : " + str(report.get("pager_last_page")))
     print("Pagina 2 verificada: " + str(report.get("pagination_next_verified")))
     if report.get("page_two_new_links") is not None:
