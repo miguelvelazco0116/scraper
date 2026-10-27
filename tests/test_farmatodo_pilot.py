@@ -5,7 +5,7 @@ import pandas as pd
 
 from scraper.config import load_categories
 from scraper.retailers.farmatodo import (
-    FarmatodoScraper, prices_from_card, sku_from_card,
+    FarmatodoScraper, prices_from_card, promotion_from_card, sku_from_card,
     sku_from_visible_pdp_text, inspect_public_product_page,
     explicit_online_availability, FarmatodoCaptureError
 )
@@ -59,6 +59,35 @@ def test_image_ean_suffixes_and_invalid_embedded_codes():
         )
 
 
+
+
+
+def test_farmatodo_screenshot_card_prices_and_3plus1_promotions():
+    """Operator screenshot: five standalone prices plus visual 3+1 badges."""
+    cards = [
+        ("Levigrix 5 Mg Caja C/30 Tabletas", "$747.50", 747.50),
+        ("Xuzal 5 Mg Caja C/20 Tabletas", "$635.00", 635.0),
+        ("Dirnelid Suspension Nasal 50 Mcg Frasco", "$465.00", 465.0),
+        ("Zyxem Solucion Oral 5 Mg/Ml Frasco Gotero", "$334.00", 334.0),
+        ("Zyxem 5 Mg Caja C/10 Tabletas", "$392.50", 392.5),
+    ]
+    for name, shown_price, value in cards:
+        text = name + " 3+1 " + shown_price
+        assert prices_from_card(text) == (value, value)
+        assert promotion_from_card(text, value, value) == (
+            "3+1 (condiciones no verificadas)"
+        )
+    assert promotion_from_card("Sin promoción $200.00", 200, 200) is None
+
+
+def test_farmatodo_3plus1_and_monetary_offer_are_independent():
+    text = "3 + 1 Colgate De $145.00 Para $108.50"
+    current, regular = prices_from_card(text)
+    assert (current, regular) == (108.50, 145.0)
+    assert promotion_from_card(text, current, regular) == (
+        "3+1 (condiciones no verificadas) | Precio promocional"
+    )
+    assert promotion_from_card("Producto 13+10 $100.00", 100, 100) is None
 
 
 def test_visible_pdp_sku_is_authoritative_not_product_slug():
