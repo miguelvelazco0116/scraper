@@ -213,3 +213,38 @@ Si sigue CP confirmado False después de hacer clic en ACEPTAR, revisar
 la captura local diagnostics/yza/postal_ui_* y la variable postal_ui
 en el JSON; no iniciar captura completa sin evidencia. Para el modo Chrome
 manual, usar -UseExistingChrome con un CP aplicado previamente.
+
+
+## 27/oct — diagnóstico de YZA tras probar el modal Código Postal
+
+Nuevo probe real del operador:
+- Respiratorio: 18 tarjetas, 20 páginas, CP 11590 no confirmado.
+- Higiene bucal: 18 tarjetas, 7 páginas, CP 11590 no confirmado.
+- El inventario DOM del navegador listó múltiples controles, incluidos
+  "INGRESA TU DIRECCIÓN", "Ingresa un código postal" y
+  "Actualizar una dirección".
+
+El scraper podría estar abriendo el selector general de direcciones sin
+abrir el submodal postal, o pulsando ACEPTAR sin que la interfaz aplique el CP.
+Para distinguir esas situaciones, se añadió un segundo paso al operador de UI:
+abrir el submodal "Ingresa un código postal" si después de abrir el selector
+principal todavía no se encuentra el input Código Postal visible.
+
+El probe registra un bloque postal_flow en el JSON con requested_cp, stage,
+postal_field_visible, accept_visible, field_filled, accept_clicked,
+delivery_header_clicked, postal_subdialog_clicked, y, cuando proceda,
+postal_field_still_visible_after_accept. Solo contiene booleanos y etiquetas
+de estado: nunca registra el valor escrito en campos de direcciones.
+La pantalla del diagnóstico todavía se guarda localmente en
+diagnostics/yza/postal_ui_<category>_<timestamp>.png.
+
+Para el próximo diagnóstico aislado:
+
+    git pull --ff-only
+    python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
+
+**Si el reporte muestra accept_clicked=true pero context_verified=false,
+no ampliar ni relajar la prueba de CP**: examinar el encabezado real después
+de aceptar. Una dirección escrita o guardada sin confirmación visual del
+CP 11590 no certifica el precio contextual.
