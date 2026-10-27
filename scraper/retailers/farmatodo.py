@@ -217,10 +217,12 @@ class FarmatodoScraper:
                 "No hay tarjetas con URL /p y precio: revisar DOM."
             )
         seen = {card["url"]: card for card in cards}
+        initial_count = len(seen)
         rounds = 0
         stalled = False
-        if not probe:
-            while more and rounds < self.max_rounds:
+        # A probe must also click Mostrar más ONCE. Otherwise the test may
+        # pass its SKU samples yet fail on the first full-capture click.
+        while more and rounds < (1 if probe else self.max_rounds):
                 button = page.get_by_text(
                     re.compile(r"^\s*Mostrar\s+m[aá]s\s*$", re.I)
                 )
@@ -331,6 +333,10 @@ class FarmatodoScraper:
             "target_products": target, "load_more_clicks": rounds,
             "load_more_stalled": stalled,
             "load_more_remaining": more,
+            "probe_load_more_verified": (
+                (target is not None and initial_count >= target)
+                or (rounds > 0 and len(seen) > initial_count and not stalled)
+            ),
             "postal_verified": False,
             "inventory_scope": "GENERIC_ONLINE_CATALOGUE",
             "pdp_sku_checked": len(pdp_checks),
