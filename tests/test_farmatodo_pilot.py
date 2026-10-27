@@ -60,6 +60,103 @@ def test_image_ean_suffixes_and_invalid_embedded_codes():
 
 
 
+
+def test_visible_pdp_sku_is_authoritative_not_product_slug():
+    text = (
+        "Colgate Pasta Dental Total Prevención Activa Antisarro "
+        "Sku: 7509546653518 De $145.00 Por $108.50"
+    )
+    assert sku_from_visible_pdp_text(text) == "7509546653518"
+    assert sku_from_visible_pdp_text(
+        "Nombre Colgate 7509546653518 precio $108.50"
+    ) is None
+    assert sku_from_visible_pdp_text("Sku:") is None
+    assert sku_from_visible_pdp_text("SKU: 123456") == "123456"
+
+
+def test_inspect_pdp_reads_visible_sku_and_rejects_redirects():
+    from types import SimpleNamespace
+    url = ("https://www.farmatodo.com.mx/"
+           "colgate-pasta-dental-total-prevencion-activa-antisarro-c-150-ml/p")
+    class Page:
+        def __init__(self):
+            self.url = ""
+            self.text = "Sku: 7509546653518"
+        def goto(self, value, **kwargs):
+            self.url = value
+        def wait_for_timeout(self, delay):
+            pass
+        def locator(self, selector):
+            assert selector == "body"
+            return SimpleNamespace(
+                inner_text=lambda **kwargs: self.text
+            )
+    page = Page()
+    result = inspect_public_product_page(page, url)
+    assert result == {
+        "sku": "7509546653518",
+        "source": "pdp_visible_sku", "verified": True,
+    }
+    page.text = "Producto cargando, sin SKU"
+    assert inspect_public_product_page(page, url)["verified"] is False
+    import pytest
+    with pytest.raises(FarmatodoCaptureError, match="fuera"):
+        inspect_public_product_page(page, "https://example.com/other/p")
+
+
+def test_probe_checks_three_pdp_product_skus_without_guessing(monkeypatch):
+    from types import SimpleNamespace
+    from scraper.retailers import farmatodo as mod
+
+    class DetailPage:
+        def __init__(self):
+            self.url = ""
+        def goto(self, url, **kwargs):
+            self.url = url
+        def wait_for_timeout(self, delay):
+            pass
+        def locator(self, selector):
+            assert selector == "body"
+            identifier = self.url.split("/")[-2].split("-")[-1]
+            return SimpleNamespace(
+                inner_text=lambda **kw: "Sku: " + identifier
+            )
+        def close(self):
+            pass
+
+    class Page:
+        url = "https://www.farmatodo.com.mx/cuidado-personal-y-belleza/cuidado-bucal"
+        context = SimpleNamespace(new_page=lambda: DetailPage())
+        def goto(self, target, **kwargs):
+            self.url = target
+        def wait_for_timeout(self, timeout):
+            pass
+        def locator(self, selector):
+            return SimpleNamespace(inner_text=lambda **kw: "Farmatodo")
+
+    cards = [
+        {
+            "url": f"https://www.farmatodo.com.mx/item-{7509546653500 + i}/p",
+            "product": "Producto de prueba", "text": "$108.50",
+            "image_url": "https://cdn.example/no-ean.webp",
+        }
+        for i in range(6)
+    ]
+    monkeypatch.setattr(mod, "extract_catalogue",
+                        lambda page: (cards, 169, True))
+    cat = load_categories("config/farmatodo/categories.yaml")[1]
+    rows, meta = FarmatodoScraper(max_rounds=5).capture_category(
+        Page(), cat, probe=True
+    )
+    assert meta["pdp_sku_checked"] == 3
+    assert meta["pdp_sku_verified"] == 3
+    assert sum(row["sku_verified"] for row in rows) == 3
+    assert all(row["sku_source"] == "pdp_visible_sku" for row in rows[:3])
+    assert all(row["sku"] is None for row in rows[3:])
+    assert all(row["postal_code"] is None for row in rows)
+    assert all(row["store_context_verified"] is False for row in rows)
+
+
 def test_online_availability_never_inferred_from_price():
     assert explicit_online_availability("Producto $120")[0:2] == (
         UNKNOWN, None
@@ -91,6 +188,8 @@ def test_farmatodo_quality_requires_coverage_and_sku():
     assert ok["status"] == "COMPLETE"
     assert ok["store_context_verified"] is False
     assert ok["postal_code"] is None
+    assert ok["sku_pdp_verified"] == 1
+    assert quality([{**data[0], "sku_verified": False}], metadata)["status"] == "PARTIAL"
     assert quality(data, metadata | {"target_products": 3})["status"] == "PARTIAL"
     assert quality(
         [{**data[0], "sku": None}], metadata
