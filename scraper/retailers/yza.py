@@ -369,7 +369,11 @@ def yza_browser_page(playwright, cdp_url: str = ""):
     launched by this pilot is closed on exit, even on postal errors.
     """
     if cdp_url:
-        browser = playwright.chromium.connect_over_cdp(cdp_url)
+        # Chrome inspect may ask for operator approval before the browser
+        # websocket becomes usable; allow time for the visible Allow dialog.
+        browser = playwright.chromium.connect_over_cdp(
+            cdp_url, timeout=60000
+        )
         if not browser.contexts:
             raise YzaContextError("Chrome CDP no expone contextos de navegador.")
         context = browser.contexts[0]
