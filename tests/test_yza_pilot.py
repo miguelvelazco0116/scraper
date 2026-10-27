@@ -13,6 +13,7 @@ from scraper.config import load_categories, load_locations
 from scraper.retailers.yza import (
     POSTAL_CODE, YzaContextError, YzaScraper,
     page_url, prices_from_card, product_sku, yza_browser_page,
+    apply_postal_code, context_evidence,
 )
 
 
@@ -180,6 +181,122 @@ def test_yza_postal_probe_metadata_excludes_typed_addresses():
     assert data["input_fields"][0]["in_dialog"] is True
     assert data["location_controls"][0]["text"] == "Consultar disponibilidad"
 
+
+
+
+class FakeYzaPostalLocator:
+    def __init__(self, items):
+        self.items = items
+    def count(self):
+        return len(self.items)
+    def nth(self, index):
+        return self.items[index]
+
+
+class FakeYzaPostalControl:
+    def __init__(self, visible=True, click=None):
+        self.visible = visible
+        self.click_handler = click
+    def is_visible(self):
+        return self.visible
+    def click(self, timeout=5000):
+        if self.click_handler:
+            self.click_handler()
+
+
+class FakeYzaPostalPage:
+    def __init__(self, *, popup_open=True, persist=True, old_cp=None):
+        self.popup_open = popup_open
+        self.persist = persist
+        self.old_cp = old_cp
+        self.header_cp = old_cp
+        self.entered = ""
+        self.events = []
+        self.field = FakeYzaPostalControl(visible=True)
+        self.field.fill = self.fill
+        self.field.input_value = self.input_value
+
+    def evaluate(self, js):
+        # Proof comes from rendered delivery/header context, NEVER the
+        # postal input and never from the value being typed.
+        assert "header" in js
+        assert '[role="dialog"]' in js
+        assert "11590" in js
+        return (
+            "yza_delivery_postal_confirmed:11590"
+            if self.header_cp == "11590" else None
+        )
+
+    def get_by_placeholder(self, placeholder):
+        assert placeholder.search("Código Postal")
+        return FakeYzaPostalLocator(
+            [self.field] if self.popup_open else []
+        )
+
+    def get_by_role(self, role, name):
+        assert role == "button"
+        assert name.search("ACEPTAR")
+        return FakeYzaPostalLocator([
+            FakeYzaPostalControl(click=self.accept)
+        ] if self.popup_open else [])
+
+    def get_by_text(self, text, exact=False):
+        if text.search("INGRESA TU DIRECCIÓN"):
+            return FakeYzaPostalLocator([
+                FakeYzaPostalControl(click=self.open_popup)
+            ])
+        return FakeYzaPostalLocator([])
+
+    def open_popup(self):
+        self.events.append("open_modal")
+        self.popup_open = True
+
+    def fill(self, postal, timeout=5000):
+        self.events.append("fill")
+        self.entered = postal
+
+    def input_value(self, timeout=2000):
+        return self.entered
+
+    def accept(self):
+        self.events.append("accept")
+        if self.persist and self.entered == "11590":
+            self.header_cp = "11590"
+        self.popup_open = False
+
+    def wait_for_timeout(self, milliseconds):
+        pass
+
+
+def test_yza_postal_popup_fills_11590_and_clicks_aceptar():
+    page = FakeYzaPostalPage(popup_open=True)
+    assert apply_postal_code(page) == "yza_delivery_postal_confirmed:11590"
+    assert page.entered == "11590"
+    assert page.events == ["fill", "accept"]
+
+
+def test_yza_clicks_delivery_header_if_postal_popup_is_closed():
+    page = FakeYzaPostalPage(popup_open=False)
+    assert apply_postal_code(page) == "yza_delivery_postal_confirmed:11590"
+    assert page.events == ["open_modal", "fill", "accept"]
+
+
+def test_yza_postal_input_or_clicked_aceptar_alone_is_not_proof():
+    page = FakeYzaPostalPage(popup_open=True, persist=False, old_cp="52164")
+    assert apply_postal_code(page) is None
+    assert page.entered == "11590"
+    assert page.header_cp == "52164"
+
+
+def test_yza_postal_evidence_rejects_non_location_values():
+    class StubPage:
+        def evaluate(self, js):
+            assert "modal-popup" in js
+            assert "selected-address" in js
+            assert "11590" in js
+            assert "document.cookie" not in js
+            return None
+    assert context_evidence(StubPage()) is None
 
 
 def test_valid_cached_rejects_wrong_date_or_cp():
