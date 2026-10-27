@@ -157,9 +157,19 @@ def extract_card(card, page_url: str) -> dict | None:
     )
     current = displayed_money(current_box)
     if current is None:
-        current = displayed_money(card.select_one(
-            ".andes-money-amount:not(.poly-price__original *)"
-        ))
+        # A legacy listing might not wrap the current price in
+        # poly-price__current. Skip any Andes money widget inside a
+        # strikethrough/original-price container; never mislabel the
+        # previous price as current.
+        for widget in card.select(".andes-money-amount"):
+            if (widget.find_parent(class_="poly-price__original")
+                    or widget.find_parent(
+                        class_="ui-search-price__original-value"
+                    )):
+                continue
+            current = displayed_money(widget)
+            if current is not None:
+                break
     if current is None:
         return None
     previous = displayed_money(card.select_one(
