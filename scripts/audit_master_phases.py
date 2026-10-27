@@ -230,7 +230,7 @@ def main():
     print(
         f"Filas reales: {facts['total_rows']:,} | "
         f"Retailers: {facts['total_retailers']} | "
-        f"Fases completas: {facts['phases_complete']}/5"
+        f"Fases completas: {facts['phases_complete']}/{len(EXPECTED)}"
     )
     print("\nFASES")
     print(phases.to_string(index=False))
