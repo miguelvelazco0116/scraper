@@ -82,6 +82,39 @@ se documentará en el diagnóstico como `PARTIAL` para revisar la ruta.
 **No modifica** `output/checkpoints_validos/current_master.json`, master,
 fases 1–5, auditor, `EXPECTED`, ni Streamlit.
 
+## Evidencia visual de tarjetas y botón «Mostrar más» (27/oct/2026)
+
+Captura entregada por el operador de la categoría Respiratorios:
+- **Levigrix 5 mg, 30 tabletas:** $747.50, etiqueta 3+1.
+- **Xuzal 5 mg, 20 tabletas:** $635.00, etiqueta 3+1.
+- **Dirnelid suspensión nasal 50 mcg:** $465.00, etiqueta 3+1.
+- **Zyxem solución oral 5 mg/ml:** $334.00, etiqueta 3+1.
+- **Zyxem 5 mg, 10 tabletas:** $392.50, etiqueta 3+1.
+- El botón azul **«Mostrar más»** aparece debajo de la cuadrícula,
+  después de las tarjetas visibles. No es un enlace de paginación numérico.
+
+En estas cinco tarjetas solo aparece **un precio monetario** (sin precio
+anterior tachado): `price_current = price_regular = importe visible`.
+La etiqueta **3+1 se registra en `promotion`** como
+`3+1 (condiciones no verificadas)`, nunca como precio rebajado ni como
+confirmación de elegibilidad o stock.
+
+El extractor prioriza texto de enlaces de título del propio producto y,
+para las etiquetas promocionales, examina texto visible y etiquetas
+accesibles `aria-label`, `title` y `alt` cuando el badge no aparece
+como texto en la tarjeta.
+
+El siguiente probe documentará además:
+- `probe_initial_products` y `probe_loaded_products` (antes y después
+  del primer clic en Mostrar más).
+- `probe_load_more_verified` y SKU de 3 fichas PDP.
+- `price_promotion_samples` de las primeras cinco tarjetas, para
+  cotejarlas visualmente con esta evidencia antes de captura total.
+
+Las cantidades y precios de la captura son **ejemplos observados**,
+no supuestos permanentes; pueden cambiar cuando se vuelva a consultar
+el catálogo online.
+
 ## Promoción productiva posterior
 
 Tras constatar cobertura real, EAN/SKU y precios, crear un cambio adicional
