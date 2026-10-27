@@ -459,9 +459,10 @@ class FarmatodoScraper:
         # capture, inspect all PDPs only if loading has reached the target;
         # otherwise keep the result PARTIAL without hundreds of extra visits.
         can_full_check = (
-            not probe and not stalled and not more
+            not probe and not stalled
+            and stop_reason == "published_target_reached"
             and isinstance(target, int) and target > 0
-            and 0.90 <= len(seen) / target <= 1.0
+            and len(seen) == target
         )
         pdp_limit = len(seen) if can_full_check else min(3, len(seen))
         pdp_checks: dict[str, dict] = {}
