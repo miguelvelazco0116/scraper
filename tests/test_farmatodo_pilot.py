@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from scraper.config import load_categories
 from scraper.retailers.farmatodo import (
@@ -137,7 +138,6 @@ def test_inspect_pdp_reads_visible_sku_and_rejects_redirects():
     assert absent["pdp_reload_count"] == 1
     assert absent["pdp_sku_label_present"] is False
     assert page.reloads == 1
-    import pytest
     with pytest.raises(FarmatodoCaptureError, match="fuera"):
         inspect_public_product_page(page, "https://example.com/other/p")
 
