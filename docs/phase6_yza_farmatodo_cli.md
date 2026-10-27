@@ -92,6 +92,55 @@ no integra los resultados en producción.
 El WebSocket de depuración concede acceso de control al Chrome del usuario:
 no compartirlo y desactivar la depuración cuando haya terminado el trabajo.
 
+## 27/oct — Corrección de paginación y precios YZA
+
+El operador adjuntó capturas de:
+- Paginador UI: **PÁGINAS: 1 2 3 4 ... 7**, representado por
+  botones reales (no enlaces de la forma `?p=2`).
+- Tarjeta Colgate PerioGard 250 ml: **$213.60 Oferta**, **$267.00 Antes**;
+  etiqueta visual "Compra 3 y llévate +1 gratis", válida en sucursal.
+- Tarjeta Bexident Aftas Gel 8 ml: **$221.85 Oferta**,
+  **$246.50 Antes**. Su botón "Ver disponibilidad" NO permite inferir
+  disponibilidad local sin una verificación individual.
+
+La captura anterior falló 3/3 en Respiratorio y 3/3 en Higiene bucal
+porque el navegador mostraba los mismos productos al usar URLs
+`?p=2`. Ahora la captura:
+1. Abre la URL de categoría una sola vez.
+2. Guarda las URLs de producto visibles en la página inicial.
+3. Pulsa el **botón numerado** de la página 2 y espera a que aparezcan
+   enlaces a productos NUEVOS. Nunca pulsa la elipsis para saltarse
+   páginas.
+4. Repite de manera secuencial hasta la última página identificada,
+   verificando que hay nuevos SKU y precios válidos; cada página muestra
+   un resumen en consola.
+5. Falla con PARTIAL si el botón no aparece, se repite el catálogo o no
+   termina la carga; conserva 3 intentos por categoría.
+6. El probe también hace clic en página 2 y exige productos distintos
+   antes de devolver READY_FOR_FULL_CAPTURE. Por tanto, el siguiente
+   probe valida la navegación real, no solo el número de páginas.
+7. Se registra `promotion=Oferta` cuando el precio actual es menor que
+   el anterior o la tarjeta muestra explícitamente Oferta. Si el
+   HTML contiene un nombre de imagen de promoción reconocible, también
+   se conserva la etiqueta, aclarando cuando es válida solo en sucursal.
+   No se certifican condiciones generales, disponibilidad o aplicación
+   del beneficio en e-commerce solo por ver una etiqueta visual.
+
+Los precios reales pueden cambiar; los valores de las capturas son
+ejemplos para probar el parser, no constantes de producción.
+
+### Comandos para volver a validar
+
+    git pull --ff-only
+    python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
+    & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
+
+Solo tras ver `Pagina 2 verificada: True` en ambas categorías, ejecutar:
+
+    & .\scripts\run_phase6_pilot.ps1 -Mode capture -Retailer farmacias-yza
+
+El master productivo sigue intacto.
+
 ## Historial mínimo de decisiones
 
 - Primeros diagnósticos: YZA presentó 18 tarjetas por página y paginación
