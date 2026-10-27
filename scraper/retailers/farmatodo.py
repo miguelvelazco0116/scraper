@@ -220,6 +220,7 @@ class FarmatodoScraper:
                     re.compile(r"^\s*Mostrar\s+m[aá]s\s*$", re.I)
                 )
                 if not button.count() or not button.last.is_visible():
+                    stalled = True
                     break
                 before = len(seen)
                 old_urls = sorted(seen)
