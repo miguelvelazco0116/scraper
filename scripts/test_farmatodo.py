@@ -111,6 +111,11 @@ def quality(rows: list[dict], meta: dict, *, error: str | None = None) -> dict:
         "load_more_stalled": meta.get("load_more_stalled"),
         "load_more_stop_reason": meta.get("load_more_stop_reason"),
         "load_more_error": meta.get("load_more_error"),
+        "pagination_rounds": meta.get("pagination_rounds"),
+        "last_catalogue_url": meta.get("last_catalogue_url"),
+        "public_page_fallbacks": json.dumps(
+            meta.get("public_page_fallbacks", []), ensure_ascii=False
+        ),
         "pdp_sku_checked": meta.get("pdp_sku_checked"),
         "pdp_sku_uninspected": max(products - pdp_checked, 0),
         "sku_source_counts": json.dumps(
