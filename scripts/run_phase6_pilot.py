@@ -182,12 +182,12 @@ def commands_for(mode: str, rid: str, cdp_url: str = "", max_pages: int = 100) -
     if mode == "probe":
         return [[
             py, str(ROOT / "scripts" / "test_farmatodo.py"),
-            "--category", category, "--probe", *optional_cdp,
+            "--category", category, "--probe", "--headed", *optional_cdp,
             "--max-rounds", str(max_pages),
         ] for category in ("respiratorios", "cuidado-bucal", "higiene-personal")]
     return [[
         py, str(ROOT / "scripts" / "test_farmatodo.py"),
-        "--category", "all", *optional_cdp,
+        "--category", "all", "--headed", *optional_cdp,
         "--max-rounds", str(max_pages),
     ]]
 
