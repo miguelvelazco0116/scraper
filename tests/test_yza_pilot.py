@@ -114,7 +114,8 @@ def test_yza_auto_browser_launches_headed_and_cleans_up():
             assert kwargs == {"headless": False, "channel": "chrome"}
             log.append("launch")
             return Browser()
-        def connect_over_cdp(self, url):
+        def connect_over_cdp(self, url, **kwargs):
+            assert kwargs.get("timeout") == 60000
             raise AssertionError("Automatic Chrome must not use CDP")
     playwright = SimpleNamespace(chromium=Chromium())
     with yza_browser_page(playwright) as opened:
@@ -134,7 +135,8 @@ def test_yza_manual_cdp_reuses_tab_without_closing_operators_browser():
     class Chromium:
         def launch(self, **kwargs):
             raise AssertionError("CDP fallback must not launch Chrome")
-        def connect_over_cdp(self, url):
+        def connect_over_cdp(self, url, **kwargs):
+            assert kwargs.get("timeout") == 60000
             assert url == "http://127.0.0.1:9222"
             return Browser()
     with yza_browser_page(
@@ -220,7 +222,8 @@ def test_yza_manual_session_rejects_lost_cp_after_navigation(monkeypatch):
 
 def test_yza_manual_cdp_requires_preopened_yza_tab():
     class Chromium:
-        def connect_over_cdp(self, url):
+        def connect_over_cdp(self, url, **kwargs):
+            assert kwargs.get("timeout") == 60000
             assert url == "http://127.0.0.1:9222"
             return SimpleNamespace(
                 contexts=[SimpleNamespace(pages=[
