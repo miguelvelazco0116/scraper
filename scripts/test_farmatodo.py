@@ -284,6 +284,14 @@ def run_category(
                     }
                     for row in rows[:5]
                 ]
+                # The probe deliberately certifies ONLY the first 3 PDPs.
+                # Uninspected cards must not be reported as missing SKU.
+                result["quality_notes"] = (
+                    f"muestra {len(rows)}/{meta.get('target_products') or '?'}; "
+                    f"SKU verificado {verified}/{checked} PDP examinados; "
+                    f"Mostrar más verificado: "
+                    f"{result['probe_load_more_verified']}"
+                )
                 if not (checked >= min(3, len(rows)) and
                         verified == checked and priced == checked and
                         checked > 0):
