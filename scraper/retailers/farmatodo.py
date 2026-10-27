@@ -238,7 +238,8 @@ class FarmatodoScraper:
                 page.wait_for_function(
                     "old => Array.from(document.querySelectorAll('main a[href]'))"
                     ".some(a => a.getClientRects().length"
-                    " && a.href.endsWith('/p') && !old.includes(a.href))",
+                    " && a.href.split(/[?#]/)[0].endsWith('/p')"
+                    " && !old.includes(a.href.split(/[?#]/)[0]))",
                     arg=old_urls, timeout=25000, polling=250,
                 )
                 page.wait_for_timeout(min(self.wait_ms, 500))
