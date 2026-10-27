@@ -73,23 +73,24 @@ def test_phase6_yza_manual_cdp_is_forwarded_without_automatic_browser():
 
 
 
-def test_phase6_manual_chrome_wrapper_uses_heb_style_port_discovery():
-    """Fail before scraping if Chrome CDP is not reachable or YZA not open."""
+def test_phase6_manual_chrome_wrapper_accepts_chrome_144_inspect_ws():
+    """New Chrome inspect CDP does NOT expose /json/version or /json/list."""
     script = (phase6.ROOT / "scripts" / "run_phase6_pilot.ps1").read_text(
         encoding="utf-8"
     )
     assert 'Get-Process chrome' in script
     assert 'DevToolsActivePort' in script
-    assert '/json/version' in script
-    assert '/json/list' in script
-    assert 'Pestana YZA detectada' in script
-    assert 'Chrome CDP responde, pero no hay pestaña' in script
-    assert 'Chrome abierto, pero ninguna conexion CDP local responde' in script
-    assert 'if (-not $CdpUrl)' in script
-    # Port 9222 is a checked fallback, never mandatory.
-    assert '$BrowserCandidates += "http://127.0.0.1:9222"' in script
-    assert '$CdpUrl = $MatchingChrome' in script
+    assert "ws://127.0.0.1:" in script
+    assert "$BrowserPath" in script
+    assert 'New-Object System.Net.Sockets.TcpClient' in script
+    assert 'Socket.EndConnect' in script
+    assert '$CdpUrl = $Candidate' in script
+    assert 'Si Chrome solicita permiso' in script
     assert '& $PythonExe @argsList' in script
+    assert 'Start-Process' not in script
+    # Neither endpoint is a hard requirement: Chrome M144+ can answer 404.
+    assert '/json/list' not in script
+    assert '$Version.webSocketDebuggerUrl' in script  # legacy fallback only
 
 
 def test_phase6_rejects_remote_cdp_endpoint():
