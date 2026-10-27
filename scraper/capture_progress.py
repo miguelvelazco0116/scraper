@@ -104,10 +104,13 @@ class CaptureProgress:
             "rows": int(products), "error": error,
             "diagnostic": diagnostic,
         })
+        # A successful extraction is NOT COMPLETE until its workbook is
+        # atomically persisted and re-read through the same-day cache validator.
+        provisional = "CAPTURED" if status == "COMPLETE" else status
         item.update(
-            estado=status, accion=("OMITIR" if status == "COMPLETE"
+            estado=provisional, accion=("VALIDAR" if status == "COMPLETE"
                     else "REVISAR" if status == "BLOCKED" else "REINTENTAR"),
-            productos_validados=int(products) if status == "COMPLETE" else 0,
+            productos_validados=0,
             quality_notes=quality_notes,
         )
         self.save()
