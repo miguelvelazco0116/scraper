@@ -107,7 +107,7 @@ def quality(rows: list[dict], meta: dict, *, error: str | None = None) -> dict:
     }
 
 
-def valid_cached(frame: pd.DataFrame, summary: dict, today: str) -> bool:
+def valid_cached(frame: pd.DataFrame, summary: dict, today: str, sku_audit: pd.DataFrame | None = None) -> bool:
     if str(summary.get("capture_date")) != today:
         return False
     if str(summary.get("status")) != "COMPLETE":
@@ -130,7 +130,26 @@ def valid_cached(frame: pd.DataFrame, summary: dict, today: str) -> bool:
         return False
     if rows.duplicated(subset=["category_id", "url"]).any():
         return False
-    return True
+    if sku_audit is None:
+        return False
+    required = {"category_id", "sku", "url", "sku_verified", "sku_source"}
+    if not required.issubset(sku_audit.columns):
+        return False
+    proof = sku_audit.loc[
+        sku_audit["category_id"].astype(str).eq(cat)
+    ]
+    if len(proof) != len(rows):
+        return False
+    if (not proof["sku_source"].astype(str).eq("pdp_visible_sku").all()
+            or not proof["sku_verified"].astype(str).str.lower().eq("true").all()):
+        return False
+    expected = rows[["sku", "url"]].astype(str).sort_values(
+        ["url", "sku"]
+    ).reset_index(drop=True)
+    found = proof[["sku", "url"]].astype(str).sort_values(
+        ["url", "sku"]
+    ).reset_index(drop=True)
+    return expected.equals(found)
 
 
 def load_cache(today: str) -> dict[str, tuple[pd.DataFrame, dict]]:
@@ -144,6 +163,10 @@ def load_cache(today: str) -> dict[str, tuple[pd.DataFrame, dict]]:
         summaries = pd.read_excel(
             OUTPUT, sheet_name="Resumen", dtype={"category_id": str}
         )
+        sku_audit = pd.read_excel(
+            OUTPUT, sheet_name="SkuAudit",
+            dtype={"category_id": str, "sku": str, "url": str},
+        )
     except (OSError, ValueError, KeyError, ImportError):
         return {}
     if frame.empty or summaries.empty:
@@ -151,7 +174,7 @@ def load_cache(today: str) -> dict[str, tuple[pd.DataFrame, dict]]:
     cache = {}
     for row in summaries.to_dict("records"):
         cat = str(row.get("category_id") or "")
-        if valid_cached(frame, row, today):
+        if valid_cached(frame, row, today, sku_audit):
             cache[cat] = (
                 frame.loc[frame["category_id"].astype(str).eq(cat)].copy(), row
             )
