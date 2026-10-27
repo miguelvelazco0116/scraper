@@ -744,6 +744,9 @@ def test_probe_can_report_ready_after_three_verified_pdp_skus(monkeypatch):
     assert summary["probe_sku_verified"] == 3
     assert summary["probe_sku_checked"] == 3
     assert summary["probe_load_more_verified"] is True
+    assert "muestra 6/169" in summary["quality_notes"]
+    assert "SKU verificado 3/3" in summary["quality_notes"]
+    assert "SKU no identificado en" not in summary["quality_notes"]
 
     class MissingPagination(ReadyScraper):
         def capture_category(self, page, category, probe):
