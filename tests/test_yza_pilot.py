@@ -363,6 +363,15 @@ def test_online_cache_rejects_fabricated_location_verification():
     assert not checker(rows.assign(store="fake"), entry, category, day)
 
 
+def test_probe_checks_second_page_and_reports_price_samples():
+    source = Path("scripts/probe_yza.py").read_text(encoding="utf-8")
+    assert "click_catalogue_page(page, 2, cards)" in source
+    assert 'report["pagination_next_verified"] = next_page_ok' in source
+    assert '"READY_FOR_FULL_CAPTURE" if cards and last_page and next_page_ok' in source
+    assert 'report["price_samples"]' in source
+    assert '"promotion": promotion_from_card(' in source
+
+
 def test_yza_pilot_does_not_change_productive_master():
     runner = Path("scripts/test_yza.py").read_text(encoding="utf-8")
     scraper = Path("scraper/retailers/yza.py").read_text(encoding="utf-8")
