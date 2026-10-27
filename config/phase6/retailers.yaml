@@ -12,15 +12,3 @@ retailers:
     probe_script: scripts/probe_yza.py
     capture_workbook: output/yza_online_test.xlsx
     capture_report: diagnostics/yza/last_run.json
-  - id: farmatodo
-    name: Farmatodo
-    categories:
-      - respiratorios
-      - cuidado-bucal
-      - higiene-personal
-    postal_mode: NO_VERIFICATION
-    postal_code: null
-    capture_script: scripts/test_farmatodo.py
-    probe_script: scripts/test_farmatodo.py
-    capture_workbook: output/pilots/farmatodo/catalogo_online.xlsx
-    capture_report: diagnostics/farmatodo/last_run.json
