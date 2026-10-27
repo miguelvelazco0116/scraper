@@ -6,7 +6,6 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -14,13 +13,13 @@ if str(ROOT) not in sys.path:
 
 from scraper.config import load_categories
 from scraper.retailers.yza import (
-    HOST, apply_postal_code, context_evidence, discover_cards,
+    BLOCKED_MARKERS, apply_postal_code, discover_cards, yza_browser_page,
 )
 
 REPORT_DIR = ROOT / "diagnostics" / "yza"
 
 
-def probe(category_id: str, cdp_url: str) -> int:
+def probe(category_id: str, cdp_url: str = "") -> int:
     from playwright.sync_api import sync_playwright
 
     categories = {c.id: c for c in load_categories(
@@ -38,34 +37,27 @@ def probe(category_id: str, cdp_url: str) -> int:
     }
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.connect_over_cdp(cdp_url)
-            if not browser.contexts:
-                raise RuntimeError("Chrome CDP no expone contextos.")
-            context = browser.contexts[0]
-            pages = [
-                page for page in context.pages
-                if urlparse(page.url).netloc.lower() in {HOST, "yza.mx"}
-            ]
-            if not pages:
-                raise RuntimeError(
-                    "Abre www.yza.mx en Chrome CDP antes de ejecutar el probe."
-                )
-            page = pages[0]
-            page.goto(target.url, wait_until="domcontentloaded", timeout=75000)
-            page.wait_for_timeout(1200)
-            report["site_title"] = page.title()
-            report["landing_url"] = page.url
-            evidence = apply_postal_code(page)
-            report["context_verified"] = bool(evidence)
-            report["context_evidence"] = evidence
-            cards, last_page = discover_cards(page)
-            report["visible_product_links"] = len(cards)
-            report["pager_last_page"] = last_page
-            report["samples"] = cards[:3]
-            report["status"] = (
-                "READY_FOR_FULL_CAPTURE" if evidence and cards and last_page
-                else "NEEDS_REVIEW"
-            )
+            with yza_browser_page(playwright, cdp_url) as page:
+                page.goto(target.url, wait_until="domcontentloaded", timeout=75000)
+                page.wait_for_timeout(1200)
+                report["site_title"] = page.title()
+                report["landing_url"] = page.url
+                evidence = apply_postal_code(page)
+                report["context_verified"] = bool(evidence)
+                report["context_evidence"] = evidence
+                cards, last_page = discover_cards(page)
+                report["visible_product_links"] = len(cards)
+                report["pager_last_page"] = last_page
+                report["samples"] = cards[:3]
+                text = page.locator("body").inner_text(timeout=10000).lower()
+                if any(marker in text for marker in BLOCKED_MARKERS):
+                    report["status"] = "BLOCKED"
+                    report["error"] = "El sitio mostró un bloqueo o desafío de verificación."
+                else:
+                    report["status"] = (
+                        "READY_FOR_FULL_CAPTURE" if evidence and cards and last_page
+                        else "NEEDS_REVIEW"
+                    )
     except Exception as exc:
         report["error"] = f"{type(exc).__name__}: {exc}"
 
@@ -97,7 +89,7 @@ def main() -> int:
         "--category", choices=("medicamentos-respiratorio", "higiene-bucal"),
         default="higiene-bucal",
     )
-    parser.add_argument("--cdp-url", required=True)
+    parser.add_argument("--cdp-url", default="", help="Chrome previamente abierto; sin él se lanza Chrome automáticamente.")
     args = parser.parse_args()
     return probe(args.category, args.cdp_url)
 
