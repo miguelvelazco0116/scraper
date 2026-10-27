@@ -167,6 +167,20 @@ def _postal_modal_controls(page):
     return field, button
 
 
+
+def _initial_postal_popup_visible(page) -> bool:
+    """Detect first-load YZA popup by its actual title, not hidden DOM copies."""
+    try:
+        title = page.get_by_text(
+            re.compile(r"^\s*ingresa\s+un\s+c[oó]digo\s+postal\s*$", re.I),
+            exact=True,
+        )
+        return _first_visible(title) is not None
+    except Exception:
+        return False
+
+
+
 def _open_postal_modal(page, trace: dict | None = None) -> bool:
     """Open header delivery chooser then, if necessary, its CP sub-dialog."""
     if trace is None:
@@ -229,11 +243,33 @@ def apply_postal_code(page, trace: dict | None = None) -> str | None:
         trace["stage"] = "already_confirmed"
         return proof
 
-    trace["stage"] = "locate_postal_modal"
+    # YZA starts with the postal popup already OPEN. This comes BEFORE any
+    # header clicks or generic address chooser. A briefly hydrating popup
+    # deserves a short wait, not a click behind the overlay.
+    trace["stage"] = "locate_initial_postal_popup"
+    popup_visible = _initial_postal_popup_visible(page)
+    trace["initial_postal_popup_visible"] = popup_visible
     field, button = _postal_modal_controls(page)
     trace["postal_field_initially_visible"] = field is not None
     trace["accept_initially_visible"] = button is not None
+
+    if popup_visible and (field is None or button is None):
+        trace["stage"] = "wait_for_initial_popup_controls"
+        for _ in range(6):
+            page.wait_for_timeout(400)
+            field, button = _postal_modal_controls(page)
+            if field is not None and button is not None:
+                break
+
     if field is None or button is None:
+        if popup_visible:
+            # Never click the header behind a visible postal modal. The
+            # controls may have changed; fail safely with diagnostic trace.
+            trace["stage"] = "initial_popup_visible_but_controls_missing"
+            trace["postal_field_visible"] = field is not None
+            trace["accept_visible"] = button is not None
+            return None
+        trace["stage"] = "open_postal_popup_from_header"
         _open_postal_modal(page, trace)
         field, button = _postal_modal_controls(page)
 
