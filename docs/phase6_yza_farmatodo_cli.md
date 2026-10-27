@@ -64,32 +64,52 @@ Playwright a un navegador arbitrario que no expone ese protocolo.
 
 ### B. Desde PowerShell, reutilizar ese Chrome
 
+En Chrome 144+ con el control de chrome://inspect activo, **no usar**
+las rutas HTTP /json/version ni /json/list como condición para conectar:
+el servidor bajo demanda puede devolver 404 en esas rutas y aceptar
+solo su WebSocket de navegador.
+
+Se necesita Playwright >= 1.60 para el nuevo protocolo. El repositorio
+productivo fija Playwright 1.54; NO modificar requirements.txt ni master.
+La rama de Fase 6 tiene un override aislado
+requirements-phase6-yza-cdp.txt, que actualiza SOLO Playwright en el
+entorno local donde se ejecuta este piloto. Para preservar la instalación
+productiva local, considerar un entorno virtual separado.
+
     cd C:\Proyectos\scraper
-    & C:\Proyectos\venvs\scraper\Scripts\Activate.ps1
     git pull --ff-only
+    python -m pip install -r requirements-phase6-yza-cdp.txt
+    python -m pip show playwright
     python -m pytest tests/test_phase6_pilot.py tests/test_yza_pilot.py tests/test_farmatodo_pilot.py -v
+
+Después:
+
     & .\scripts\run_phase6_pilot.ps1 -Mode probe -Retailer farmacias-yza
 
-Igual que scripts/test_heb.ps1, el wrapper:
-- Busca procesos Chrome ya abiertos, sin iniciarlos.
-- Descubre los DevToolsActivePort del Chrome del usuario (también el perfil
-  independiente ScraperYZAChrome), ordenados por actividad reciente.
-- Consulta el endpoint local /json/version para descartar puertos cerrados
-  u obsoletos; comprueba que /json/list contiene una pestaña YZA.
-- Usa ese puerto REAL para conectar al navegador ya abierto.
-- Si no encuentra conexión o pestaña, falla inmediatamente sin correr
-  dos diagnósticos con ECONNREFUSED ni alterar el master.
-- En cada categoría comprueba CP **11590** aplicado en la cabecera antes
-  y después de navegar, y nuevamente después de recargar la página.
+El wrapper:
+- No inicia Chrome y no presupone puerto 9222.
+- Busca DevToolsActivePort en el perfil Chrome del operador y en el perfil
+  de testing ScraperYZAChrome.
+- Obtiene el puerto de la PRIMERA línea y la ruta
+  /devtools/browser/<id> de la SEGUNDA, construyendo el WebSocket real.
+- Valida únicamente que el puerto local esté escuchando con TCP (no
+  requiere /json/version ni /json/list).
+- Pasa ese WebSocket directamente a Playwright y deja a Playwright buscar
+  la pestaña YZA existente por dominio; nunca crea una pestaña.
+- Si Chrome solicita autorizar el control remoto, el operador debe
+  pulsar **Allow** en su ventana Chrome.
+- Si CDP funciona pero falta CP 11590 en el contexto persistente de YZA,
+  la categoría falla segura en NEEDS_REVIEW.
+- Chrome y el popup siguen bajo control del operador.
 
-Opcional: si conoces un endpoint local CDP real, puedes pasarlo con
--CdpUrl. Nunca supongas que 9222 está activo.
+Si **no existe DevToolsActivePort**, en la misma ventana de Chrome abrir
+chrome://inspect/#remote-debugging, verificar que la casilla esté
+activada y que se muestre "Server running at:". Sin depuración remota,
+Playwright no puede conectarse a una ventana arbitraria.
 
-Nota: Los argumentos --remote-debugging-port en Chrome 136+ requieren
-un perfil no predeterminado, según la guía oficial de Chrome. El método
-chrome://inspect usado por HEB evita que tengas que escribir o adivinar
-un puerto en PowerShell. Si Chrome no muestra una conexión activa,
-revisar sus controles de depuración y el archivo DevToolsActivePort.
+Se conserva el método alternativo con Chrome abierto manualmente usando
+un perfil no predeterminado y --remote-debugging-port=9222, válido solo
+si realmente responde el puerto. Este método no es el principal.
 
 ### C. Farmatodo permanece automático
 
@@ -323,3 +343,21 @@ en la pestaña y después de navegar a la categoría.
 Las secciones anteriores de esta página sobre intentos automáticos con el
 popup se conservan como **historial de diagnóstico**, no como estrategia
 vigente. La estrategia activa se describe en "Modo San Pablo" arriba.
+
+
+## 27/oct: causa de falso error «ninguna conexión CDP local responde»
+
+El operador abrió Chrome normalmente y activó la depuración desde
+chrome://inspect, pero el preflight de Fase 6 consultaba **obligatoriamente**
+/json/version y /json/list, endpoints HTTP que el modo Chrome 144+ inspect
+puede no exponer. Por tanto, el error no demuestra falta de un WebSocket
+activo. Corrección: la conexión usa directamente las dos líneas
+DevToolsActivePort para construir ws://127.0.0.1:<puerto>/devtools/browser/<id>,
+y el preflight comprueba apertura de puerto TCP (sin HTTP JSON).
+La compatibilidad del protocolo en Playwright requiere versión 1.60+
+en el piloto, mediante requirements-phase6-yza-cdp.txt. El pin original
+de requirements.txt queda intacto.
+
+La URL del WebSocket de depuración concede control del navegador;
+no se debe compartir públicamente ni dejar habilitado el acceso después
+de ejecutar las pruebas.
