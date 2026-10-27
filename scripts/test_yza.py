@@ -173,7 +173,7 @@ def run_category(category, location, cdp_url: str, max_pages: int) -> tuple[pd.D
 def main() -> int:
     parser = argparse.ArgumentParser(description="Piloto YZA CP 11590")
     parser.add_argument("--category", default="all")
-    parser.add_argument("--cdp-url", required=True)
+    parser.add_argument("--cdp-url", default="", help="Chrome local CDP opcional; por defecto se abre Chrome desde Playwright.")
     parser.add_argument("--max-pages", type=int, default=100)
     args = parser.parse_args()
     if args.max_pages < 1 or args.max_pages > 200:
@@ -193,7 +193,8 @@ def main() -> int:
     existing = load_cached(day)
     items = dict(existing)
     print("PILOTO FARMACIAS YZA | CP 11590 | SIN INTEGRACIÓN AL MASTER")
-    print("Abre www.yza.mx en Chrome CDP y selecciona una dirección con CP 11590.")
+    print("Navegador: " + ("Chrome manual por CDP" if args.cdp_url else "Chrome automático visible"))
+    print("Solo se aceptará la ubicación CP 11590 verificada en la página.")
     complete = True
     for category in categories:
         if category.id in existing:
