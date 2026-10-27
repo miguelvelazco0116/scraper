@@ -34,6 +34,10 @@ def product_sku(url: str) -> str | None:
 
 
 def page_url(url: str, number: int) -> str:
+    """Legacy URL formatter only; YZA capture uses numbered UI buttons.
+
+    Do not use ?p=N for real pagination: YZA may show page 1 again.
+    """
     if number < 1:
         raise ValueError("La página debe ser positiva")
     parsed = urlparse(url)
