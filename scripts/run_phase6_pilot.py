@@ -165,6 +165,11 @@ def commands_for(mode: str, rid: str, cdp_url: str = "", max_pages: int = 100) -
         raise ValueError("La conexión CDP debe ser al Chrome local.")
     if not 1 <= max_pages <= 200:
         raise ValueError("max-pages fuera de rango.")
+    if rid == "farmacias-yza" and not cdp_url:
+        raise ValueError(
+            "Farmacias YZA ahora requiere Chrome local preparado por el "
+            "operador con CP 11590 y conexión CDP."
+        )
     # Explicit CDP is a fallback; default is a Playwright-owned visible
     # Chrome process for each isolated diagnostic or capture runner.
     optional_cdp = ["--cdp-url", cdp_url] if cdp_url else []
@@ -195,12 +200,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Fase 6 CLI aislada")
     parser.add_argument("--mode", choices=("probe", "capture"), default="probe")
     parser.add_argument("--retailer", choices=("all", *RETAILERS), default="all")
-    parser.add_argument("--cdp-url", default="", help="Fallback a Chrome manual CDP; por defecto se abre Chrome automáticamente.")
+    parser.add_argument("--cdp-url", default="", help="Chrome local preparado por operador (obligatorio para YZA, opcional para Farmatodo).")
     parser.add_argument("--max-pages", type=int, default=100)
     args = parser.parse_args()
     validated_manifest()
     day = local_day()
     ids = RETAILERS if args.retailer == "all" else (args.retailer,)
+    if "farmacias-yza" in ids and not args.cdp_url:
+        parser.error(
+            "YZA requiere una pestaña de Chrome CDP preparada por el "
+            "operador con CP 11590. Usa -UseExistingChrome o -CdpUrl "
+            "en run_phase6_pilot.ps1."
+        )
     phase_report = {
         "phase": 6, "run_date": day, "mode": args.mode,
         "requested_retailers": list(ids), "master_modified": False,
