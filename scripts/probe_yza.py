@@ -160,7 +160,7 @@ def main() -> int:
         "--category", choices=("medicamentos-respiratorio", "higiene-bucal"),
         default="higiene-bucal",
     )
-    parser.add_argument("--cdp-url", default="", help="Chrome previamente abierto; sin él se lanza Chrome automáticamente.")
+    parser.add_argument("--cdp-url", required=True, help="Chrome previamente abierto por el operador, con CP 11590 aplicado.")
     args = parser.parse_args()
     return probe(args.category, args.cdp_url)
 
