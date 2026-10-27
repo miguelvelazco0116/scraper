@@ -263,10 +263,12 @@ class FarmatodoScraper:
                 # Wait for a NEW visible product link, not a fixed delay.
                 # Products can arrive asynchronously in batches of six.
                 page.wait_for_function(
-                    "old => Array.from(document.querySelectorAll('main a[href]'))"
+                    "old => Array.from((document.querySelector('main') || "
+                    "document.querySelector('[role=main]') || document.body)"
+                    ".querySelectorAll('a[href]'))"
                     ".some(a => a.getClientRects().length"
-                    " && a.href.split(/[?#]/)[0].endsWith('/p')"
-                    " && !old.includes(a.href.split(/[?#]/)[0]))",
+                    " && a.href.split(/[?#]/)[0].replace(/\\/+$/, '').endsWith('/p')"
+                    " && !old.includes(a.href.split(/[?#]/)[0].replace(/\\/+$/, '')))",
                     arg=old_urls, timeout=25000, polling=250,
                 )
                 page.wait_for_timeout(min(self.wait_ms, 500))
