@@ -84,8 +84,10 @@ class CaptureProgress:
         item = self.cases[location, category]
         if not 1 <= attempt <= 3:
             raise ValueError("Máximo tres intentos por categoría y CP")
-        if item["estado"] == "COMPLETE":
-            raise ValueError("No repetir un caso COMPLETE")
+        if item["estado"] in {"COMPLETE", "BLOCKED", "CAPTURED", "RUNNING"}:
+            raise ValueError("No repetir caso certificado, bloqueado o activo")
+        if attempt != item["attempts"] + 1:
+            raise ValueError("Los intentos deben avanzar secuencialmente")
         item.update(estado="RUNNING", accion="CAPTURANDO", attempts=attempt)
         self.save()
 
