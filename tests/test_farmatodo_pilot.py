@@ -351,6 +351,16 @@ def test_farmatodo_quality_requires_coverage_and_sku():
     assert ok["sku_pdp_verified"] == 1
     assert quality([{**data[0], "sku_verified": False}], metadata)["status"] == "PARTIAL"
     assert quality(data, metadata | {"target_products": 3})["status"] == "PARTIAL"
+    incomplete = quality(
+        [data[0], {**data[0], "url": "https://www.farmatodo.com.mx/other/p",
+                   "sku": None, "sku_verified": False}],
+        {**metadata, "target_products": 169},
+    )
+    assert incomplete["status"] == "PARTIAL"
+    assert incomplete["pdp_sku_uninspected"] == 1
+    assert "SKU pendientes de inspección PDP: 1/2" in incomplete["quality_notes"]
+    assert "SKU no identificado en" not in incomplete["quality_notes"]
+    assert "SKU sin evidencia visible en PDP" not in incomplete["quality_notes"]
     assert quality(
         [{**data[0], "sku": None}], metadata
     )["status"] == "PARTIAL"
