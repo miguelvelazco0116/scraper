@@ -155,6 +155,77 @@ python -m pytest -q
 El master, integración de producción y Streamlit no se alteran por
 este piloto; cualquier integración futura deberá revisarse por separado.
 
+## Criterios para integrar Fase 6 a la operación completa
+
+**Decisión de producto:** estos pilotos NO son el entregable final. El objetivo
+es un **solo proyecto integrado de scraping**, con un entorno virtual,
+orquestación, control de calidad, consolidación, master, auditoría,
+Streamlit y documentación unificados. La integración se desarrollará
+después de certificar las capturas, no a costa de cambiar datos productivos
+incompletos o ignorar restricciones.
+
+### Puertas de entrada antes de integrar
+
+1. **YZA:** conservar la captura piloto ya observada: 474 productos en
+   dos categorías (351 + 123), con verificación de paginación, SKU, URL,
+   precios y promociones, sin atribuir CP ni sucursal. Volver a comprobar
+   la integridad para la fecha de integración; no declarar reutilizable
+   un piloto de otra fecha.
+2. **Farmatodo:** las tres categorías deben superar el probe y luego la
+   captura integral. Comprobar cobertura verificable de cada catálogo,
+   fin real de Mostrar más, precio y URL válidos, SKU trazables al
+   texto visible de la ficha PDP, ausencia de duplicados y reporte
+   SkuAudit coincidente. NO aceptar solo tres PDP de prueba como evidencia
+   del total.
+3. **Una instalación:** todas las fases comparten el venv `(scraper)`
+   y `requirements.txt`, incluidos los flujos manuales CDP donde
+   se requieren. Verificar el conjunto completo de tests y regresión
+   real sobre los navegadores de los retailers existentes.
+4. **Contexto honesto:** las filas YZA/Farmatodo tienen `postal_code`,
+   `store` y `store_id` nulos; `store_context_verified=False`.
+   Esto describe el precio observado en catálogo online, NO un precio
+   único nacional ni inventario confirmado por código postal.
+
+### Trabajo de integración posterior
+
+1. **Contratos y datos:** mapear ambos pilotos a `main.COLUMNS`
+   preservando los campos de precio actual/anterior, promoción,
+   identificación y estado de disponibilidad desconocido, sin
+   sobreescribir ni elevar atributos geográficos no verificados.
+   Conservar la evidencia SKU/PDP en auditoría independiente.
+2. **Integrador y master:** extender el modelo de fases de
+   `scripts/integrate_validated_phase.py` y sus validadores para
+   contemplar la **Fase 6**, sin modificar las reglas certificadas de
+   Fases 1–5. Agregar previa/dry-run, conciliación de categorías y
+   conteos, fecha idéntica al master activo, respaldo de XLSX y del
+   puntero, escritura atómica, reporte de resultado y reversión segura.
+   Una categoría parcial no debe hacer pasar la fase por completa.
+3. **Ejecución de punta a punta:** incorporar YZA y Farmatodo al
+   orquestador y a los wrappers de PowerShell manteniendo reintentos,
+   reanudación por categoría verificada, controles de Chrome manual
+   y el bloqueo de ejecuciones concurrentes. Separar con claridad
+   captura de publicación al master.
+4. **Dashboard Streamlit:** añadir Fase 6 y los dos retailers a
+   Nueva ejecución, Resumen, alertas y trazabilidad. Mostrar claramente
+   contexto online sin localidad, fecha y estado de integración; el
+   dashboard NO debe presentar PROBE/COMPLETE_PILOT como publicado.
+5. **Calidad de integración:** pruebas unitarias, tests de regresión de
+   Fases 1–5, integración con workbooks de ejemplo, escenarios de falla,
+   recuperación, control de duplicados y auditoría del master antes y
+   después de integrar. Mantener copia recuperable de los archivos
+   previos, con validación de hashes y puntero.
+6. **Liberación:** realizar una prueba completa de captura +
+   validación + previa + integración sobre la fecha actual;
+   verificar el master, los reportes y el dashboard. Solo entonces
+   marcar la fase completa y fusionar el PR o PR de integración
+   correspondiente. No considerar integración terminada por el
+   mero resultado `COMPLETE_PILOT`.
+
+**Estado actual:** YZA terminó su piloto, Farmatodo continúa en
+diagnóstico. No se ha iniciado el trabajo de integración productiva
+y el master activo debe permanecer inalterado hasta cumplir todas
+las puertas anteriores.
+
 ## Restricciones
 
 Fase 6 sigue en PR borrador. No se edita el master de las Fases 1–5,
