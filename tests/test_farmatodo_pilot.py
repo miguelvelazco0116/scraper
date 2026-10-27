@@ -818,6 +818,105 @@ def test_full_capture_rejects_missing_button_before_target(monkeypatch):
     assert quality(rows, meta)["status"] == "PARTIAL"
 
 
+
+def test_public_pagination_dom_evidence_is_bounded_and_safe():
+    """Inspect PUBLIC DOM navigation without reading network/cookies."""
+    from scraper.retailers.farmatodo import inspect_public_pagination_ui
+
+    category_url = ("https://www.farmatodo.com.mx/"
+                    "medicamentos/respiratorios")
+    class Page:
+        def evaluate(self, source, url):
+            assert url == category_url
+            assert "document.querySelectorAll" in source
+            assert "public_subcategory_links" in source
+            assert "visible_pagination_links" in source
+            assert "cookies" not in source.lower()
+            assert "fetch(" not in source
+            return {
+                "url": url,
+                "public_subcategory_links": [
+                    {"label": "Antitusivos", "url": url + "/antitusivos"},
+                ],
+                "visible_pagination_links": [],
+                "visible_buttons": [],
+            }
+
+    found = inspect_public_pagination_ui(Page(), category_url)
+    assert found["public_subcategory_links"][0]["label"] == "Antitusivos"
+    assert found["visible_pagination_links"] == []
+
+    class MissingEvaluate:
+        pass
+    assert inspect_public_pagination_ui(
+        MissingEvaluate(), category_url
+    ) == {"diagnostic_unavailable": "AttributeError"}
+
+
+def test_partial_retries_preserve_best_coverage_not_last_attempt(monkeypatch):
+    """99/460, 96/460, 96/460 should retain 99 in non-integrable pilot."""
+    from types import SimpleNamespace
+    from scripts import test_farmatodo as runner
+
+    class Page:
+        def close(self):
+            pass
+
+    class Context:
+        def new_page(self):
+            return Page()
+        def close(self):
+            pass
+
+    class Browser:
+        def new_context(self, **kwargs):
+            return Context()
+
+    attempts = []
+    class Incomplete:
+        def __init__(self, **kw):
+            pass
+        def capture_category(self, page, category, probe):
+            n = (99, 96, 96)[len(attempts)]
+            attempts.append(n)
+            rows = [{
+                "url": f"https://www.farmatodo.com.mx/item-{i}/p",
+                "sku": None, "price_current": 50.0,
+                "postal_code": None, "store_context_verified": False,
+            } for i in range(n)]
+            return rows, {
+                "category_id": "respiratorios",
+                "capture_date": "2026-10-27",
+                "target_products": 460,
+                "load_more_stalled": True,
+                "load_more_remaining": True,
+                "load_more_stop_reason":
+                    "button_not_visible_or_enabled_before_target",
+                "pdp_sku_checked": 0,
+                "pdp_sku_verified": 0,
+                "load_more_ui_debug": {
+                    "url": "https://www.farmatodo.com.mx/medicamentos/respiratorios",
+                    "public_subcategory_links": [], "visible_pagination_links": [],
+                },
+            }
+
+    monkeypatch.setattr(runner, "FarmatodoScraper", Incomplete)
+    monkeypatch.setattr(runner.time, "sleep", lambda _: None)
+    rows, summary = runner.run_category(
+        Browser(), SimpleNamespace(id="respiratorios"),
+        max_rounds=100, probe=False,
+    )
+    assert attempts == [99, 96, 96]
+    assert len(rows) == 99
+    assert summary["products"] == 99
+    assert summary["best_attempt"] == 1
+    assert summary["attempts"] == 3
+    assert summary["status"] == "PARTIAL"
+    assert summary["load_more_stop_reason"] == (
+        "button_not_visible_or_enabled_before_target"
+    )
+
+
 def test_probe_can_report_ready_after_three_verified_pdp_skus(monkeypatch):
     from types import SimpleNamespace
     from scripts import test_farmatodo as runner
