@@ -247,11 +247,56 @@ class FarmatodoScraper:
                     stalled = True
                     break
 
+        # SKU is certified only by the visible 'Sku:' field on the
+        # product page. In probe, inspect three representative PDPs. In
+        # capture, inspect all PDPs only if loading has reached the target;
+        # otherwise keep the result PARTIAL without hundreds of extra visits.
+        can_full_check = (
+            not probe and not stalled and not more
+            and isinstance(target, int) and target > 0
+            and 0.90 <= len(seen) / target <= 1.0
+        )
+        pdp_limit = len(seen) if can_full_check else min(3, len(seen))
+        pdp_checks: dict[str, dict] = {}
+        if pdp_limit:
+            detail_tab = page.context.new_page()
+            try:
+                for idx, card in enumerate(seen.values()):
+                    if idx >= pdp_limit:
+                        break
+                    try:
+                        found = inspect_public_product_page(detail_tab, card["url"])
+                    except Exception as exc:
+                        found = {
+                            "sku": None,
+                            "source": "pdp_error_" + type(exc).__name__,
+                            "verified": False,
+                        }
+                    candidate, candidate_source = sku_from_card(card)
+                    found["image_or_card_candidate"] = candidate
+                    found["candidate_source"] = candidate_source
+                    found["candidate_matches_pdp"] = (
+                        candidate == found["sku"]
+                        if candidate and found["sku"] else None
+                    )
+                    pdp_checks[card["url"]] = found
+                    if not found["verified"]:
+                        print(
+                            f"Farmatodo | SKU no visible en PDP {idx + 1}/"
+                            f"{pdp_limit}: {card['url']}",
+                            flush=True,
+                        )
+            finally:
+                detail_tab.close()
+
         now = datetime.now().astimezone().isoformat(timespec="seconds")
         rows: list[dict] = []
         for card in seen.values():
             current, regular = prices_from_card(card["text"])
-            sku, source = sku_from_card(card)
+            certification = pdp_checks.get(card["url"], {})
+            sku = certification.get("sku")
+            source = certification.get("source", "pdp_not_inspected")
+            verified = certification.get("verified") is True
             status, available, raw = explicit_online_availability(card["text"])
             rows.append({
                 "scrape_timestamp": now, "retailer": "Farmatodo",
@@ -262,6 +307,7 @@ class FarmatodoScraper:
                 "subcategory": category.subcategory,
                 "sub_subcategory": category.sub_subcategory,
                 "category_id": category.id, "sku": sku,
+                "sku_source": source, "sku_verified": verified,
                 "brand": None, "product": clean_text(card["product"]),
                 "price_current": current, "price_regular": regular,
                 "promotion": "Precio promocional" if (
@@ -281,9 +327,13 @@ class FarmatodoScraper:
             "load_more_remaining": more,
             "postal_verified": False,
             "inventory_scope": "GENERIC_ONLINE_CATALOGUE",
+            "pdp_sku_checked": len(pdp_checks),
+            "pdp_sku_verified": sum(
+                x.get("verified") is True for x in pdp_checks.values()
+            ),
             "sku_source_counts": {
-                key: sum(sku_from_card(x)[1] == key for x in seen.values())
-                for key in {sku_from_card(x)[1] for x in seen.values()}
+                key: sum(row["sku_source"] == key for row in rows)
+                for key in {row["sku_source"] for row in rows}
             },
             # Public image/link evidence only, to diagnose missing identifiers.
             # A card without a provable SKU cannot pass production quality.
@@ -292,12 +342,20 @@ class FarmatodoScraper:
                     "url": x.get("url"),
                     "image_url": x.get("image_url"),
                     "image_alt": x.get("image_alt"),
-                    "sku": sku_from_card(x)[0],
-                    "sku_source": sku_from_card(x)[1],
+                    "sku": pdp_checks.get(x["url"], {}).get("sku"),
+                    "sku_source": pdp_checks.get(x["url"], {}).get(
+                        "source", "pdp_not_inspected"
+                    ),
+                    "candidate": sku_from_card(x)[0],
+                    "candidate_source": sku_from_card(x)[1],
                 }
                 for x in list(seen.values())
-                if sku_from_card(x)[0] is None
+                if not pdp_checks.get(x["url"], {}).get("verified", False)
             ][:3],
+            "pdp_sku_samples": [
+                {"url": url, **result}
+                for url, result in list(pdp_checks.items())[:3]
+            ],
             "probe": probe,
         }
         return rows, meta
