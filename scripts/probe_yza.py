@@ -43,7 +43,9 @@ def probe(category_id: str, cdp_url: str = "") -> int:
                 page.wait_for_timeout(1200)
                 report["site_title"] = page.title()
                 report["landing_url"] = page.url
-                evidence = apply_postal_code(page)
+                postal_flow = {}
+                evidence = apply_postal_code(page, trace=postal_flow)
+                report["postal_flow"] = postal_flow
                 if evidence:
                     # A visible CP before reload is not enough: certify it
                     # survives a fresh category load, as full capture requires.
@@ -103,6 +105,18 @@ def probe(category_id: str, cdp_url: str = "") -> int:
     print("YZA PROBE | " + category_id)
     print("CP requerido       : 11590")
     print("CP confirmado      : " + str(report["context_verified"]))
+    if report.get("postal_flow"):
+        flow = report["postal_flow"]
+        print("Secuencia CP       : " + str(flow.get("stage")))
+        print("Campo CP visible   : " + str(flow.get("postal_field_visible")))
+        print("ACEPTAR visible    : " + str(flow.get("accept_visible")))
+        print("ACEPTAR pulsado    : " + str(flow.get("accept_clicked", False)))
+        if flow.get("form_action_error_type"):
+            print("Error formulario   : " + str(flow["form_action_error_type"]))
+        if flow.get("postal_subdialog_clicked"):
+            print("Submodal postal    : intentado")
+        if flow.get("postal_field_still_visible_after_accept") is not None:
+            print("Campo sigue abierto: " + str(flow["postal_field_still_visible_after_accept"]))
     print("Tarjetas visibles  : " + str(report.get("visible_product_links", 0)))
     print("Ultima pagina      : " + str(report.get("pager_last_page")))
     if report.get("postal_ui") is not None:
