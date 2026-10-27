@@ -129,3 +129,27 @@ def test_soriana_capture_emits_retry_events(monkeypatch, tmp_path):
         ("start", 1, None), ("finish", 1, "PARTIAL"),
         ("start", 2, None), ("finish", 2, "COMPLETE"),
     ]
+
+
+def test_soriana_dry_run_works_without_chrome(tmp_path, monkeypatch, capsys):
+    from scripts import test_soriana_cp_rotation as cli
+    import sys
+
+    monkeypatch.setattr(cli, "DIAG", tmp_path / "diag")
+    monkeypatch.setattr(cli, "load_cache", lambda cp, day: {})
+    monkeypatch.setattr(sys, "argv", [
+        "test_soriana_cp_rotation.py", "--cp", "83420",
+        "--category", "cuidado-bucal", "--dry-run",
+    ])
+    def should_not_connect():
+        raise AssertionError("Dry run must not launch Playwright")
+    monkeypatch.setattr(cli, "sync_playwright", should_not_connect)
+    assert cli.main() == 0
+    printed = capsys.readouterr().out
+    assert "REINTENTAR" in printed
+    assert "83420" in printed
+    progress_files = list((tmp_path / "diag").glob("progress_*.json"))
+    assert len(progress_files) == 1
+    payload = json.loads(progress_files[0].read_text(encoding="utf-8"))
+    assert payload["total_cases"] == 1
+    assert payload["master_modified"] is False
