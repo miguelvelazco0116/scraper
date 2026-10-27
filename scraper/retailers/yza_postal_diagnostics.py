@@ -23,7 +23,8 @@ def inspect_postal_ui(page) -> dict:
                 ?.getAttribute('class') || '');
               return /direcci[oó]n|postal|c[oó]digo|ubicaci[oó]n|autocomplete|sugerencias|address|zip/i
                 .test(p + ' ' + label + ' ' + el.name + ' ' + parent);
-            }).slice(0, 12).map(el => ({
+            }).sort((a, b) => Number(visible(b)) - Number(visible(a)))
+              .slice(0, 24).map(el => ({
               placeholder: normalize(el.placeholder).slice(0, 130),
               aria_label: normalize(el.getAttribute('aria-label')).slice(0, 100),
               visible: visible(el),
@@ -35,11 +36,17 @@ def inspect_postal_ui(page) -> dict:
           )].map(el => ({
             text: normalize(el.innerText).slice(0, 95), visible: visible(el),
             in_dialog: !!el.closest('[role="dialog"],dialog,.modal-popup')
-          })).filter(x => /consultar disponibilidad|direcci[oó]n|env[ií]o a domicilio|ubicaci[oó]n|c[oó]digo postal/i
+          })).filter(x => /consultar disponibilidad|direcci[oó]n|env[ií]o a domicilio|ubicaci[oó]n|c[oó]digo postal|^aceptar$|^cancelar$/i
             .test(x.text)).slice(0, 20);
           const modal_count = document.querySelectorAll(
             '[role="dialog"],dialog,.modal-popup').length;
           return {input_fields: inputs, location_controls: labels,
+            postal_fields_visible: inputs.filter(x =>
+              x.visible && /c[oó]digo\s*postal/i.test(x.placeholder)
+            ).length,
+            accept_buttons_visible: labels.filter(x =>
+              x.visible && /^aceptar$/i.test(x.text)
+            ).length,
             modal_count, url: location.origin + location.pathname};
         }"""
     )
