@@ -30,11 +30,11 @@ Write-Host "CP fijo     : 11590"
 Write-Host "Categorias  : $Category"
 Write-Host "Master      : NO SE MODIFICA"
 Write-Host "Python      : $PythonExe"
+if ($Probe -and $Category -eq "all") { $Category = "higiene-bucal" }
 $argsList = @("--category", $Category)
 if ($CdpUrl) { $argsList += @("--cdp-url", $CdpUrl) }
 Write-Host ("Navegador  : " + $(if ($CdpUrl) { "Chrome manual (CDP)" } else { "Chrome automatico" }))
 if ($Probe) {
-    if ($Category -eq "all") { $Category = "higiene-bucal" }
     & $PythonExe ".\scripts\probe_yza.py" @argsList
 } else {
     & $PythonExe ".\scripts\test_yza.py" @argsList --max-pages $MaxPages
