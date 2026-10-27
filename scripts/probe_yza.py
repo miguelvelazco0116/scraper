@@ -13,7 +13,8 @@ if str(ROOT) not in sys.path:
 
 from scraper.config import load_categories
 from scraper.retailers.yza import (
-    BLOCKED_MARKERS, discover_cards, open_online_category, yza_browser_page,
+    BLOCKED_MARKERS, click_catalogue_page, discover_cards,
+    open_online_category, yza_browser_page,
 )
 
 REPORT_DIR = ROOT / "diagnostics" / "yza"
@@ -55,13 +56,31 @@ def probe(category_id: str, cdp_url: str = "") -> int:
                 report["visible_product_links"] = len(cards)
                 report["pager_last_page"] = last_page
                 report["samples"] = cards[:3]
+                # A first-page-only probe falsely passed when ?p=2 just
+                # reloaded page 1. Validate the REAL page 2 button too.
+                next_page_ok = last_page == 1
+                if cards and last_page and last_page > 1:
+                    try:
+                        click_catalogue_page(page, 2, cards)
+                        page_two, page_two_last = discover_cards(page)
+                        previous_urls = {x["url"] for x in cards}
+                        new_urls = {x["url"] for x in page_two} - previous_urls
+                        report["page_two_links"] = len(page_two)
+                        report["page_two_new_links"] = len(new_urls)
+                        report["page_two_last_page"] = page_two_last
+                        next_page_ok = bool(new_urls) and page_two_last == last_page
+                    except Exception as exc:
+                        report["pagination_error"] = (
+                            f"{type(exc).__name__}: {exc}"
+                        )
+                report["pagination_next_verified"] = next_page_ok
                 text = page.locator("body").inner_text(timeout=10000).lower()
                 if any(marker in text for marker in BLOCKED_MARKERS):
                     report["status"] = "BLOCKED"
                     report["error"] = "El sitio mostró un bloqueo o desafío de verificación."
                 else:
                     report["status"] = (
-                        "READY_FOR_FULL_CAPTURE" if cards and last_page
+                        "READY_FOR_FULL_CAPTURE" if cards and last_page and next_page_ok
                         else "NEEDS_REVIEW"
                     )
     except Exception as exc:
@@ -82,6 +101,11 @@ def probe(category_id: str, cdp_url: str = "") -> int:
     print("Contexto geográfico: NO CERTIFICADO")
     print("Tarjetas visibles  : " + str(report.get("visible_product_links", 0)))
     print("Ultima pagina      : " + str(report.get("pager_last_page")))
+    print("Pagina 2 verificada: " + str(report.get("pagination_next_verified")))
+    if report.get("page_two_new_links") is not None:
+        print("Nuevos en pagina 2: " + str(report["page_two_new_links"]))
+    if report.get("pagination_error"):
+        print("Error de paginacion: " + report["pagination_error"])
     if report.get("postal_ui") is not None:
         diagnostic = report["postal_ui"]
         print("Campos de dirección: " + str(len(diagnostic.get("input_fields", []))))
