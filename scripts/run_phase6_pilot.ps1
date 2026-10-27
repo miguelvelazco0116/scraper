@@ -20,6 +20,10 @@ if (-not $PythonExe) {
 if (-not $PythonExe -or -not (Test-Path $PythonExe)) {
     throw "Activa el entorno virtual C:\Proyectos\venvs\scraper antes de continuar."
 }
+if (($Retailer -eq "farmacias-yza" -or $Retailer -eq "all") -and
+    -not $UseExistingChrome -and -not $CdpUrl) {
+    throw "Fase 6 YZA usa el navegador manual (como San Pablo): abre Chrome CDP, selecciona CP 11590 y ejecuta con -UseExistingChrome o -CdpUrl 'http://127.0.0.1:9222'."
+}
 if ($UseExistingChrome -and -not $CdpUrl) {
     $chromeData = Join-Path $env:LOCALAPPDATA "Google\Chrome\User Data"
     $candidates = @()
@@ -37,9 +41,9 @@ if ($UseExistingChrome -and -not $CdpUrl) {
 Write-Host "FASE 6 | FARMACIAS YZA (CP 11590) + FARMATODO (SIN CP)"
 Write-Host "Modo: $Mode | Retailer: $Retailer | MaxPages: $MaxPages"
 if ($CdpUrl) {
-    Write-Host "Navegador: Chrome previamente abierto, conexion CDP"
+    Write-Host "Navegador: Chrome preparado manualmente por operador (CDP)"
 } else {
-    Write-Host "Navegador: Chrome automatico visible (Playwright)"
+    Write-Host "Navegador: Chrome automatico visible (solo Farmatodo)"
 }
 Write-Host "Master Fases 1-5: SIN CAMBIOS"
 $argsList = @(".\scripts\run_phase6_pilot.py", "--mode", $Mode, "--retailer", $Retailer, "--max-pages", [string]$MaxPages)
