@@ -172,7 +172,9 @@ def inventory(master: Path):
                 (cases_detail["fase"].eq(phase)
                  & cases_detail["status"].str.upper().eq("COMPLETE")).sum()
             ) if not cases_detail.empty else 0,
-            "casos_esperados": sum(expected_retailers.values()),
+            # Soriana switches from 6 legacy cases to 24 verified CP/category
+            # cases only when its source scope is explicitly certified.
+            "casos_esperados": int(section["casos_esperados"].sum()),
             "estado_calculado": computed_state,
             "estado_control": recorded,
             "control_coincide": computed_state == recorded,
