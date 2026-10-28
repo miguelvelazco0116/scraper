@@ -1,4 +1,4 @@
-"""Scraper operations dashboard. Production scrapers remain CLI-only in this MVP."""
+"""Scraper operations dashboard with allowlisted local Windows runners."""
 from __future__ import annotations
 
 import sys
