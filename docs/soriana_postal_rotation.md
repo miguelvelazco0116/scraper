@@ -284,3 +284,35 @@ master productivo completo.
 La PR de esta rama permanece draft hasta contar con auditoría local satisfactoria
 y checks de GitHub verdes. La captura live y la auditoría se ejecutan en la PC
 del operador, no en GitHub Actions.
+
+
+## Streamlit: Fase 2 con una sola Soriana (27/10/2026)
+
+En **Nueva ejecución → Fase 2**, las opciones son exactamente:
+
+- **Todas las tiendas**: ejecuta una vez Farmacias Guadalajara (4 categorías),
+  después una vez la rotación de Soriana (4 CP × 6 categorías), y finalmente
+  ejecuta la auditoría independiente de sus 24 casos. Usa el runner
+  `scripts/run_phase2_dashboard_capture.ps1 -SkipIntegration`.
+- **Farmacias Guadalajara**: ejecuta únicamente su captura comprobada.
+- **Soriana**: ejecuta únicamente `test_soriana_cp_rotation.ps1` con
+  `-PostalCode all -Category all`. El nombre de la opción no se repite.
+
+Se reutilizan los checkpoints Soriana COMPLETE del día; las categorías
+incompletas siguen el contrato de hasta tres intentos antes de continuar.
+El monitor postal se muestra al elegir **Soriana** o **Todas las tiendas**.
+
+**Fase 2 desde Streamlit es exclusivamente «Solo captura».** No se llama
+al antiguo `run_phase2_production.ps1`, al capturador manual
+`test_soriana_manual_phase2.ps1`, ni a un integrador del master.
+El CLI legado permanece disponible fuera de esta interfaz por compatibilidad,
+pero nunca se invoca mediante los botones de Fase 2. El archivo
+`concentrado_productivo_total_*.xlsx` y el puntero activo no cambian.
+
+### Prueba rápida sin scraping
+
+```powershell
+cd C:\Proyectos\scraper
+.\scripts\run_phase2_dashboard_capture.ps1 -SkipIntegration -DryRun
+python -m pytest -q tests/test_dashboard_execution.py tests/test_dashboard_soriana_rotation.py tests/test_dashboard_helpers.py
+```
