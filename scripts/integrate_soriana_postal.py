@@ -150,7 +150,7 @@ def prepare_plan(root: Path, day: str) -> dict:
     pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
     if pointer.get("capture_date") != day:
         raise ValueError(
-            f"Master activo fechado {pointer.get('capture_date')!r}; "
+            f"Master activo de otra fecha: {pointer.get('capture_date')!r}; "
             f"los archivos Soriana son de {day}. "
             "No se permite mezclar capturas. Usa SourcePreview para "
             "validar los cuatro Excel históricos sin tocar el master."
