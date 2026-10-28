@@ -187,6 +187,49 @@ class DashboardExecutionTests(unittest.TestCase):
         self.assertNotIn("Farmatodo", RUNNERS[6])
         self.assertNotIn("probe", public_command(root, 6, ALL, "captura_integracion"))
 
+    def test_phase6_prepares_capture_and_integrate_runners(self):
+        from pathlib import PosixPath
+        from dashboard.execution import local_day
+        with TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            (scripts / "run_phase6_dashboard.ps1").touch()
+            (scripts / "run_phase6_pilot.ps1").touch()
+            (scripts / "integrate_phase6_yza.ps1").touch()
+            with patch("dashboard.execution.os.name", "nt"), \
+                 patch("dashboard.execution.Path", PosixPath), \
+                 patch("dashboard.execution.shutil.which", return_value="powershell.exe"):
+                single = prepare_run(root, 6, "Farmacias YZA", "solo_captura")
+                all_capture = prepare_run(root, 6, ALL, "solo_captura")
+            self.assertEqual(single["command"][-4:],
+                             ["-Mode", "capture", "-Retailer", "farmacias-yza"])
+            self.assertEqual(all_capture["command"][-1], "-SkipIntegration")
+            # Only integration requires same-day master with previous phases.
+            with patch("dashboard.execution.os.name", "nt"), \
+                 patch("dashboard.execution.Path", PosixPath), \
+                 patch("dashboard.execution.shutil.which", return_value="powershell.exe"):
+                with self.assertRaisesRegex(ValueError, "Master activo"):
+                    prepare_run(root, 6, ALL, "solo_integracion")
+            file = root / "output" / "test_master.xlsx"
+            file.parent.mkdir(parents=True)
+            file.write_bytes(b"temporary master for allowlist test")
+            pointer = root / "output" / "checkpoints_validos" / "current_master.json"
+            pointer.parent.mkdir(parents=True)
+            pointer.write_text(json.dumps({
+                "master": str(file), "capture_date": local_day(),
+                "completed_phases": [1, 2, 3, 4, 5],
+            }), encoding="utf-8")
+            with patch("dashboard.execution.os.name", "nt"), \
+                 patch("dashboard.execution.Path", PosixPath), \
+                 patch("dashboard.execution.shutil.which", return_value="powershell.exe"):
+                integration = prepare_run(root, 6, ALL, "solo_integracion")
+                capture_and_integrate = prepare_run(root, 6, ALL, "captura_integracion")
+            self.assertEqual(integration["runner"], "integrate_phase6_yza.ps1")
+            self.assertNotIn("-Phase", integration["command"])
+            self.assertEqual(capture_and_integrate["runner"], "run_phase6_dashboard.ps1")
+            self.assertNotIn("-SkipIntegration", capture_and_integrate["command"])
+
     def test_cli_commands_are_allowlisted(self):
         base = Path("C:/Proyectos/scraper")
         self.assertIn("test_sams_club.ps1", public_command(base, 5, "Sam's Club", "solo_captura"))
