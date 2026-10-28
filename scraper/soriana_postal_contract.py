@@ -99,7 +99,7 @@ def postal_issues(frame: pd.DataFrame, summary: pd.DataFrame, day: str | None = 
             issues.append("Resumen contiene otra fecha")
     if "postal_context_verified" not in cases:
         issues.append("Resumen carece de verificación del CP")
-    elif not cases["postal_context_verified"].astype(str).str.lower().isin(["true", "1"]).all():
+    elif not cases["postal_context_verified"].astype(str).str.lower().isin(["true", "1", "1.0"]).all():
         issues.append("Hay CP sin verificación")
     if "postal_context_evidence" not in cases:
         issues.append("Resumen carece de evidencia visible del CP")
