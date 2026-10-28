@@ -114,9 +114,11 @@ def render(root: Path):
             "Solo los modos con integración pueden modificar el master de hoy."
         )
     if phase == 5:
-        st.caption("Mayorista Duero: la opción especial de catálogo online público requiere "
-                   "aprobación explícita aparte. Esta pantalla **nunca** agrega "
-                   "-ApproveDueroOnline de forma automática.")
+        st.caption(
+            "Mayorista Duero: descarga precios publicados de las seis categorías "
+            "del catálogo online. No exige seleccionar ni verificar tienda, "
+            "ciudad o código postal. Sus precios no se atribuyen a una sucursal."
+        )
     if phase == 6:
         st.caption(
             "Farmacias YZA: solo catálogo online, dos categorías "
