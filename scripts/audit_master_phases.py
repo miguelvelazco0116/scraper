@@ -14,8 +14,19 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+SCRIPTS = Path(__file__).resolve().parent
+# This file is used both as `python scripts/audit_master_phases.py` and as
+# `from scripts.audit_master_phases import inventory` from tests/other tools.
+# Its legacy sibling imports are unqualified, so make the sibling directory
+# resolvable in both entrypoints, irrespective of pytest collection order.
+for directory in (ROOT, SCRIPTS):
+    if str(directory) not in sys.path:
+        sys.path.insert(0, str(directory))
+
+from scraper.soriana_postal_contract import (
+    RETAILER as POSTAL_RETAILER, PHASE as POSTAL_PHASE,
+    effective_soriana_cases, is_postal_rotation_summary, postal_issues,
+)
 
 from integrate_complete_retailers import EXPECTED as PRODUCTIVE_EXPECTED
 
@@ -83,11 +94,20 @@ def inventory(master: Path):
                     .isin([0, 1]).sum())
                 if "is_available" in part else 0
             )
+            # Legacy Soriana remains 6 categories. The separately certified
+            # postal rotation is 24 CP/category pairs and must pass the
+            # strictly verified composite (retailer, CP, category, SKU) grain.
+            postal_errors = []
+            if retailer == POSTAL_RETAILER and phase_id == POSTAL_PHASE:
+                expected_cases = effective_soriana_cases(part, cases)
+                if is_postal_rotation_summary(cases):
+                    postal_errors = postal_issues(part, cases)
             cases_ok = (
                 cases_count == expected_cases
                 and statuses == ["COMPLETE"]
                 and total_reported == total
                 and case_rows.gt(0).all()
+                and not postal_errors
             )
             if not total:
                 state = "PENDIENTE"
@@ -114,6 +134,7 @@ def inventory(master: Path):
                 "urls_completas": urls, "disponibilidad_1_0": availability_count,
                 "contexto_tienda_verificado": store_flags,
                 "alcance": "|".join(online_scope),
+                "postal_issues": "; ".join(postal_errors),
             }
             rows.append(row)
 
@@ -121,6 +142,7 @@ def inventory(master: Path):
                 detail.append({
                     "fase": phase, "retailer": retailer,
                     "category_id": str(case["category_id"]),
+                    "postal_code": str(case.get("postal_code") or ""),
                     "status": str(case["status"]),
                     "products_reported": _safe_int(case["products"]),
                     "source_status": str(case.get("source_status") or ""),
@@ -156,7 +178,9 @@ def inventory(master: Path):
                 (cases_detail["fase"].eq(phase)
                  & cases_detail["status"].str.upper().eq("COMPLETE")).sum()
             ) if not cases_detail.empty else 0,
-            "casos_esperados": sum(expected_retailers.values()),
+            # Soriana switches from 6 legacy cases to 24 verified CP/category
+            # cases only when its source scope is explicitly certified.
+            "casos_esperados": int(section["casos_esperados"].sum()),
             "estado_calculado": computed_state,
             "estado_control": recorded,
             "control_coincide": computed_state == recorded,

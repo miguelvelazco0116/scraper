@@ -316,3 +316,41 @@ cd C:\Proyectos\scraper
 .\scripts\run_phase2_dashboard_capture.ps1 -SkipIntegration -DryRun
 python -m pytest -q tests/test_dashboard_execution.py tests/test_dashboard_soriana_rotation.py tests/test_dashboard_helpers.py
 ```
+
+## Fase 2: integrar Excel existentes sin recapturar (28/10/2026)
+
+**Nueva ejecución → Fase 2 → Todas las tiendas** ofrece tres modalidades:
+
+1. **Solo captura**: ejecuta una vez Farmacias Guadalajara y una vez Soriana
+   con sus 24 combinaciones CP/categoría. No modifica master.
+2. **Captura + integración**: hace la misma captura una sola vez y, después,
+   valida e integra los Excel del día al master del día si Fase 1 está COMPLETE.
+3. **Integrar capturas existentes**: no inicia Chrome, ni Guadalajara ni Soriana.
+   Lee los Excel ya capturados y ejecuta el integrador protegido.
+
+El comando equivalente de lectura, útil antes de confirmar, es:
+
+```powershell
+.\scripts\integrate_phase2_postal.ps1 -Preview
+```
+
+El commit explícito desde CLI es:
+
+```powershell
+.\scripts\integrate_phase2_postal.ps1
+```
+
+**No renombrar masters ni cambiar `current_master.json`**. La integración
+verifica el master activo del mismo día con Fase 1 COMPLETE, los cuatro Excel
+certificados de Soriana (24/24), el Excel válido de Farmacias Guadalajara,
+SKU/URL/precios, fuente/fecha y las fechas del master. Guarda respaldo
+master/puntero, escribe atómicamente, hace auditoría independiente posterior
+y revierte ambos archivos ante fallo.
+
+Si una de las dos tiendas no está validada, se integra únicamente la
+partición completa disponible, se conserva la otra sin tocarla y Fase 2 queda
+`PARTIAL_VALIDATED`. Solo si ambas están validadas se marca `COMPLETE`.
+Cada reintento reemplaza su partición: no agrega duplicados.
+
+Este desarrollo no reactiva `test_soriana_manual_phase2.ps1` ni
+`run_phase2_production.ps1` desde Streamlit.

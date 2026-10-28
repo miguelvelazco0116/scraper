@@ -98,14 +98,15 @@ class DashboardExecutionTests(unittest.TestCase):
         self.assertEqual(RUNNERS[2]["Soriana"], "test_soriana_cp_rotation.ps1")
         self.assertNotIn("test_soriana_manual_phase2.ps1", RUNNERS[2].values())
 
-    def test_phase2_never_offers_legacy_integration(self):
-        self.assertEqual(mode_labels(2, ALL), ["Solo captura"])
+    def test_phase2_offers_capture_and_separate_integration_without_legacy(self):
+        self.assertEqual(mode_labels(2, ALL),
+                         ["Solo captura", "Captura + integración", "Integrar capturas existentes"])
         self.assertEqual(mode_labels(2, "Soriana"), ["Solo captura"])
         self.assertEqual(mode_labels(2, "Farmacias Guadalajara"), ["Solo captura"])
         self.assertEqual(mode_labels(1, ALL), ["Captura + integración"])
         self.assertIn("Captura + integración", mode_labels(3, ALL))
         with self.assertRaises(ValueError):
-            prepare_run(Path("C:/Proyectos/scraper"), 2, ALL, "captura_integracion")
+            prepare_run(Path("C:/Proyectos/scraper"), 2, "Soriana", "solo_integracion")
         self.assertEqual(mode_labels(2, "Soriana (rotación CP)"), [])
 
     def test_phase2_full_command_captures_once_without_master_write(self):
@@ -118,6 +119,16 @@ class DashboardExecutionTests(unittest.TestCase):
         self.assertIn("test_soriana_cp_rotation.ps1", soriana)
         self.assertIn("-PostalCode all -Category all", soriana)
         self.assertNotIn("test_soriana_manual_phase2.ps1", soriana)
+
+    def test_integration_existing_command_never_runs_scraper(self):
+        root = Path("C:/Proyectos/scraper")
+        command = public_command(root, 2, ALL, "solo_integracion")
+        self.assertIn("integrate_phase2_postal.ps1", command)
+        self.assertNotIn("run_phase2_dashboard_capture", command)
+        self.assertNotIn("test_soriana", command)
+        combined = public_command(root, 2, ALL, "captura_integracion")
+        self.assertIn("run_phase2_dashboard_capture.ps1", combined)
+        self.assertNotIn("SkipIntegration", combined)
 
     def test_cli_commands_are_allowlisted(self):
         base = Path("C:/Proyectos/scraper")
