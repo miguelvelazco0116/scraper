@@ -192,7 +192,7 @@ elif section == "Guía de comandos CLI":
         st.subheader("Previsualizar integración de capturas existentes")
         st.code(f"& .\\scripts\\integrate_existing_phases.ps1 -Phase {phase} -Preview", language="powershell")
     if phase == 5:
-        st.warning("Duero online: nunca se aprueba automáticamente desde el panel. La aprobación exige revisar evidencia y autorizarla por separado.")
+        st.info("Duero: se integran automáticamente los precios públicos de catálogo si las seis categorías cumplen las validaciones. No exige CP, ubicación ni aprobación manual de tienda.")
     st.subheader("Checklist de operador (informativo)")
     st.checkbox("Confirmé la fecha y el master activo", key="check_master")
     st.checkbox("Confirmé Chrome/CDP y contexto de las tiendas", key="check_chrome")
