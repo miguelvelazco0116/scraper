@@ -63,6 +63,21 @@ BACKUP_SOURCE = {
     "Walmart": "walmart_phase3_test.xlsx",
 }
 
+def mode_labels(phase: int, target: str) -> list[str]:
+    """The Streamlit modes for an allowlisted phase/retailer.
+
+    Phase 2 is capture-only until a separate, approved 24-case production
+    integration is available. Never offer legacy Soriana integration here.
+    """
+    if target not in RUNNERS.get(phase, {}):
+        return []
+    if target != ALL or phase == 2:
+        return ["Solo captura"]
+    if phase == 1:
+        return ["Captura + integración"]
+    return ["Solo captura", "Captura + integración"]
+
+
 def now():
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
