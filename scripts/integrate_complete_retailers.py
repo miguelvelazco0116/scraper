@@ -424,9 +424,23 @@ def main():
 
     rows = []
     additions = []
+    # Once 24 Soriana CP cases are certified, legacy six-category sources
+    # may still be generated, but MUST NOT downgrade the active master.
+    soriana_postal_active = (
+        args.phase == 2
+        and is_postal_rotation_summary(existing_summary)
+    )
     for retailer, frame, summary, source, errors in _candidates(
         args.phase, day, approve_duero_online=args.approve_duero_online
     ):
+        if retailer == "Soriana" and soriana_postal_active:
+            rows.append({
+                "retailer": retailer, "result": "PRESERVADO",
+                "products": int(existing_frame["retailer"].astype(str).eq("Soriana").sum()),
+                "reason": "Rotación CP certificada en master; origen legado NO la reemplaza",
+                "source": str(source),
+            })
+            continue
         try:
             if errors:
                 raise ValueError("; ".join(errors))
