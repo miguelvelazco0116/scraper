@@ -76,7 +76,7 @@ def sources(day: str):
 def master(root: Path, day: str):
     frame, cases = sample_day(day)
     target = root/"output"/f"concentrado_productivo_total_{day}.xlsx"
-    target.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
     control = pd.DataFrame([dict(
         capture_date=day, status="CHECKPOINT_VALIDATED",
         phase1_status="COMPLETE", phase2_status="PENDING",
@@ -199,7 +199,11 @@ def test_worker_selects_integration_only_runner_and_does_not_download(tmp_path, 
     (root/"scripts").mkdir()
     (root/"scripts"/"integrate_phase2_postal.ps1").touch()
     file, pointer = master(root, DAY)
+    # The OS gate is Windows-only. Keep real POSIX filesystem semantics
+    # for the synthetic temp master while exercising the allowlisted command.
+    from pathlib import PosixPath
     with patch("dashboard.execution.os.name", "nt"), \
+         patch("dashboard.execution.Path", PosixPath), \
          patch("dashboard.execution.shutil.which", return_value="powershell.exe"):
         spec = prepare_run(root, 2, ALL, "solo_integracion")
     assert spec["runner"] == "integrate_phase2_postal.ps1"
