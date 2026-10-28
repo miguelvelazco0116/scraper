@@ -76,9 +76,6 @@ def _validate_frame(frame: pd.DataFrame, summary: pd.DataFrame, day: str) -> Non
 
 def preview(day: str | None = None) -> dict:
     day = day or datetime.now().astimezone().date().isoformat()
-    # Pilot must have been validated using its own workbook + diagnostics.
-    run_phase6_pilot.validated_manifest()
-    pilot = run_phase6_pilot.validate_capture("farmacias-yza", day)
     pointer_path = CURRENT_MASTER_POINTER
     if not pointer_path.is_file():
         raise ValueError("No existe el puntero al master productivo")
@@ -101,29 +98,70 @@ def preview(day: str | None = None) -> dict:
         raise ValueError("Master con fechas de control o filas distintas del día")
     if "source_phase" not in old_summary:
         raise ValueError("Master sin source_phase")
-    # The previous phases are immutable. A phase-6 re-run may replace only YZA.
+    # The previous phases are immutable. A phase-6 re-run must not overwrite
+    # an already certified retailer, even if its source pilot Excel still exists.
     if old_frame.loc[~old_frame["retailer"].eq(RETAILER)].empty:
         raise ValueError("Master sin retailers anteriores a Fase 6")
-    path = run_phase6_pilot.EXPECTED["farmacias-yza"]["workbook"]
-    new_frame = pd.read_excel(path, sheet_name="Concentrado", dtype={"sku": str, "category_id": str})
-    new_summary = pd.read_excel(path, sheet_name="Resumen", dtype={"category_id": str})
-    _validate_frame(new_frame, new_summary, day)
-    # Prevent silently using a manually altered report as evidence of coverage.
-    if int(pilot["products"]) != len(new_frame) or int(pilot["categories"]) != 2:
-        raise ValueError("Piloto y captura no coinciden")
-    return {
+    base = {
         "capture_date": day, "master": master, "pointer": pointer,
         "old_frame": old_frame, "old_summary": old_summary, "old_control": old_control,
-        "new_frame": new_frame, "new_summary": new_summary,
-        "phase6_rows": len(new_frame),
-        "will_replace_yza_rows": int(old_frame["retailer"].eq(RETAILER).sum()),
         "prior_phases": completed,
+    }
+    existing = old_frame.loc[old_frame["retailer"].eq(RETAILER)].copy()
+    if not existing.empty:
+        cases = old_summary.loc[
+            old_summary["retailer"].eq(RETAILER)
+            & old_summary["source_phase"].astype(str).eq("FASE 6")
+        ].copy()
+        # Master contains COMPLETE, whereas the pilot uses source SUCCESS.
+        pilot_cases = cases.copy()
+        pilot_cases["status"] = "SUCCESS"
+        _validate_frame(existing, pilot_cases, day)
+        if 6 not in completed:
+            raise ValueError("YZA tiene filas en master pero Fase 6 no figura COMPLETE")
+        return {
+            **base, "state": "YA_EXISTE_EN_MASTER",
+            "phase6_rows": len(existing), "will_replace_yza_rows": 0,
+            "new_frame": None, "new_summary": None,
+        }
+    path = run_phase6_pilot.EXPECTED["farmacias-yza"]["workbook"]
+    if not path.is_file():
+        return {
+            **base, "state": "SIN_CAPTURA", "phase6_rows": 0,
+            "will_replace_yza_rows": 0, "new_frame": None, "new_summary": None,
+        }
+    try:
+        # Pilot must have been validated using its dated workbook + diagnostics.
+        run_phase6_pilot.validated_manifest()
+        pilot = run_phase6_pilot.validate_capture("farmacias-yza", day)
+        new_frame = pd.read_excel(path, sheet_name="Concentrado", dtype={"sku": str, "category_id": str})
+        new_summary = pd.read_excel(path, sheet_name="Resumen", dtype={"category_id": str})
+        _validate_frame(new_frame, new_summary, day)
+        if int(pilot["products"]) != len(new_frame) or int(pilot["categories"]) != 2:
+            raise ValueError("Piloto y captura no coinciden")
+    except (ValueError, KeyError, OSError, TypeError) as exc:
+        return {
+            **base, "state": "CAPTURA_NO_VALIDADA", "detail": str(exc),
+            "phase6_rows": 0, "will_replace_yza_rows": 0,
+            "new_frame": None, "new_summary": None,
+        }
+    return {
+        **base, "state": "LISTO_PARA_INTEGRAR",
+        "new_frame": new_frame, "new_summary": new_summary,
+        "phase6_rows": len(new_frame), "will_replace_yza_rows": 0,
     }
 
 
 def commit_plan(plan: dict) -> dict:
     """Atomic workbook write, backups and pointer rollback on failure."""
     day = plan["capture_date"]
+    if plan.get("state") != "LISTO_PARA_INTEGRAR":
+        return {
+            "status": plan.get("state", "SIN_CAMBIOS"), "phase": PHASE,
+            "retailer": RETAILER, "capture_date": day,
+            "rows": plan["phase6_rows"], "master_modified": False,
+            "message": "Sin nuevos registros YZA; master SIN CAMBIOS.",
+        }
     master: Path = plan["master"]
     old_frame, old_summary, control = plan["old_frame"], plan["old_summary"], plan["old_control"].copy()
     new_frame, new_summary = plan["new_frame"], plan["new_summary"]
@@ -168,6 +206,15 @@ def commit_plan(plan: dict) -> dict:
             master_path=master, capture_date=day, completed_phases=phases,
             accepted_partial_phases=plan["pointer"].get("accepted_partial_phases", []),
         )
+        from scripts.audit_master_phases import inventory
+        audited, retailers, _, _ = inventory(master)
+        row = audited.loc[audited["fase"].eq(6)]
+        part = retailers.loc[retailers["fase"].eq(6) & retailers["retailer"].eq(RETAILER)]
+        if (len(row) != 1 or row.iloc[0]["estado_calculado"] != "COMPLETE"
+            or not bool(row.iloc[0]["control_coincide"])
+            or len(part) != 1 or part.iloc[0]["estado"] != "INTEGRADO_COMPLETE"
+            or int(part.iloc[0]["filas_master"]) != plan["phase6_rows"]):
+            raise ValueError("Auditoría posterior YZA no satisfactoria")
     except Exception:
         # Preserve the original failure if recovery also fails.
         shutil.copy2(master_backup, master)
@@ -196,10 +243,11 @@ def main() -> int:
         plan = preview()
         if args.preview:
             print(json.dumps({
-                "status": "VALIDATED_PREVIEW", "phase": PHASE,
-                "master": str(plan["master"]), "rows": plan["phase6_rows"],
-                "replaced": plan["will_replace_yza_rows"],
+                "status": plan["state"], "phase": PHASE,
+                "retailer": RETAILER, "master": str(plan["master"]),
+                "rows": plan["phase6_rows"], "replaced": plan["will_replace_yza_rows"],
                 "previous_phases_complete": plan["prior_phases"],
+                "detail": plan.get("detail", ""),
                 "master_modified": False,
             }, ensure_ascii=False, indent=2))
             return 0
