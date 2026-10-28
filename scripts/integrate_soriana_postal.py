@@ -113,13 +113,15 @@ def prepare_plan(root: Path, day: str) -> dict:
         datetime.strptime(day, "%Y-%m-%d")
     except ValueError as exc:
         raise ValueError("Fecha inválida; usa YYYY-MM-DD") from exc
-    incoming, cases, source_hashes = _validate_sources(root, day)
     master, pointer_path, checkpoint = _master_paths(root, day)
     if not pointer_path.is_file():
         raise ValueError("No existe puntero productivo: primero genera el master de la fecha")
     pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
     if pointer.get("capture_date") != day:
         raise ValueError("Master activo de otra fecha; prohibido mezclar capturas")
+    # Fail quickly on mismatched days before reading potentially large Excel
+    # sources; preview should tell the operator the true blocker.
+    incoming, cases, source_hashes = _validate_sources(root, day)
     raw = str(pointer.get("master") or "").strip()
     if not raw:
         raise ValueError("Puntero productivo sin ruta de master")
@@ -164,10 +166,16 @@ def prepare_plan(root: Path, day: str) -> dict:
         postal_text(combined["postal_code"]),
     )
     combined_summary = pd.concat([kept_summary, cases], ignore_index=True, sort=False)
-    if not combined.loc[~combined["retailer"].astype(str).eq(RETAILER)].reset_index(drop=True).equals(
-        non_soriana.reset_index(drop=True)
-    ):
-        raise ValueError("Intento de alterar filas de otros retailers")
+    # pandas concat can upcast otherwise unchanged numeric/string columns.
+    # Compare actual values, not the incidental resulting DataFrame dtypes.
+    try:
+        pd.testing.assert_frame_equal(
+            combined.loc[~combined["retailer"].astype(str).eq(RETAILER)].reset_index(drop=True),
+            non_soriana.reset_index(drop=True),
+            check_dtype=False, check_exact=True,
+        )
+    except AssertionError as exc:
+        raise ValueError("Intento de alterar filas de otros retailers") from exc
     if postal_issues(combined, combined_summary, day):
         raise ValueError("La partición Soriana agregada no certifica los 24 casos")
     if len(combined) != len(non_soriana) + len(incoming):
