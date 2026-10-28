@@ -18,6 +18,7 @@ import pandas as pd
 from main import COLUMNS
 from scraper.io_utils import atomic_output_path
 from scraper.quality_rules import meets_rate, valid_after_errors
+from scraper.soriana_postal_contract import is_postal_rotation_summary
 
 CHECKPOINT_DIR = ROOT / "output" / "checkpoints_validos"
 CURRENT_MASTER_POINTER = CHECKPOINT_DIR / "current_master.json"
@@ -1907,6 +1908,14 @@ def main() -> int:
         )
         if existing_frame.empty or existing_control.empty:
             print("ERROR: primero integra una Fase 1 válida al concentrado.")
+            return 2
+        if phase == 2 and is_postal_rotation_summary(existing_summary):
+            print(
+                "ERROR: el master ya contiene la rotación postal Soriana "
+                "de 24 CP/categorías. El integrador legado de Fase 2 no "
+                "puede sobrescribirla con 6 categorías. Usa el "
+                "integrador postal protegido."
+            )
             return 2
         completed_raw = str(
             existing_control.iloc[0].get("completed_phases") or ""
