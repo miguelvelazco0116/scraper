@@ -112,7 +112,9 @@ def test_full_phase2_script_runs_each_retailer_only_once(tmp_path):
     assert source.count('& $fgScript -Category all') == 1
     assert source.count('& $sorianaScript -PostalCode all -Category all') == 1
     assert source.count('& $PythonExe ".\\scripts\\audit_soriana_cp_rotation.py"') == 1
-    assert 'if (-not $SkipIntegration)' in source
+    assert 'if ($SkipIntegration)' in source
+    assert 'integrate_phase2_postal.ps1' in source
+    assert source.count('integrate_phase2_postal.ps1') == 1
     assert 'Master productivo: SIN CAMBIOS' in source
     # Avoid accidentally calling the old non-postal Soriana inside the full phase.
     assert 'test_soriana_manual_phase2.ps1' not in source
