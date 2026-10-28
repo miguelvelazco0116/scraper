@@ -211,3 +211,40 @@ def test_worker_selects_integration_only_runner_and_does_not_download(tmp_path, 
     assert "-PostalCode" not in spec["command"]
     assert "-SkipIntegration" not in spec["command"]
     assert "integrate_phase2_postal.ps1" in public_command(root, 2, ALL, "solo_integracion")
+
+
+def test_read_actual_guadalajara_workbook_contract(tmp_path):
+    """Exercise actual Excel reader and existing FG validation, not a mock."""
+    from scripts.run_phase2_production import _enabled_category_ids
+    categories = _enabled_category_ids("Farmacias Guadalajara")
+    assert len(categories) == 4
+    path = tmp_path/"output"/"farmacias_guadalajara_phase2_test.xlsx"
+    path.parent.mkdir(parents=True)
+    products = []
+    results = []
+    for i, cat in enumerate(categories):
+        products.append(dict(
+            retailer="Farmacias Guadalajara", category_id=cat,
+            scrape_timestamp=DAY+"T11:00:00", product=f"Producto real {i}",
+            sku=f"FG-{i}", url=f"https://farmaciasguadalajara.com/{i}",
+            price_current=30,
+        ))
+        results.append(dict(
+            retailer="Farmacias Guadalajara", category_id=cat,
+            status="SUCCESS", target_products=1, return_code=0,
+            products=1, product_links=1,
+        ))
+    with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        pd.DataFrame(products).reindex(columns=COLUMNS).to_excel(
+            writer, sheet_name="Concentrado", index=False
+        )
+        pd.DataFrame(results).to_excel(writer, sheet_name="Resumen", index=False)
+    fg, cases, hashes = integration.read_fg(tmp_path, DAY)
+    assert len(fg) == 4
+    assert len(cases) == 4
+    assert cases["status"].eq("COMPLETE").all()
+    assert cases["source_status"].eq("SUCCESS").all()
+    assert str(path) in hashes
+    # A capture from yesterday is never admitted into today's master.
+    with pytest.raises(ValueError, match="Fecha|fecha|fechas"):
+        integration.read_fg(tmp_path, (datetime.now().astimezone().date() - timedelta(days=1)).isoformat())
