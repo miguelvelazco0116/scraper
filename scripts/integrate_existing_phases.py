@@ -70,6 +70,14 @@ def source_candidates(phase: int, capture_date: str):
     return ready, pending, hashes
 
 
+def classify_pending(reason: str) -> str:
+    """Separate missing captures from present but invalid captures."""
+    text = reason.casefold()
+    missing = ("sin fuente", "archivo no generado", "origen no disponible",
+               "no existe", "no encontrado", "falta archivo")
+    return "SIN_CAPTURA" if any(word in text for word in missing) else "CAPTURA_NO_VALIDADA"
+
+
 def prepare(root: Path, phase: int, capture_date: str) -> dict:
     if phase not in PHASES:
         raise ValueError("Esta integración cubre únicamente las fases 1, 3, 4 y 5")
@@ -126,18 +134,57 @@ def prepare(root: Path, phase: int, capture_date: str) -> dict:
             raise ValueError("El master tiene observaciones de auditoría: "
                              + "; ".join(facts["warnings"]))
 
-    ready, pending, hashes = source_candidates(phase, capture_date)
-    if not ready:
-        raise ValueError(
-            f"Fase {phase}: ningún retailer con captura COMPLETE del día. "
-            + "; ".join(f"{k}: {v}" for k, v in pending.items())
-        )
+    expected = incremental.EXPECTED[phase]
+    # A retailer is an indivisible published partition. Never overwrite one
+    # merely because the same-day capture workbook happens to still exist.
+    existing = {}
+    if old_frame is not None:
+        counts = old_frame["retailer"].astype(str).value_counts()
+        existing = {name: int(counts[name]) for name in expected if name in counts}
+
+    if len(existing) == len(expected):
+        found, pending, hashes = {}, {}, {}
+    else:
+        found, pending, hashes = source_candidates(phase, capture_date)
+
+    ready = {name: int(found[name]) for name in expected
+             if name not in existing and name in found}
+    source_hashes = hashes if ready else {}
+    if ready and set(ready) != set(found):
+        # Source files can be shared by retailers; hashes of all validated
+        # sources are conservative and reject mid-run changes.
+        source_hashes = hashes
+
+    retailers = {}
+    for name in expected:
+        if name in existing:
+            retailers[name] = {
+                "status": "YA_EXISTE_EN_MASTER", "products": existing[name],
+                "detail": "Retailer ya integrado; no se modifica ni se duplica.",
+            }
+        elif name in ready:
+            retailers[name] = {
+                "status": "LISTO_PARA_INTEGRAR", "products": ready[name],
+                "detail": "Captura del día COMPLETE y validada.",
+            }
+        else:
+            reason = pending.get(name, "No hay captura validada del día")
+            retailers[name] = {
+                "status": classify_pending(reason), "products": 0, "detail": reason,
+            }
+    for name, item in retailers.items():
+        print(f"RETAILER {name} | {item['status']} | "
+              f"{item['products']} productos | {item['detail']}", flush=True)
+
     return {
         "phase": phase, "day": capture_date,
         "master": master, "pointer": pointer_file,
         "master_sha": checksum(master), "pointer_sha": checksum(pointer_file),
-        "source_hashes": hashes,
-        "ready": ready, "pending": pending,
+        "source_hashes": source_hashes,
+        "ready": ready, "already": existing,
+        "pending": {name: retailers[name]["detail"] for name in expected
+                    if retailers[name]["status"] in {"SIN_CAPTURA", "CAPTURA_NO_VALIDADA"}},
+        "retailers": retailers,
         "original_frame": old_frame, "original_summary": old_summary,
     }
 
@@ -147,7 +194,12 @@ def public_report(plan: dict, status: str, *, backup: str | None = None):
         "status": status, "phase": plan["phase"],
         "capture_date": plan["day"],
         "sources_ready": plan["ready"],
+        "sources_already_in_master": plan["already"],
         "sources_pending": plan["pending"],
+        "retailers": plan["retailers"],
+        "message": ("No hay retailers nuevos para integrar; master SIN CAMBIOS."
+                    if not plan["ready"] else
+                    "Solo se agregarán los retailers faltantes y certificados."),
         "master": str(plan["master"]),
         "master_modified": status == "COMMITTED",
         "backup": backup,
@@ -168,6 +220,9 @@ def check_unchanged_partitions(before: pd.DataFrame | None,
 
 
 def commit(root: Path, plan: dict) -> dict:
+    if not plan["ready"]:
+        # Pure no-op: no backup, new master, pointer or Excel rewrite.
+        return public_report(plan, "SIN_CAMBIOS")
     if today() != plan["day"]:
         raise ValueError("Cambió la fecha local; no integrar un día diferente")
     master, pointer = plan["master"], plan["pointer"]
@@ -188,11 +243,11 @@ def commit(root: Path, plan: dict) -> dict:
     if pointer.is_file():
         shutil.copy2(pointer, before_pointer)
     try:
-        process = subprocess.run(
-            [sys.executable, str(root / "scripts" / "integrate_complete_retailers.py"),
-             "--phase", str(plan["phase"])],
-            cwd=root, check=False,
-        )
+        command = [sys.executable, str(root / "scripts" / "integrate_complete_retailers.py"),
+                   "--phase", str(plan["phase"])]
+        if set(plan["ready"]) != set(incremental.EXPECTED[plan["phase"]]):
+            command.extend(["--only-retailers", *plan["ready"]])
+        process = subprocess.run(command, cwd=root, check=False)
         if process.returncode != 0:
             raise ValueError(f"El integrador incremental terminó con código {process.returncode}")
         if not master.is_file() or not pointer.is_file():
