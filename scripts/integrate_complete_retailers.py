@@ -182,7 +182,7 @@ def _phase2_candidates(day: str):
         try:
             frame, source_summary, control = _read(path)
             _date_check(frame, control, day)
-            expected_ids = _enabled_category_ids(retailer)
+            expected_ids = _enabled_category_ids("farmacias-guadalajara" if retailer == "Farmacias Guadalajara" else "soriana")
             if len(expected_ids) != EXPECTED[2][retailer]:
                 raise ValueError("Configuración de categorías inesperada")
             if set(frame["retailer"].dropna().astype(str)) != {retailer}:
