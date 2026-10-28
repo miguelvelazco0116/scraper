@@ -393,6 +393,10 @@ def main():
     parser.add_argument("--phase", type=int, choices=range(1, 6), required=True)
     parser.add_argument("--preview", action="store_true", help="No modificar master ni puntero.")
     parser.add_argument(
+        "--only-retailers", nargs="+", default=None,
+        help="Integrar únicamente estos retailers de la fase (validación por retailer).",
+    )
+    parser.add_argument(
         "--approve-duero-online", action="store_true",
         help=(
             "Aprueba expresamente catálogo público online Duero para Fase 5 "
@@ -402,6 +406,11 @@ def main():
     args = parser.parse_args()
     if args.approve_duero_online and args.phase != 5:
         parser.error("--approve-duero-online solo aplica a Fase 5")
+    if args.only_retailers:
+        invalid = set(args.only_retailers) - set(EXPECTED[args.phase])
+        if invalid or len(args.only_retailers) != len(set(args.only_retailers)):
+            parser.error("Lista de retailers inválida o duplicada para la fase: "
+                         + ", ".join(sorted(invalid)))
     day = datetime.now().astimezone().date().isoformat()
     master = _master_path_for_date(day)
     pointer = _read_current_master_pointer()
@@ -433,6 +442,8 @@ def main():
     for retailer, frame, summary, source, errors in _candidates(
         args.phase, day, approve_duero_online=args.approve_duero_online
     ):
+        if args.only_retailers is not None and retailer not in args.only_retailers:
+            continue
         if retailer == "Soriana" and soriana_postal_active:
             rows.append({
                 "retailer": retailer, "result": "PRESERVADO",
