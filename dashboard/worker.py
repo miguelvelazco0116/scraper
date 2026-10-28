@@ -75,7 +75,7 @@ def backup_validated_inputs(root: Path, run_id: str, target: str, mode: str):
     source_file = BACKUP_SOURCE.get(target)
     if source_file:
         paths.append(root / "output" / source_file)
-    if mode == "captura_integracion":
+    if mode in {"captura_integracion", "solo_integracion"}:
         pointer = active_pointer(root)
         if pointer.get("master"):
             paths.append(Path(pointer["master"]))
@@ -174,7 +174,7 @@ def main(run_id):
                 if job["mode"] == "solo_captura":
                     if master_before != master_after or hash_before != hash_after or master_date_before != master_date_after:
                         integrity_warning = "ALERTA: cambió el master durante un job de solo captura. Revisar concurrencia externa."
-                if not cancelled and code == 0 and job["mode"] == "captura_integracion":
+                if not cancelled and code == 0 and job["mode"] in {"captura_integracion", "solo_integracion"}:
                     log.write(b"\n===== AUDITORIA POST-EJECUCION (SOLO LECTURA) =====\n")
                     log.flush()
                     audit = subprocess.run(
