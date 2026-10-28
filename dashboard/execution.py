@@ -296,6 +296,10 @@ def prepare_run(root: Path, phase: int, target: str, mode: str):
             raise ValueError("Las fases previas todavía no aparecen completas en el master de hoy.")
     args = [ps, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
             "-File", str(runner)]
+    if mode == "solo_integracion":
+        # Do not rely on $PSScriptRoot during PowerShell's param binding.
+        # The directory was already validated by this trusted allowlisted launcher.
+        args.extend(["-ProjectDir", str(root.resolve())])
     if full and mode == "solo_captura":
         if phase not in (2, 3, 4, 5, 6):
             raise ValueError("El runner no implementa -SkipIntegration.")
