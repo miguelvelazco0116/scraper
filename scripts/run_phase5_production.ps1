@@ -73,7 +73,7 @@ try {
     Write-Host "Master    : $($pointer.master)"
     Write-Host "Retailers : Similares (2) + HEB (2) + Sam's Club (3) + Duero (6)"
     Write-Host "Integrar  : $(if ($SkipIntegration) { 'NO' } else { 'SI, SOLO RETAILERS VERIFICADOS' })"
-    Write-Host "Duero     : sin aprobacion de catalogo online / sin certificacion CP"
+    Write-Host "Duero     : precios del catalogo publico; no consulta CP ni ubicacion"
     Write-Host "Log       : $log"
     Write-Host ""
 
@@ -136,18 +136,10 @@ try {
     Write-Host ""
 
     Write-Host "========================================================================"
-    Write-Host "[5/8] AUDITORIAS SECUNDARIAS DUERO"
+    Write-Host "[5/8] DUERO: PRECIOS PUBLICOS DEL CATALOGO"
     Write-Host "========================================================================"
-    if ($codes["duero"] -eq 0) {
-        & $PythonExe ".\scripts\audit_duero_phase5.py"
-        $codes["duero_packaging"] = $LASTEXITCODE
-        & $PythonExe ".\scripts\audit_duero_storefront.py" --delay-seconds $DueroDelaySeconds
-        $codes["duero_storefront"] = $LASTEXITCODE
-    } else {
-        $codes["duero_packaging"] = 2
-        $codes["duero_storefront"] = 2
-        Write-Warning "Auditorias Duero no ejecutadas: la captura no paso los controles de paginacion."
-    }
+    Write-Host "No se verifica ubicacion, tienda o CP. Las seis categorias, SKU, URLs, paginacion y precios positivos se validan en la integracion."
+    Write-Host "No se necesitan auditorias de ubicacion, empaques ni cotejo HTML externo."
 
     Write-Host ""
     Write-Host "========================================================================"
@@ -167,8 +159,7 @@ try {
         $codes["integration"] = 2
         Write-Warning "No se integra: la vista previa devolvio un error."
     } else {
-        # No --approve-duero-online: never silently attest postal prices,
-        # store context, or packaging based on public Shopify data alone.
+        # Integrate public catalogue prices with no location/store/CP gate.
         & $PythonExe ".\scripts\integrate_complete_retailers.py" --phase 5
         $codes["integration"] = $LASTEXITCODE
     }
@@ -189,11 +180,11 @@ try {
     Write-Host "========================================================================"
     Write-Host "RESUMEN EJECUCION FASE 5"
     Write-Host "========================================================================"
-    foreach ($key in @("similares", "heb", "sams", "duero", "duero_packaging", "duero_storefront", "preview", "integration", "audit")) {
+    foreach ($key in @("similares", "heb", "sams", "duero", "preview", "integration", "audit")) {
         Write-Host ("{0,-19}: {1}" -f $key, $codes[$key])
     }
     Write-Host "FASE 5                 : $(if ($SkipIntegration) { 'CAPTURA / SIN INTEGRAR' } elseif ($phase5Complete) { 'COMPLETE' } else { 'PARTIAL_VALIDATED / PENDING' })"
-    Write-Host "DUERO ONLINE           : REQUIERE APROBACION EXPLICITA SI SOLO SE CERTIFICA CATALOGO PUBLICO"
+    Write-Host "DUERO ONLINE           : PRECIOS PUBLICOS; SIN VALIDACION DE UBICACION NI CP"
     Write-Host "Log                    : $log"
 } finally {
     try { Stop-Transcript | Out-Null } catch {}
@@ -203,7 +194,7 @@ try {
 # Fase 5 cannot become COMPLETE without integration, by design.
 if ($SkipIntegration) {
     $captureOk = $true
-    foreach ($key in @("similares", "heb", "sams", "duero", "duero_packaging", "duero_storefront", "preview", "audit")) {
+    foreach ($key in @("similares", "heb", "sams", "duero", "preview", "audit")) {
         if ($codes[$key] -ne 0) { $captureOk = $false }
     }
     if ($captureOk) {
