@@ -100,30 +100,62 @@ def prepare_plan(root: Path, day: str) -> dict:
         or not bool(phase1.iloc[0]["control_coincide"])):
         raise ValueError("Fase 1 requiere auditoría COMPLETE antes de integrar Fase 2")
 
-    additions = {}
-    failures = {}
-    hashes = {}
-    try:
-        frame, cases, fg_hashes = read_fg(root, day)
-        additions[FG] = (frame, cases)
-        hashes.update(fg_hashes)
-    except (ValueError, KeyError, OSError, TypeError) as exc:
-        failures[FG] = str(exc)
+    additions, failures, already, hashes, retailers = {}, {}, {}, {}, {}
+    fg_exists = old_frame["retailer"].astype(str).eq(FG)
+    if fg_exists.any():
+        already[FG] = int(fg_exists.sum())
+        retailers[FG] = {"status": "YA_EXISTE_EN_MASTER",
+                         "products": already[FG], "detail": "Ya integrado, sin cambios."}
+    else:
+        try:
+            frame, cases, fg_hashes = read_fg(root, day)
+            additions[FG] = (frame, cases)
+            hashes.update(fg_hashes)
+            retailers[FG] = {"status": "LISTO_PARA_INTEGRAR",
+                             "products": len(frame), "detail": "Captura COMPLETE del día."}
+        except (ValueError, KeyError, OSError, TypeError) as exc:
+            failures[FG] = str(exc)
 
-    try:
-        frame, cases, soriana_hashes = _validate_sources(root, day)
-        if postal_issues(frame, cases, day):
-            raise ValueError("La rotación postal no cumple los 24 casos")
-        additions[RETAILER] = (frame, cases)
-        hashes.update(soriana_hashes)
-    except (ValueError, KeyError, OSError, TypeError) as exc:
-        failures[RETAILER] = str(exc)
+    soriana_exists = old_frame["retailer"].astype(str).eq(RETAILER)
+    from scraper.soriana_postal_contract import is_postal_rotation_summary
+    soriana_certified = (soriana_exists.any()
+                         and is_postal_rotation_summary(old_summary)
+                         and not postal_issues(old_frame, old_summary, day))
+    if soriana_certified:
+        already[RETAILER] = int(soriana_exists.sum())
+        retailers[RETAILER] = {
+            "status": "YA_EXISTE_EN_MASTER", "products": already[RETAILER],
+            "detail": "24 casos postales certificados y ya integrados.",
+        }
+    else:
+        try:
+            frame, cases, soriana_hashes = _validate_sources(root, day)
+            issues = postal_issues(frame, cases, day)
+            if issues:
+                raise ValueError("Rotación postal no validada: " + "; ".join(issues))
+            additions[RETAILER] = (frame, cases)
+            hashes.update(soriana_hashes)
+            retailers[RETAILER] = {
+                "status": ("LISTO_PARA_ACTUALIZAR" if soriana_exists.any()
+                           else "LISTO_PARA_INTEGRAR"),
+                "products": len(frame),
+                "detail": ("Sustituirá los 6 casos legacy por 24 CP/categoría."
+                           if soriana_exists.any() else "24 casos postales COMPLETE."),
+            }
+        except (ValueError, KeyError, OSError, TypeError) as exc:
+            failures[RETAILER] = str(exc)
 
-    if not additions:
-        raise ValueError(
-            "Ningún retailer de Fase 2 está validado hoy: "
-            + "; ".join(f"{k}: {v}" for k, v in failures.items())
-        )
+    for name in (FG, RETAILER):
+        if name in failures:
+            reason = failures[name]
+            missing = ("falta excel", "no existe", "no encontrado",
+                       "no se encontraron", "archivo no generado", "no hay")
+            state = ("SIN_CAPTURA" if any(t in reason.casefold() for t in missing)
+                     else "CAPTURA_NO_VALIDADA")
+            retailers[name] = {"status": state, "products": 0, "detail": reason}
+        item = retailers[name]
+        print(f"RETAILER {name} | {item['status']} | "
+              f"{item['products']} productos | {item['detail']}", flush=True)
 
     combined = old_frame.copy()
     summary = old_summary.copy()
@@ -192,7 +224,8 @@ def prepare_plan(root: Path, day: str) -> dict:
         day=day, master=master, pointer_path=pointer_path,
         hashes=hashes, master_hash=_hash(master), pointer_hash=_hash(pointer_path),
         before_rows=len(old_frame), after_rows=len(combined), additions=additions,
-        failures=failures, frame=combined, summary=summary, control=control,
+        already=already, failures=failures, retailers=retailers,
+        frame=combined, summary=summary, control=control,
         completed=completed, partial=accepted, states=states,
     )
 
@@ -203,7 +236,12 @@ def report(plan: dict, status: str, *, backup: str | None = None) -> dict:
         "master": str(plan["master"]),
         "rows_before": plan["before_rows"], "rows_after": plan["after_rows"],
         "integrated_sources": {name: len(data[0]) for name, data in plan["additions"].items()},
+        "already_in_master": plan["already"],
         "pending_sources": plan["failures"],
+        "retailers": plan["retailers"],
+        "message": ("No hay capturas nuevas; master SIN CAMBIOS."
+                    if not plan["additions"] else
+                    "Solo se integrarán retailers faltantes o la rotación postal pendiente."),
         "phase2_status": plan["states"][2],
         "completed_phases": plan["completed"],
         "master_modified": status == "COMMITTED",
@@ -227,6 +265,8 @@ def write_pointer(pointer_path: Path, master: Path, day: str,
 def commit(root: Path, plan: dict) -> dict:
     if plan["day"] != datetime.now().astimezone().date().isoformat():
         raise ValueError("Cambió el día local; prohibido integrar capturas históricas")
+    if not plan["additions"]:
+        return report(plan, "SIN_CAMBIOS")
     master, pointer_path = plan["master"], plan["pointer_path"]
     if _hash(master) != plan["master_hash"] or _hash(pointer_path) != plan["pointer_hash"]:
         raise ValueError("Master o puntero cambió durante la validación")
