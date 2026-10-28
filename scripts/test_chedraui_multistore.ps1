@@ -6,11 +6,16 @@ param(
     [ValidateRange(0, 600)]
     [int]$CategoryDelaySeconds = 15,
     [switch]$Headed,
-    [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
+    [string]$ProjectDir = "",
     [string]$PythonExe = ""
 )
 
 $ErrorActionPreference = "Stop"
+if ([string]::IsNullOrWhiteSpace($ProjectDir)) {
+    $ScriptFile = $MyInvocation.MyCommand.Path
+    if ([string]::IsNullOrWhiteSpace($ScriptFile)) { throw "No se pudo determinar la ruta del proyecto. Especifica -ProjectDir." }
+    $ProjectDir = Split-Path -Parent (Split-Path -Parent $ScriptFile)
+}
 Set-Location $ProjectDir
 
 $stores = @(

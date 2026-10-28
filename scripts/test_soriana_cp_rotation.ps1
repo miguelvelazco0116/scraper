@@ -1,5 +1,5 @@
 param(
-    [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
+    [string]$ProjectDir = "",
     [string]$PythonExe = "",
     [ValidateSet("all","83420","44220","54030","97245")][string]$PostalCode = "all",
     [string]$Category = "cuidado-bucal",
@@ -8,6 +8,14 @@ param(
     [switch]$DryRun
 )
 $ErrorActionPreference = "Stop"
+# PowerShell script variables are not guaranteed during param default evaluation.
+if ([string]::IsNullOrWhiteSpace($ProjectDir)) {
+    $ScriptFile = $MyInvocation.MyCommand.Path
+    if ([string]::IsNullOrWhiteSpace($ScriptFile)) {
+        throw "No se pudo determinar la ruta del proyecto. Especifica -ProjectDir."
+    }
+    $ProjectDir = Split-Path -Parent (Split-Path -Parent $ScriptFile)
+}
 Set-Location $ProjectDir
 
 if (-not $PythonExe -and $env:VIRTUAL_ENV) {

@@ -1,11 +1,21 @@
 param(
-    [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
+    [string]$ProjectDir = "",
     [string]$PythonExe = "",
     [switch]$SkipIntegration,
     [switch]$DryRun
 )
 
 $ErrorActionPreference = "Stop"
+# Resolve the script directory only AFTER PowerShell has bound parameters.
+# $PSScriptRoot can be empty inside default parameter expressions.
+if ([string]::IsNullOrWhiteSpace($ProjectDir)) {
+    $ScriptFile = $MyInvocation.MyCommand.Path
+    if ([string]::IsNullOrWhiteSpace($ScriptFile)) {
+        throw "No se pudo determinar la ruta del proyecto. Especifica -ProjectDir."
+    }
+    $ScriptFolder = Split-Path -Parent $ScriptFile
+    $ProjectDir = Split-Path -Parent $ScriptFolder
+}
 Set-Location $ProjectDir
 
 # This is the ONLY "Todas las tiendas" execution path in Streamlit Fase 2.

@@ -5,11 +5,16 @@ param(
     [ValidateSet("", "Bodega Aurrera", "Walmart", "Farmacias San Pablo", "Farmacias Benavides", "Farmacias Similares", "HEB", "Sam's Club", "Mayorista Duero")]
     [string]$Retailer = "",
     [switch]$AllowPartialPrevious,
-    [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
+    [string]$ProjectDir = "",
     [string]$PythonExe = ""
 )
 
 $ErrorActionPreference = "Stop"
+if ([string]::IsNullOrWhiteSpace($ProjectDir)) {
+    $ScriptFile = $MyInvocation.MyCommand.Path
+    if ([string]::IsNullOrWhiteSpace($ScriptFile)) { throw "No se pudo determinar la ruta del proyecto. Especifica -ProjectDir." }
+    $ProjectDir = Split-Path -Parent (Split-Path -Parent $ScriptFile)
+}
 Set-Location $ProjectDir
 
 if ([string]::IsNullOrWhiteSpace($PythonExe) -and $env:VIRTUAL_ENV) {

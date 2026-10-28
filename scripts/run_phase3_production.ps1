@@ -1,11 +1,19 @@
 param(
-    [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
+    [string]$ProjectDir = "",
     [string]$PythonExe = "",
     [string]$CdpUrl = "",
     [switch]$SkipIntegration
 )
 
 $ErrorActionPreference = "Stop"
+# PowerShell script variables are not guaranteed during param default evaluation.
+if ([string]::IsNullOrWhiteSpace($ProjectDir)) {
+    $ScriptFile = $MyInvocation.MyCommand.Path
+    if ([string]::IsNullOrWhiteSpace($ScriptFile)) {
+        throw "No se pudo determinar la ruta del proyecto. Especifica -ProjectDir."
+    }
+    $ProjectDir = Split-Path -Parent (Split-Path -Parent $ScriptFile)
+}
 Set-Location $ProjectDir
 
 $LogDir = Join-Path $ProjectDir "diagnostics\phase3_production"
