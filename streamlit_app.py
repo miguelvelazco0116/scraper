@@ -153,7 +153,7 @@ elif section == "Nueva ejecución":
     render(ROOT)
 
 elif section == "Guía de comandos CLI":
-    from integrate_complete_retailers import EXPECTED
+    from scripts.audit_master_phases import EXPECTED
     st.header("Guía de comandos CLI")
     st.info("Estos comandos siguen disponibles. Para lanzar procesos desde la interfaz utiliza **Nueva ejecución**.")
     a, b = st.columns([1, 2])
