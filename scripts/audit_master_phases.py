@@ -14,8 +14,14 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+SCRIPTS = Path(__file__).resolve().parent
+# This file is used both as `python scripts/audit_master_phases.py` and as
+# `from scripts.audit_master_phases import inventory` from tests/other tools.
+# Its legacy sibling imports are unqualified, so make the sibling directory
+# resolvable in both entrypoints, irrespective of pytest collection order.
+for directory in (ROOT, SCRIPTS):
+    if str(directory) not in sys.path:
+        sys.path.insert(0, str(directory))
 
 from scraper.soriana_postal_contract import (
     RETAILER as POSTAL_RETAILER, PHASE as POSTAL_PHASE,
