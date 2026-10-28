@@ -90,8 +90,10 @@ class DashboardExecutionTests(unittest.TestCase):
 
     def test_retailers_all_thirteen_are_represented(self):
         self.assertEqual(len(RUNNERS), 5)
-        self.assertEqual(sum(len(row) - 1 for row in RUNNERS.values()), 14)
-        self.assertEqual(len(set(name for row in RUNNERS.values() for name in row if name != ALL)), 14)
+        self.assertEqual(sum(len(row) - 1 for row in RUNNERS.values()), 14)  # 13 retailers plus one pilot
+        productive = {name for row in RUNNERS.values() for name in row
+                      if name not in (ALL, "Soriana (rotación CP)")}
+        self.assertEqual(len(productive), 13)
 
     def test_cli_commands_are_allowlisted(self):
         base = Path("C:/Proyectos/scraper")
