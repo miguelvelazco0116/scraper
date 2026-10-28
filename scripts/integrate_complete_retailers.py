@@ -33,11 +33,7 @@ from scraper.quality_rules import meets_rate
 from scraper.soriana_postal_contract import (
     effective_soriana_cases, is_postal_rotation_summary, postal_issues,
 )
-from duero_online_integration_evidence import (
-    validate_duero_online_evidence,
-    ONLINE_SCOPE,
-    MANUAL_DELIVERY_CP,
-)
+from duero_online_integration_evidence import ONLINE_SCOPE
 
 EXPECTED = {
     1: {"Farmacias del Ahorro": 6, "Ibarra Mayoreo": 4, "Chedraui": 20},
@@ -229,6 +225,57 @@ def _phase3_candidates(day: str):
             yield retailer, pd.DataFrame(), pd.DataFrame(), path, [str(exc)]
 
 
+def _validate_duero_public_prices(frame: pd.DataFrame, summary: pd.DataFrame) -> None:
+    """Certify Duero's PUBLIC catalogue prices, never a location or local stock.
+
+    No postal-code, store-location, unit-packaging, manual approval, or
+    storefront HTML check is required. Six configured categories, full API
+    pagination and positive item prices are still mandatory.
+    """
+    categories = set(EXPECTED_DUERO_CATEGORIES)
+    required = {"category_id", "status", "products", "pagination_complete",
+                "pagination_verified", "independent_match", "blocked_detected"}
+    missing = required - set(summary)
+    if missing:
+        raise ValueError("Duero: Resumen sin columnas: " + ", ".join(sorted(missing)))
+    if len(summary) != 6 or set(summary["category_id"].astype(str)) != categories:
+        raise ValueError("Duero: faltan las seis categorías del catálogo público")
+    if frame.empty or set(frame["retailer"].dropna().astype(str)) != {"Mayorista Duero"}:
+        raise ValueError("Duero: Concentrado vacío o retailer incorrecto")
+    if not summary["status"].astype(str).str.upper().isin({"COMPLETE", "SUCCESS"}).all():
+        raise ValueError("Duero: captura de categorías incompleta")
+    for field in ("pagination_complete", "pagination_verified", "independent_match"):
+        if not summary[field].eq(True).all():
+            raise ValueError("Duero: paginación API no validada (" + field + ")")
+    if summary["blocked_detected"].eq(True).any():
+        raise ValueError("Duero: solicitud API bloqueada")
+    declared = pd.to_numeric(summary["products"], errors="coerce")
+    if declared.isna().any() or declared.le(0).any() or int(declared.sum()) != len(frame):
+        raise ValueError("Duero: conteo de productos no coincide")
+    for row in summary.itertuples(index=False):
+        count = int(frame["category_id"].astype(str).eq(str(row.category_id)).sum())
+        if count != int(row.products):
+            raise ValueError("Duero: productos por categoría inconsistentes: " + str(row.category_id))
+    for column in ("category_id", "sku", "url", "price_current"):
+        if column not in frame:
+            raise ValueError("Duero: Concentrado sin columna " + column)
+    if frame["sku"].fillna("").astype(str).str.strip().eq("").any():
+        raise ValueError("Duero: SKU o identificador de variante vacío")
+    if frame["url"].fillna("").astype(str).str.strip().eq("").any():
+        raise ValueError("Duero: URL de producto vacía")
+    if not pd.to_numeric(frame["price_current"], errors="coerce").gt(0).all():
+        raise ValueError("Duero: precio público faltante o no positivo")
+    if frame.duplicated(subset=["category_id", "sku", "url"]).any():
+        raise ValueError("Duero: productos duplicados por categoría/SKU/URL")
+
+
+EXPECTED_DUERO_CATEGORIES = (
+    "cuidado-bucal", "desodorantes-y-antitranspirantes",
+    "cuidado-facial-y-corporal", "farmacia",
+    "detergentes", "cloros-y-blanqueadores",
+)
+
+
 def _phase4_5_candidates(
     phase: int, day: str, *,
     approve_duero_online: bool = False,
@@ -255,34 +302,28 @@ def _phase4_5_candidates(
                 raise ValueError("Retailer del archivo incorrecto")
             if "status" not in summary.columns or not summary["status"].astype(str).str.upper().isin(["COMPLETE", "SUCCESS"]).all():
                 raise ValueError("Retailer con categorías no completas")
-            if retailer == "Mayorista Duero" and approve_duero_online:
-                errors = _validate_duero_retailer(
-                    frame, summary, allow_online_catalogue=True
-                )
-                if errors:
-                    raise ValueError("; ".join(errors))
-                evidence = validate_duero_online_evidence(
-                    frame, summary, day, REPORT_DIR
-                )
+            if retailer == "Mayorista Duero":
+                # The public Shopify catalogue is NOT a store-specific quote.
+                # No geolocation or manual delivery/postcode approval gate.
+                _validate_duero_public_prices(frame, summary)
+                frame = frame.copy()
+                for column in ("postal_code", "store_id", "city", "state"):
+                    frame[column] = None
+                frame["store_context_verified"] = False
+                frame["store_context_method"] = "public_collection_api_no_postal_code"
+                frame["store"] = "Duero Mayoreo - catálogo online"
             else:
                 errors = validators[retailer](frame, summary)
                 if errors:
                     raise ValueError("; ".join(errors))
-                evidence = None
             summary = summary.copy()
             summary["source_status"] = summary["status"].astype(str)
             summary["status"] = "COMPLETE"
-            if evidence is not None:
+            if retailer == "Mayorista Duero":
                 summary["integration_scope"] = ONLINE_SCOPE
-                summary["manual_delivery_cp"] = MANUAL_DELIVERY_CP
-                summary["manual_delivery_checked"] = True
-                summary["manual_price_sample_checked"] = True
-                summary["manual_price_sample_scope"] = "ONE_RETAILER_LEVEL_SAMPLE_UNIDENTIFIED"
                 summary["postal_price_verified"] = False
-                summary["online_catalogue_approval"] = "OPERATOR_EXPLICIT"
-                summary["evidence_pagination_json"] = evidence["evidence_files"]["pagination"]
-                summary["evidence_storefront_json"] = evidence["evidence_files"]["storefront"]
-                summary["evidence_packaging_json"] = evidence["evidence_files"]["packaging"]
+                summary["store_context_verified"] = False
+                summary["online_catalogue_approval"] = "AUTOMATIC_PUBLIC_PRICES_ONLY"
             if retailer == "Farmacias San Pablo":
                 summary["products"] = pd.to_numeric(summary["products_extracted"], errors="coerce")
             yield retailer, frame, summary, path, []
@@ -396,13 +437,10 @@ def main():
         "--only-retailers", nargs="+", default=None,
         help="Integrar únicamente estos retailers de la fase (validación por retailer).",
     )
-    parser.add_argument(
-        "--approve-duero-online", action="store_true",
-        help=(
-            "Aprueba expresamente catálogo público online Duero para Fase 5 "
-            "con evidencia del día; NO certifica precios/stock para CP 59690."
-        ),
-    )
+    # Deprecated CLI compatibility: public catalogue prices no longer
+    # depend on manual location/store confirmation.
+    parser.add_argument("--approve-duero-online", action="store_true",
+                        help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.approve_duero_online and args.phase != 5:
         parser.error("--approve-duero-online solo aplica a Fase 5")
@@ -463,10 +501,8 @@ def main():
             additions.append((retailer, _canonical(frame), summary))
             result = "ACTUALIZADO" if existing_frame["retailer"].astype(str).eq(retailer).any() else "AGREGADO"
             scope = (
-                "COMPLETE; catálogo público auditado; CP 59690: solo entrega "
-                "y producto manual; precios/stock por CP NO certificados"
-                if retailer == "Mayorista Duero" and args.approve_duero_online
-                else "COMPLETE; validado"
+                "COMPLETE; precios públicos de catálogo, sin consulta de ubicación"
+                if retailer == "Mayorista Duero" else "COMPLETE; validado"
             )
             rows.append({
                 "retailer": retailer, "result": result,
@@ -474,7 +510,7 @@ def main():
                 "source": str(source),
                 "integration_scope": (
                     ONLINE_SCOPE if retailer == "Mayorista Duero"
-                    and args.approve_duero_online else "STANDARD_VERIFIED"
+                    else "STANDARD_VERIFIED"
                 ),
             })
         except (ValueError, KeyError, OSError) as exc:

@@ -74,8 +74,8 @@ def product_rows(product: dict, category, stamp: str) -> list[dict]:
         result.append({
             "scrape_timestamp": stamp,
             "retailer": RETAILER,
-            "city": "Zamora",
-            "state": "Michoacán",
+            "city": None,
+            "state": None,
             "postal_code": None,
             "store": "Duero Mayoreo - catálogo online",
             "store_id": None,
@@ -287,8 +287,9 @@ def main():
         "NO se ha comparado contra el total visual del storefront."
     )
     print(
-        "INTEGRACIÓN OMITIDA: contexto comercial/código postal y "
-        "presentaciones por empaque requieren validación adicional."
+        "PRECIOS PUBLICOS: las capturas SUCCESS pueden integrarse sin "
+        "comprobacion de ciudad, sucursal o codigo postal. "
+        "No se certifican precios especificos por tienda."
     )
     return 0 if len(report) == len(categories) and report["status"].eq("SUCCESS").all() else 2
 
