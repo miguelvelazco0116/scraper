@@ -8,7 +8,7 @@ import streamlit as st
 
 from dashboard.execution import (
     ALL, RUNNERS, active_pointer, current_active_job, latest_jobs, local_day,
-    prepare_run, public_command, read_run_log, start_run, request_stop, stop_requested,
+    mode_labels, prepare_run, public_command, read_run_log, start_run, request_stop, stop_requested,
 )
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -72,14 +72,7 @@ def render(root: Path):
     phase = left.selectbox("Fase a ejecutar", sorted(RUNNERS), key="exec_phase")
     target = right.selectbox("Alcance", list(RUNNERS[phase]), key="exec_target")
 
-    if target == ALL:
-        modes = (
-            ["Captura + integración"] if phase == 1 else
-            ["Solo captura"] if phase == 2 else
-            ["Solo captura", "Captura + integración"]
-        )
-    else:
-        modes = ["Solo captura"]
+    modes = mode_labels(phase, target)
     mode_label = st.radio("Modalidad", modes, horizontal=True, key="exec_mode")
     mode = "solo_captura" if mode_label == "Solo captura" else "captura_integracion"
 
