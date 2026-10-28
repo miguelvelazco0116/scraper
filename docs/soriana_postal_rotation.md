@@ -256,3 +256,31 @@ mantienen aislados del master de Fase 2 y no modifican el dashboard actual.
 este validada, usar este contrato en el monitor existente de Streamlit junto
 a su historial, logs y control de paro, sin crear otra interfaz. Hasta entonces
 la PR sigue aislada de `main`.
+
+
+## 27/10: corrida completa demostrada y monitor Streamlit preparado
+
+El log del operador (fecha de captura `2026-10-27`) reportó:
+
+- 24/24 categorías × CP `COMPLETE`, 0 pendientes.
+- 8,043 registros validados, 22 intentos de captura.
+- 4 categorías Cuidado bucal reutilizadas de checkpoints COMPLETE del día.
+- Dos fallos transitorios de contexto postal en `limpiadores`
+  (44220 y 54030) se recuperaron en el segundo intento.
+- El master productivo permaneció sin cambios.
+
+**Validación independiente pendiente del archivo del operador:** la salida del
+runner no reemplaza `python scripts/audit_soriana_cp_rotation.py --day 2026-10-27`.
+El auditor debe confirmar 24/24 sobre los cuatro Excel reales del mismo día.
+
+La interfaz existente de Streamlit tiene una opción adicional de **Fase 2 →
+Soriana (rotación CP)**, separada de Soriana Fase 2 tradicional. El wrapper
+PowerShell utiliza `-PostalCode all -Category all`; solo modo captura,
+sin integración automática al master. El panel muestra el JSON de progreso por
+CP/categoría, productos, reintentos y los diagnósticos y vuelve a auditar los
+cuatro Excel. El resultado de auditoría se etiqueta como *piloto* y nunca como
+master productivo completo.
+
+La PR de esta rama permanece draft hasta contar con auditoría local satisfactoria
+y checks de GitHub verdes. La captura live y la auditoría se ejecutan en la PC
+del operador, no en GitHub Actions.
