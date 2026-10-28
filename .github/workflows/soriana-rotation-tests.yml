@@ -11,6 +11,11 @@ on:
       - "tests/test_soriana*.py"
       - "tests/test_capture_progress.py"
       - "tests/test_dashboard_soriana_rotation.py"
+      - "tests/test_integrate_soriana_postal.py"
+      - "scraper/soriana_postal_contract.py"
+      - "scripts/audit_master_phases.py"
+      - "scripts/integrate_complete_retailers.py"
+      - "scripts/integrate_validated_phase.py"
       - "tests/test_audit_soriana_cp_rotation.py"
       - "config/soriana/**"
       - ".github/workflows/soriana-rotation-tests.yml"
@@ -28,9 +33,13 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Reproduce standalone Windows-style test import (clean process)
+        run: |
+          python -c "from scripts.audit_master_phases import inventory; from scripts.integrate_soriana_postal import prepare_plan; print('AUDIT_IMPORT_OK')"
+          python -m pytest -q tests/test_integrate_soriana_postal.py
       - name: Run Soriana rotation and audit contracts (no network scraping)
         run: |
-          python -m pytest -q tests/test_capture_progress.py tests/test_soriana_cp_rotation.py tests/test_audit_soriana_cp_rotation.py tests/test_soriana_gastro_availability.py tests/test_dashboard_soriana_rotation.py
+          python -m pytest -q tests/test_capture_progress.py tests/test_soriana_cp_rotation.py tests/test_audit_soriana_cp_rotation.py tests/test_soriana_gastro_availability.py tests/test_dashboard_soriana_rotation.py tests/test_integrate_soriana_postal.py tests/test_audit_master_phases.py tests/test_integrate_complete_retailers.py
       - name: Confirm existing phase-2 unit contracts
         run: |
           python -m pytest -q tests/test_phase1_multistore.py tests/test_run_all_retailers.py
