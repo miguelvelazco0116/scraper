@@ -35,7 +35,7 @@ Write-Host "Sin navegadores, sin capturas repetidas."
 Write-Host "Sólo retailers COMPLETE de hoy; integrador incremental auditado."
 Write-Host "Requiere fases previas COMPLETE; no modifica Soriana con fuentes legadas."
 if ($Phase -eq 5) {
-    Write-Host "Duero online no se aprueba automáticamente."
+    Write-Host "Duero: precios publicos del catalogo, sin comprobacion de ubicacion o CP."
 }
 $arguments = @(".\scripts\integrate_existing_phases.py", "--phase", "$Phase")
 if ($Preview) {
