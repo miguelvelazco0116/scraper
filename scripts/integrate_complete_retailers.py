@@ -30,6 +30,9 @@ from run_phase2_production import (
     _enabled_category_ids, _validate_fg, _validate_soriana,
 )
 from scraper.quality_rules import meets_rate
+from scraper.soriana_postal_contract import (
+    effective_soriana_cases, is_postal_rotation_summary, postal_issues,
+)
 from duero_online_integration_evidence import (
     validate_duero_online_evidence,
     ONLINE_SCOPE,
@@ -308,10 +311,19 @@ def _phase_states(frame: pd.DataFrame, summary: pd.DataFrame):
     for phase, retailers in EXPECTED.items():
         parts = summary.loc[summary["source_phase"].astype(str).eq("FASE " + str(phase))]
         present = set(frame["retailer"].dropna().astype(str)).intersection(retailers)
+        expected_count = sum(retailers.values())
+        postal_valid = True
+        if phase == 2:
+            soriana = parts.loc[parts["retailer"].astype(str).eq("Soriana")]
+            expected_count = (EXPECTED[2]["Farmacias Guadalajara"]
+                              + effective_soriana_cases(frame, soriana))
+            if is_postal_rotation_summary(soriana):
+                postal_valid = not postal_issues(frame, soriana)
         complete = (
             present == set(retailers)
-            and len(parts) == sum(retailers.values())
+            and len(parts) == expected_count
             and parts["status"].astype(str).str.upper().eq("COMPLETE").all()
+            and postal_valid
         )
         if complete:
             completed.append(phase)
