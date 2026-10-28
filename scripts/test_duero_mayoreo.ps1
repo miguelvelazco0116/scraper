@@ -1,5 +1,5 @@
 param(
-    [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
+    [string]$ProjectDir = "",
     [string]$PythonExe = "",
     [string]$Category = "all",
     [ValidateRange(2, 100)]
@@ -9,6 +9,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+if ([string]::IsNullOrWhiteSpace($ProjectDir)) {
+    $ScriptFile = $MyInvocation.MyCommand.Path
+    if ([string]::IsNullOrWhiteSpace($ScriptFile)) { throw "No se pudo determinar la ruta del proyecto. Especifica -ProjectDir." }
+    $ProjectDir = Split-Path -Parent (Split-Path -Parent $ScriptFile)
+}
 Set-Location $ProjectDir
 if ([string]::IsNullOrWhiteSpace($PythonExe)) {
     $candidate = "C:\Proyectos\venvs\scraper\Scripts\python.exe"
