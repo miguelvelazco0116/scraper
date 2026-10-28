@@ -105,6 +105,37 @@ def _validate_sources(root: Path, day: str):
     return all_rows, all_cases, hashes
 
 
+def source_preview(root: Path, day: str) -> dict:
+    """Validate historic Soriana XLSX files, without requiring or writing master.
+
+    Explicitly NOT an eligibility check for productive integration. Suitable
+    for independently reviewing archived captures after the active master
+    has moved to a different date.
+    """
+    incoming, cases, hashes = _validate_sources(root, day)
+    _, pointer_path, _ = _master_paths(root, day)
+    master_day = None
+    if pointer_path.is_file():
+        try:
+            master_day = json.loads(
+                pointer_path.read_text(encoding="utf-8")
+            ).get("capture_date")
+        except (OSError, ValueError, TypeError):
+            pass
+    return {
+        "status": "SORIANA_SOURCE_VALIDATED",
+        "capture_date": day,
+        "postal_codes": list(CODES),
+        "postal_cases": len(cases),
+        "products_validated": len(incoming),
+        "master_active_date": master_day,
+        "master_integration_checked": False,
+        "master_modified": False,
+        "source_workbooks": list(hashes),
+        "note": "Solo se auditaron los cuatro Excel; no se verifico ni altero el master.",
+    }
+
+
 def prepare_plan(root: Path, day: str) -> dict:
     """Read-only preview; rejects missing or mismatched active-day masters."""
     if len(day) != 10 or day[4] != "-" or day[7] != "-":
@@ -118,7 +149,12 @@ def prepare_plan(root: Path, day: str) -> dict:
         raise ValueError("No existe puntero productivo: primero genera el master de la fecha")
     pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
     if pointer.get("capture_date") != day:
-        raise ValueError("Master activo de otra fecha; prohibido mezclar capturas")
+        raise ValueError(
+            f"Master activo fechado {pointer.get('capture_date')!r}; "
+            f"los archivos Soriana son de {day}. "
+            "No se permite mezclar capturas. Usa SourcePreview para "
+            "validar los cuatro Excel históricos sin tocar el master."
+        )
     # Fail quickly on mismatched days before reading potentially large Excel
     # sources; preview should tell the operator the true blocker.
     incoming, cases, source_hashes = _validate_sources(root, day)
@@ -276,12 +312,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Soriana postal: preview o commit protegido")
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--preview", action="store_true", help="Validar sin escribir master")
+    modes.add_argument("--source-preview", action="store_true", help="Auditar XLSX históricos sin master")
     modes.add_argument("--commit", action="store_true", help="Integrar con backup + auditoría + rollback")
     parser.add_argument("--day", default=datetime.now().astimezone().date().isoformat())
     args = parser.parse_args()
     try:
-        plan = prepare_plan(ROOT, args.day)
-        response = plan_report(plan) if args.preview else commit_plan(ROOT, plan)
+        if args.source_preview:
+            response = source_preview(ROOT, args.day)
+        else:
+            plan = prepare_plan(ROOT, args.day)
+            response = plan_report(plan) if args.preview else commit_plan(ROOT, plan)
         print(json.dumps(response, ensure_ascii=False, indent=2, default=str), flush=True)
         return 0
     except Exception as exc:
