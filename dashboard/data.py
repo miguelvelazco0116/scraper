@@ -165,13 +165,15 @@ def safe_cli_command(root: Path, phase: int, retailer=None):
         4: {None: "run_phase4_production.ps1", "Farmacias San Pablo": "run_san_pablo_full.ps1", "Farmacias Benavides": "test_benavides.ps1"},
         5: {None: "run_phase5_production.ps1", "Farmacias Similares": "test_farmacias_similares.ps1",
             "HEB": "test_heb.ps1", "Sam's Club": "test_sams_club.ps1", "Mayorista Duero": "test_duero_mayoreo.ps1"},
+        6: {None: "run_phase6_dashboard.ps1", "Farmacias YZA": "run_phase6_pilot.ps1"},
     }
     runner = commands.get(phase, {}).get(retailer)
     if not runner:
         return "No hay runner aislado verificado; utiliza el runner de la fase."
     skip = (" -SkipIntegration" if runner in {
         "run_phase2_dashboard_capture.ps1", "run_phase3_production.ps1",
-        "run_phase4_production.ps1", "run_phase5_production.ps1", "run_san_pablo_full.ps1"
+        "run_phase4_production.ps1", "run_phase5_production.ps1", "run_phase6_dashboard.ps1", "run_san_pablo_full.ps1"
     } else "")
     postal_args = " -PostalCode all -Category all" if phase == 2 and retailer == "Soriana" else ""
-    return f"cd {root}\\n& .\\\\scripts\\\\{runner}{skip}{postal_args}"
+    yza_args = " -Mode capture -Retailer farmacias-yza" if phase == 6 and retailer == "Farmacias YZA" else ""
+    return f"cd {root}\\n& .\\\\scripts\\\\{runner}{skip}{postal_args}{yza_args}"
