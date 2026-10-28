@@ -11,6 +11,12 @@ from dashboard.execution import (
     prepare_run, public_command, read_run_log, start_run, request_stop, stop_requested,
 )
 
+@st.cache_data(ttl=30, show_spinner=False)
+def _audit_soriana_cached(root: Path, day: str) -> dict:
+    from dashboard.soriana_rotation import audit_snapshot
+    return audit_snapshot(root, day)
+
+
 def render(root: Path):
     st.header("Ejecución de scraping")
     st.caption("Ejecución real desde Streamlit, mediante los scripts PowerShell existentes. "
@@ -151,6 +157,94 @@ def render(root: Path):
             inventory = None
     else:
         inventory = None
+
+    if target == "Soriana (rotación CP)":
+        st.subheader("Fase 2 · Soriana — rotación postal (piloto)")
+        st.caption(
+            "Mismo estándar que Chedraui: COMPLETE / REINTENTAR, tres intentos "
+            "por categoría y CP, checkpoints válidos del día, diagnóstico por intento. "
+            "Los cuatro Excel del piloto no modifican el master ni la Fase 2 productiva."
+        )
+
+        @st.fragment(run_every="5s")
+        def postal_progress():
+            from dashboard.soriana_rotation import read_progress
+            day = local_day()
+            current = read_progress(root, day)
+            if current is None:
+                st.info("Sin progreso de rotación completa registrado hoy. "
+                        "La auditoría de Excel se muestra a continuación si existen archivos.")
+                done = 0
+            else:
+                done = int(current["complete_cases"])
+                total = int(current["total_cases"])
+                metrics = st.columns(4)
+                metrics[0].metric("Casos COMPLETE", f"{done}/{total}")
+                metrics[1].metric("REINTENTAR / pendientes", int(current["pending_cases"]))
+                metrics[2].metric("Productos validados", f"{int(current['products_validated']):,}")
+                metrics[3].metric("Intentos totales", int(current["attempts_total"]))
+                st.progress(done / total if total else 0)
+                display = []
+                attempts = []
+                for case in current["cases"]:
+                    history = case.get("retry_history") or []
+                    display.append({
+                        "CP": case["postal_code"],
+                        "Categoría": case["category_id"],
+                        "Estado": case["estado"],
+                        "Acción": case["accion"],
+                        "Productos": int(case["productos_validados"]),
+                        "Intentos": int(case["attempts"]),
+                        "Reintentos": max(0, len(history) - 1),
+                    })
+                    for attempt in history:
+                        attempts.append({
+                            "CP": case["postal_code"],
+                            "Categoría": case["category_id"],
+                            "Intento": attempt.get("attempt"),
+                            "Estado": attempt.get("status"),
+                            "Productos": attempt.get("rows"),
+                            "Error": attempt.get("error") or "",
+                            "Diagnóstico": attempt.get("diagnostic") or "",
+                        })
+                st.dataframe(pd.DataFrame(display), hide_index=True,
+                             use_container_width=True, height=380)
+                with st.expander("Historial por intento y diagnóstico"):
+                    if attempts:
+                        st.dataframe(pd.DataFrame(attempts), hide_index=True,
+                                     use_container_width=True, height=260)
+                    else:
+                        st.caption("No se realizaron nuevos intentos; "
+                                   "pueden haberse reutilizado checkpoints del día.")
+
+            # Audit the independent four workbooks; process exit/progress are
+            # not proof that 24 full, same-date, region-separated cases passed.
+            if done == 24 or st.button(
+                "Auditar Excel de Soriana (solo lectura)", key="soriana_audit_now"
+            ):
+                try:
+                    audited = _audit_soriana_cached(root, day)
+                    if audited["certified"]:
+                        st.success(
+                            f"Piloto auditado: {audited['complete']}/{audited['total']} "
+                            f"casos COMPLETE, {audited['validated_products']:,} productos. "
+                            "Master productivo: SIN CAMBIOS."
+                        )
+                        if current is not None and int(current["products_validated"]) != int(audited["validated_products"]):
+                            st.warning("El acumulado del progreso no coincide con la auditoría. "
+                                       "Inspecciona los Excel antes de promover esta captura.")
+                    else:
+                        st.warning(
+                            f"Auditoría independiente pendiente: "
+                            f"{audited['complete']}/{audited['total']} completos."
+                        )
+                        if audited["issues"]:
+                            st.dataframe(pd.DataFrame(audited["issues"]),
+                                         hide_index=True, use_container_width=True)
+                except (OSError, ValueError, KeyError) as exc:
+                    st.error("No se pudo auditar la rotación: " + str(exc))
+
+        postal_progress()
 
     st.subheader("Comando que se ejecutará")
     st.code(public_command(root, phase, target, mode), language="powershell")

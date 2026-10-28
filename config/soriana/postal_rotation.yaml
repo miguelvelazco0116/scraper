@@ -1,0 +1,8 @@
+# Secuencia explícita para piloto Soriana (no se integra automáticamente en Fase 2).
+postal_codes:
+  - "83420"
+  - "44220"
+  - "54030"
+  - "97245"
+delivery_method: "ENVIO_A_DOMICILIO"
+require_visible_postal_confirmation: true

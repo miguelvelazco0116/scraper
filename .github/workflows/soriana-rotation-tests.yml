@@ -1,0 +1,36 @@
+name: Soriana postal rotation - offline tests
+on:
+  pull_request:
+    paths:
+      - "scraper/retailers/soriana*.py"
+      - "scraper/capture_progress.py"
+      - "dashboard/soriana_rotation.py"
+      - "dashboard/page_execution.py"
+      - "dashboard/execution.py"
+      - "scripts/*soriana*.py"
+      - "tests/test_soriana*.py"
+      - "tests/test_capture_progress.py"
+      - "tests/test_dashboard_soriana_rotation.py"
+      - "tests/test_audit_soriana_cp_rotation.py"
+      - "config/soriana/**"
+      - ".github/workflows/soriana-rotation-tests.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run Soriana rotation and audit contracts (no network scraping)
+        run: |
+          python -m pytest -q tests/test_capture_progress.py tests/test_soriana_cp_rotation.py tests/test_audit_soriana_cp_rotation.py tests/test_soriana_gastro_availability.py tests/test_dashboard_soriana_rotation.py
+      - name: Confirm existing phase-2 unit contracts
+        run: |
+          python -m pytest -q tests/test_phase1_multistore.py tests/test_run_all_retailers.py
