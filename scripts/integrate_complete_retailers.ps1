@@ -51,7 +51,7 @@ if ($ApproveDueroOnline) {
         throw "-ApproveDueroOnline solo se permite con -Phase 5."
     }
     $ArgsList += "--approve-duero-online"
-    Write-Host "Duero: APROBACION EXPLICITA CATALOGO ONLINE (NO precios/stock por CP)"
+    Write-Host "Duero: solo precios publicos; parametro legado aceptado sin comprobar ubicacion ni CP"
 }
 
 & $PythonExe @ArgsList
