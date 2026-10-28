@@ -158,14 +158,14 @@ class DashboardExecutionTests(unittest.TestCase):
             directory = root / "scripts"
             directory.mkdir()
             (directory / "integrate_existing_phases.ps1").touch()
-            with patch("dashboard.execution.os.name", "nt"), \\
-                 patch("dashboard.execution.Path", PosixPath), \\
+            with patch("dashboard.execution.os.name", "nt"), \
+                 patch("dashboard.execution.Path", PosixPath), \
                  patch("dashboard.execution.shutil.which", return_value="powershell.exe"):
                 one = prepare_run(root, 1, ALL, "solo_integracion")
             self.assertEqual(one["runner"], "integrate_existing_phases.ps1")
             self.assertEqual(one["command"][-2:], ["-Phase", "1"])
-            with patch("dashboard.execution.os.name", "nt"), \\
-                 patch("dashboard.execution.Path", PosixPath), \\
+            with patch("dashboard.execution.os.name", "nt"), \
+                 patch("dashboard.execution.Path", PosixPath), \
                  patch("dashboard.execution.shutil.which", return_value="powershell.exe"):
                 with self.assertRaisesRegex(ValueError, "Master activo"):
                     prepare_run(root, 3, ALL, "solo_integracion")
