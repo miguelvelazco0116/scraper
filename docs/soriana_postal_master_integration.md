@@ -60,6 +60,33 @@ Si el master activo no corresponde a la fecha indicada, devolverá un error
 **sin modificar nada**. No se permite incorporar las capturas del 27/10 en el
 master de un día posterior.
 
+## Cuando los Excel históricos y el master activo son de fechas distintas
+
+Si el master activo no es del `2026-10-27`, el modo `Preview` debe
+rechazar la integración: es correcto y **no es un error de scraping**.
+Nunca editar manualmente `current_master.json` ni renombrar un master
+para evadir este control.
+
+Se puede auditar la captura histórica por separado, **sin depender del master**:
+
+```powershell
+.\scripts\integrate_soriana_postal.ps1 -Mode SourcePreview -CaptureDate 2026-10-27
+```
+
+Este modo entrega el número de casos, las filas validadas y la fecha del
+master activo; **no habilita la integración ni cambia archivo alguno**.
+Para integrar en un master productivo del día actual se requiere una
+captura Soriana validada de ese mismo día, además de un master de ese día
+con Fases 1 y 2 completas. La captura histórica permanece archivada.
+
+### Incidencia Windows: importación aislada
+
+`python -m pytest -q tests/test_integrate_soriana_postal.py` debe
+funcionar también en un proceso Python limpio, sin que otros tests
+hayan agregado `scripts/` a `sys.path`. El auditor prepara ambas rutas
+antes de importar sus integradores hermanos. El CI ejecuta esta prueba
+aislada y luego la suite general para evitar regresiones.
+
 ## Commit — solo después de validar preview en el mismo día
 
 ```powershell
