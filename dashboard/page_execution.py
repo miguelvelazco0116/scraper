@@ -113,7 +113,7 @@ def render(root: Path):
         st.caption("Mayorista Duero: la opción especial de catálogo online público requiere "
                    "aprobación explícita aparte. Esta pantalla **nunca** agrega "
                    "-ApproveDueroOnline de forma automática.")
-    if phase in (2, 3, 4, 5) and (target == ALL or target in {"HEB", "Sam's Club", "Bodega Aurrera", "Walmart", "Farmacias San Pablo"}):
+    if phase in (2, 3, 4, 5) and mode != "solo_integracion" and (target == ALL or target in {"HEB", "Sam's Club", "Bodega Aurrera", "Walmart", "Farmacias San Pablo"}):
         st.caption("Para los retailers con CDP, habilita remote debugging en Chrome y abre los sitios "
                    "correspondientes antes de iniciar.")
 
