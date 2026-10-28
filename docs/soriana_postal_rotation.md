@@ -354,3 +354,37 @@ Cada reintento reemplaza su partición: no agrega duplicados.
 
 Este desarrollo no reactiva `test_soriana_manual_phase2.ps1` ni
 `run_phase2_production.ps1` desde Streamlit.
+
+
+## Integración sin volver a capturar disponible en todas las fases
+
+Desde **Nueva ejecución → Fase a ejecutar (1–5) → Todas las tiendas**
+selecciona **Integrar capturas existentes**.
+
+- Fase 1: lee las capturas COMPLETE del día de Ahorro, Ibarra y Chedraui;
+  puede iniciar el master del día, sin reutilizar registros de ayer.
+- Fase 2: usa su integrador protegido para Guadalajara y Soriana (4 CP ×
+  6 categorías). Nunca ejecuta el capturador legado ni deduplica SKU entre CP.
+- Fase 3: Walmart y Bodega Aurrera, requiere Fases 1 y 2 COMPLETE.
+- Fase 4: San Pablo y Benavides, requiere Fases 1 a 3 COMPLETE.
+- Fase 5: Similares, HEB, Sam's y Duero, requiere Fases 1 a 4 COMPLETE.
+  No auto-aprueba el catálogo público online Duero.
+
+Esta modalidad no abre Chrome, Playwright ni Scraper. Utiliza la auditoría
+de fuentes del integrador incremental, admite únicamente retailers COMPLETE
+y puede dejar una fase como PARTIAL_VALIDATED si aún hay retailers pendientes.
+Crea respaldos master/puntero, comprueba huellas de fuentes y restaura
+ambos archivos si falla la auditoría posterior.
+
+Previsualizar sin escribir master, desde PowerShell:
+
+\`\`\`powershell
+.\\scripts\\integrate_existing_phases.ps1 -Phase 1 -Preview
+.\\scripts\\integrate_phase2_postal.ps1 -Preview
+.\\scripts\\integrate_existing_phases.ps1 -Phase 3 -Preview
+.\\scripts\\integrate_existing_phases.ps1 -Phase 4 -Preview
+.\\scripts\\integrate_existing_phases.ps1 -Phase 5 -Preview
+\`\`\`
+
+La opción de Streamlit siempre requiere confirmación expresa para escribir.
+Si otra fase está en ejecución, el worker rechaza un segundo job concurrente.
