@@ -33,11 +33,7 @@ from scraper.quality_rules import meets_rate
 from scraper.soriana_postal_contract import (
     effective_soriana_cases, is_postal_rotation_summary, postal_issues,
 )
-from duero_online_integration_evidence import (
-    validate_duero_online_evidence,
-    ONLINE_SCOPE,
-    MANUAL_DELIVERY_CP,
-)
+from duero_online_integration_evidence import ONLINE_SCOPE
 
 EXPECTED = {
     1: {"Farmacias del Ahorro": 6, "Ibarra Mayoreo": 4, "Chedraui": 20},
