@@ -176,8 +176,10 @@ def prepare_plan(root: Path, day: str) -> dict:
         )
     except AssertionError as exc:
         raise ValueError("Intento de alterar filas de otros retailers") from exc
-    if postal_issues(combined, combined_summary, day):
-        raise ValueError("La partición Soriana agregada no certifica los 24 casos")
+    issues = postal_issues(combined, combined_summary, day)
+    if issues:
+        raise ValueError("La partición Soriana agregada no certifica los 24 casos: "
+                         + "; ".join(issues))
     if len(combined) != len(non_soriana) + len(incoming):
         raise ValueError("Conciliación falló: cardinalidad de productos")
 
