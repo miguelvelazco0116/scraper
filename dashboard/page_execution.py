@@ -270,6 +270,42 @@ def render(root: Path):
 
         postal_progress()
 
+    if mode == "solo_integracion" and target == ALL:
+        st.subheader("Validar capturas existentes por retailer")
+        st.caption(
+            "Verificación de solo lectura: identifica quién ya existe en el "
+            "master, quién tiene una captura validada y quién todavía no tiene "
+            "datos. No abre Chrome ni modifica archivos."
+        )
+        if st.button("Verificar retailers sin modificar master", key="check_retailers_existing"):
+            try:
+                if phase == 2:
+                    from scripts.integrate_phase2_postal import prepare_plan
+                    preflight = prepare_plan(root, local_day())
+                    statuses = preflight["retailers"]
+                elif phase == 6:
+                    from scripts.integrate_phase6_yza import preview as yza_preview
+                    preflight = yza_preview(local_day())
+                    statuses = {"Farmacias YZA": {
+                        "status": preflight["state"],
+                        "products": preflight["phase6_rows"],
+                        "detail": preflight.get("detail", ""),
+                    }}
+                else:
+                    from scripts.integrate_existing_phases import prepare as prepare_existing
+                    preflight = prepare_existing(root, phase, local_day())
+                    statuses = preflight["retailers"]
+                rows = [{
+                    "Retailer": name, "Estado": item["status"],
+                    "Productos": item["products"], "Detalle": item.get("detail", ""),
+                } for name, item in statuses.items()]
+                st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+                if all(item["status"] in {"YA_EXISTE_EN_MASTER", "SIN_CAPTURA", "CAPTURA_NO_VALIDADA"}
+                       for item in statuses.values()):
+                    st.info("No hay retailers nuevos validados para integrar. Master SIN CAMBIOS.")
+            except (ValueError, KeyError, OSError, TypeError) as exc:
+                st.warning("Prevalidación bloqueada: " + str(exc))
+
     st.subheader("Comando que se ejecutará")
     st.code(public_command(root, phase, target, mode), language="powershell")
 
