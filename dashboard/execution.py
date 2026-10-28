@@ -26,6 +26,7 @@ RUNNERS = {
         "Todas las tiendas": "run_phase2_production.ps1",
         "Farmacias Guadalajara": "test_farmacias_guadalajara_phase2.ps1",
         "Soriana": "test_soriana_manual_phase2.ps1",
+        "Soriana (rotación CP)": "test_soriana_cp_rotation.ps1",
     },
     3: {
         "Todas las tiendas": "run_phase3_production.ps1",
@@ -276,6 +277,10 @@ def prepare_run(root: Path, phase: int, target: str, mode: str):
         args.append("-SkipIntegration")
     if not full and target == "Chedraui":
         args.append("-Headed")
+    if not full and target == "Soriana (rotación CP)":
+        # The pilot captures all six categories in all four ZIP codes,
+        # never the legacy Phase-2 Soriana workbook or productive master.
+        args.extend(["-PostalCode", "all", "-Category", "all"])
     return {
         "phase": phase, "target": target, "mode": mode,
         "runner": RUNNERS[phase][target], "command": args,
@@ -287,7 +292,10 @@ def public_command(root: Path, phase: int, target: str, mode: str):
     if not script:
         return ""
     skip = mode == "solo_captura" and (target == "Farmacias San Pablo" or target == ALL and phase in (2, 3, 4, 5))
-    return f"& .\\scripts\\{script}" + (" -SkipIntegration" if skip else "") + (" -Headed" if target == "Chedraui" else "")
+    return (f"& .\\scripts\\{script}"
+            + (" -SkipIntegration" if skip else "")
+            + (" -Headed" if target == "Chedraui" else "")
+            + (" -PostalCode all -Category all" if target == "Soriana (rotación CP)" else ""))
 
 def start_run(root: Path, phase: int, target: str, mode: str):
     spec = prepare_run(root, phase, target, mode)
