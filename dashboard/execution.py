@@ -300,7 +300,7 @@ def prepare_run(root: Path, phase: int, target: str, mode: str):
         if phase not in (2, 3, 4, 5, 6):
             raise ValueError("El runner no implementa -SkipIntegration.")
         args.append("-SkipIntegration")
-    if mode == "solo_integracion" and phase != 2:
+    if mode == "solo_integracion" and phase in (1, 3, 4, 5):
         args.extend(["-Phase", str(phase)])
     if not full and target == "Farmacias San Pablo":
         args.append("-SkipIntegration")
