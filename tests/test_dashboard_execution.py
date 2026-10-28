@@ -250,7 +250,7 @@ class DashboardExecutionTests(unittest.TestCase):
     def test_unknown_command_rejected_before_shell_lookup(self):
         with TemporaryDirectory() as temp:
             with self.assertRaises(ValueError):
-                prepare_run(Path(temp), 6, ALL, "solo_captura")
+                prepare_run(Path(temp), 7, ALL, "solo_captura")
 
     def test_bad_run_id_rejected(self):
         with self.assertRaises(ValueError):
