@@ -49,7 +49,7 @@ def read_fg(root: Path, day: str):
         raise ValueError("Falta Excel de Farmacias Guadalajara")
     frame, source_summary, control = _read(path)
     _date_check(frame, control, day)
-    categories = _enabled_category_ids(FG)
+    categories = _enabled_category_ids("farmacias-guadalajara")
     if len(categories) != 4:
         raise ValueError("Configuración Farmacias Guadalajara: esperadas 4 categorías")
     rows = _validate_fg(frame, source_summary, categories)
