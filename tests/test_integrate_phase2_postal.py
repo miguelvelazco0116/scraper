@@ -138,11 +138,53 @@ def test_integrates_existing_excel_data_without_scraping_and_without_duplicate(t
     assert len(postal[["postal_code","category_id","sku","url"]].drop_duplicates()) == 24
     assert len(full.loc[full["retailer"].eq("Chedraui")]) == 20
 
-    # A second integration REPLACES its partition; it cannot add 24 more rows.
+    # A second integration is an exact NO-OP: all retailers are already
+    # present. This must not even rewrite the master or the pointer.
+    before_hashes = (integration._hash(master_path), integration._hash(pointer_path))
     again = integration.prepare_plan(tmp_path, DAY)
     assert again["after_rows"] == 58
-    integration.commit(tmp_path, again)
+    assert again["additions"] == {}
+    assert again["retailers"]["Soriana"]["status"] == "YA_EXISTE_EN_MASTER"
+    assert again["retailers"]["Farmacias Guadalajara"]["status"] == "YA_EXISTE_EN_MASTER"
+    second = integration.commit(tmp_path, again)
+    assert second["status"] == "SIN_CAMBIOS"
+    assert second["master_modified"] is False
+    assert (integration._hash(master_path), integration._hash(pointer_path)) == before_hashes
     assert len(pd.read_excel(master_path, sheet_name="Concentrado")) == 58
+
+
+def test_no_valid_captures_reports_per_retailer_without_master_write(tmp_path, monkeypatch):
+    file, pointer = master(tmp_path, DAY)
+    mock_sources(monkeypatch, DAY, fg=False, soriana=False)
+    hashes = (integration._hash(file), integration._hash(pointer))
+    plan = integration.prepare_plan(tmp_path, DAY)
+    assert plan["additions"] == {}
+    assert set(plan["failures"]) == {"Farmacias Guadalajara", "Soriana"}
+    assert all(item["status"] == "CAPTURA_NO_VALIDADA"
+               for item in plan["retailers"].values())
+    result = integration.commit(tmp_path, plan)
+    assert result["status"] == "SIN_CAMBIOS"
+    assert result["master_modified"] is False
+    assert (integration._hash(file), integration._hash(pointer)) == hashes
+
+
+def test_only_missing_guadalajara_is_integrated_without_touching_soriana(tmp_path, monkeypatch):
+    file, pointer = master(tmp_path, DAY)
+    mock_sources(monkeypatch, DAY, fg=False)
+    first = integration.commit(tmp_path, integration.prepare_plan(tmp_path, DAY))
+    assert first["phase2_status"] == "PARTIAL_VALIDATED"
+    master_before, _, _ = integration._read_existing_master(file)
+    postal_before = master_before.loc[
+        master_before["retailer"].eq("Soriana")].reset_index(drop=True)
+    mock_sources(monkeypatch, DAY)
+    plan = integration.prepare_plan(tmp_path, DAY)
+    assert list(plan["additions"]) == ["Farmacias Guadalajara"]
+    assert plan["retailers"]["Soriana"]["status"] == "YA_EXISTE_EN_MASTER"
+    assert plan["retailers"]["Farmacias Guadalajara"]["status"] == "LISTO_PARA_INTEGRAR"
+    integration.commit(tmp_path, plan)
+    actual, _, _ = integration._read_existing_master(file)
+    postal_after = actual.loc[actual["retailer"].eq("Soriana")].reset_index(drop=True)
+    pd.testing.assert_frame_equal(postal_before, postal_after, check_dtype=False)
 
 
 def test_soriana_only_stays_partial_until_fg_passes(tmp_path, monkeypatch):

@@ -174,3 +174,89 @@ def test_source_candidates_never_auto_approves_duero(monkeypatch):
     ready, pending, hashes = target.source_candidates(5, target.today())
     assert not ready and "Mayorista Duero" in pending
     assert seen == [False]
+
+
+def test_existing_phase_has_per_retailer_status_and_never_writes(tmp_path, monkeypatch):
+    day = target.today()
+    file, pointer = save_master(tmp_path, day, (1, 2, 3))
+    before = (target.checksum(file), target.checksum(pointer))
+    def no_source_scan(*args, **kwargs):
+        raise AssertionError("No need to scan captures if all retailers exist")
+    monkeypatch.setattr(target, "source_candidates", no_source_scan)
+    plan = target.prepare(tmp_path, 3, day)
+    assert plan["ready"] == {}
+    assert set(plan["already"]) == {"Bodega Aurrera", "Walmart"}
+    assert all(item["status"] == "YA_EXISTE_EN_MASTER"
+               for item in plan["retailers"].values())
+    monkeypatch.setattr(target.subprocess, "run", no_source_scan)
+    result = target.commit(tmp_path, plan)
+    assert result["status"] == "SIN_CAMBIOS"
+    assert result["master_modified"] is False
+    assert (target.checksum(file), target.checksum(pointer)) == before
+
+
+def test_no_capture_or_invalid_per_retailer_returns_noop(tmp_path, monkeypatch):
+    day = target.today()
+    file, pointer = save_master(tmp_path, day, (1, 2))
+    before = (target.checksum(file), target.checksum(pointer))
+    monkeypatch.setattr(target, "source_candidates",
+                        lambda p, d: ({}, {
+                            "Bodega Aurrera": "Sin fuente de Bodega de la fecha",
+                            "Walmart": "Cobertura insuficiente en Excel existente"
+                        }, {}))
+    plan = target.prepare(tmp_path, 3, day)
+    assert plan["ready"] == {}
+    assert plan["retailers"]["Bodega Aurrera"]["status"] == "SIN_CAPTURA"
+    assert plan["retailers"]["Walmart"]["status"] == "CAPTURA_NO_VALIDADA"
+    assert target.commit(tmp_path, plan)["status"] == "SIN_CAMBIOS"
+    assert (target.checksum(file), target.checksum(pointer)) == before
+
+
+def test_partial_existing_phase_only_integrates_missing_retailer(tmp_path, monkeypatch):
+    day = target.today()
+    file, pointer = save_master(tmp_path, day, (1, 2))
+    original, summary, _ = target._read_existing_master(file)
+    frame3, cases3 = sample(3, day)
+    keep = frame3.loc[frame3["retailer"].eq("Bodega Aurrera")].copy()
+    keep_cases = cases3.loc[cases3["retailer"].eq("Bodega Aurrera")].copy()
+    data = pd.concat([original, keep], ignore_index=True)
+    cases = pd.concat([summary, keep_cases], ignore_index=True)
+    control = {"capture_date": day}
+    for phase in range(1, 6):
+        control[f"phase{phase}_status"] = ("COMPLETE" if phase in (1, 2)
+                                            else "PARTIAL_VALIDATED" if phase == 3
+                                            else "PENDING")
+    _write_master(file, data, cases, pd.DataFrame([control]))
+    write_pointer(pointer, file, day, [1, 2], [3])
+    before_kept = data.loc[data["retailer"].eq("Bodega Aurrera")].reset_index(drop=True)
+    supply_sources(tmp_path, monkeypatch, 3)
+    plan = target.prepare(tmp_path, 3, day)
+    assert list(plan["ready"]) == ["Walmart"]
+    assert plan["retailers"]["Bodega Aurrera"]["status"] == "YA_EXISTE_EN_MASTER"
+    assert plan["retailers"]["Walmart"]["status"] == "LISTO_PARA_INTEGRAR"
+
+    def only_missing(args, **kwargs):
+        assert args[-2:] == ["--only-retailers", "Walmart"]
+        frame = pd.concat(
+            [data, frame3.loc[frame3["retailer"].eq("Walmart")]],
+            ignore_index=True,
+        )
+        out_cases = pd.concat(
+            [cases, cases3.loc[cases3["retailer"].eq("Walmart")]],
+            ignore_index=True,
+        )
+        control["phase3_status"] = "COMPLETE"
+        _write_master(file, frame, out_cases, pd.DataFrame([control]))
+        write_pointer(pointer, file, day, [1, 2, 3], [])
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(target.subprocess, "run", only_missing)
+    result = target.commit(tmp_path, plan)
+    assert result["status"] == "COMMITTED"
+    assert result["sources_already_in_master"] == {"Bodega Aurrera": 3}
+    after, _, _ = target._read_existing_master(file)
+    pd.testing.assert_frame_equal(
+        before_kept,
+        after.loc[after["retailer"].eq("Bodega Aurrera")].reset_index(drop=True),
+        check_dtype=False,
+    )
