@@ -166,15 +166,20 @@ elif section == "Guía de comandos CLI":
         st.caption("Se recomienda utilizar el runner integral correspondiente para este retailer.")
     if phase == 2:
         st.info(
-            "Fase 2 desde Streamlit: dos retailers, una captura por retailer. "
-            "Soriana utiliza exclusivamente la rotación de 4 códigos postales. "
-            "La ejecución no modifica el master."
+            "Fase 2: una sola Soriana (4 CP). Desde Nueva ejecución puedes "
+            "seleccionar Solo captura, Captura + integración o Integrar "
+            "capturas existentes, sin volver a descargar productos. "
+            "La integración exige un master del día con Fase 1 COMPLETE."
         )
         st.subheader("Auditoría independiente de Soriana (solo lectura)")
         st.code(
             "python .\\scripts\\audit_soriana_cp_rotation.py --day (Get-Date -Format yyyy-MM-dd)",
             language="powershell",
         )
+        st.subheader("Integrar capturas existentes sin scraping")
+        st.code("& .\\scripts\\integrate_phase2_postal.ps1 -Preview", language="powershell")
+        st.caption("Para aplicar el cambio, usa Nueva ejecución → Fase 2 → "
+                   "Todas las tiendas → Integrar capturas existentes.")
     else:
         st.subheader("Auditoría de integración sin escrituras")
         st.code(f"& .\\scripts\\integrate_complete_retailers.ps1 -Phase {phase} -Preview", language="powershell")
