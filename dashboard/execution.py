@@ -71,7 +71,10 @@ def mode_labels(phase: int, target: str) -> list[str]:
     """
     if target not in RUNNERS.get(phase, {}):
         return []
-    if target != ALL or phase == 2:
+    if phase == 2:
+        return (["Solo captura", "Captura + integración", "Integrar capturas existentes"]
+                if target == ALL else ["Solo captura"])
+    if target != ALL:
         return ["Solo captura"]
     if phase == 1:
         return ["Captura + integración"]
@@ -253,13 +256,10 @@ def active_pointer(root: Path):
 def prepare_run(root: Path, phase: int, target: str, mode: str):
     if phase not in RUNNERS or target not in RUNNERS[phase]:
         raise ValueError("Runner no autorizado para esa fase/retailer")
-    if mode not in {"solo_captura", "captura_integracion"}:
+    if mode not in {"solo_captura", "captura_integracion", "solo_integracion"}:
         raise ValueError("Modo de ejecución inválido")
-    if phase == 2 and mode != "solo_captura":
-        raise ValueError(
-            "Fase 2 en Streamlit sólo ejecuta la rotación CP como captura. "
-            "No hay integración ni una segunda captura Soriana."
-        )
+    if mode == "solo_integracion" and not (phase == 2 and target == ALL):
+        raise ValueError("Integrar capturas existentes sólo se habilita para toda la Fase 2")
     full = target == ALL
     if not full and mode != "solo_captura":
         raise ValueError("Los runners por retailer son pruebas aisladas: no integran automáticamente")
@@ -269,7 +269,11 @@ def prepare_run(root: Path, phase: int, target: str, mode: str):
         raise ValueError("Integración restringida a runners de fase")
     if os.name != "nt":
         raise RuntimeError("La ejecución local solo se habilita en Windows")
-    runner = root / "scripts" / RUNNERS[phase][target]
+    runner_name = (
+        "integrate_phase2_postal.ps1" if phase == 2 and mode == "solo_integracion"
+        else RUNNERS[phase][target]
+    )
+    runner = root / "scripts" / runner_name
     if not runner.is_file():
         raise FileNotFoundError("Script no encontrado: " + str(runner))
     ps = shutil.which("powershell.exe")
@@ -278,7 +282,7 @@ def prepare_run(root: Path, phase: int, target: str, mode: str):
     pointer = active_pointer(root)
     # Phases 4 and 5 always require a complete same-day base even for --SkipIntegration.
     # Earlier phases 2 and 3 allow isolated capture without an active same-day master.
-    needs_today = (phase in (4, 5) and full) or (full and mode == "captura_integracion" and phase > 1)
+    needs_today = (phase in (4, 5) and full) or (full and mode in {"captura_integracion", "solo_integracion"} and phase > 1)
     if needs_today:
         if pointer.get("capture_date") != local_day() or not pointer.get("master") or not Path(pointer["master"]).is_file():
             raise ValueError("Master activo de hoy no disponible; el dashboard no utilizará capturas de otra fecha.")
@@ -302,7 +306,7 @@ def prepare_run(root: Path, phase: int, target: str, mode: str):
         args.extend(["-PostalCode", "all", "-Category", "all"])
     return {
         "phase": phase, "target": target, "mode": mode,
-        "runner": RUNNERS[phase][target], "command": args,
+        "runner": runner_name, "command": args,
         "capture_date": local_day(),
     }
 
@@ -310,6 +314,8 @@ def public_command(root: Path, phase: int, target: str, mode: str):
     script = RUNNERS.get(phase, {}).get(target)
     if not script:
         return ""
+    if phase == 2 and target == ALL and mode == "solo_integracion":
+        return "& .\\scripts\\integrate_phase2_postal.ps1"
     skip = mode == "solo_captura" and (target == "Farmacias San Pablo" or target == ALL and phase in (2, 3, 4, 5))
     return (f"& .\\scripts\\{script}"
             + (" -SkipIntegration" if skip else "")
