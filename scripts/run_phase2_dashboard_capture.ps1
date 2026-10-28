@@ -11,9 +11,8 @@ Set-Location $ProjectDir
 # This is the ONLY "Todas las tiendas" execution path in Streamlit Fase 2.
 # It intentionally does not call the legacy run_phase2_production.ps1,
 # which would scrape Soriana a second time without its postal rotation.
-if (-not $SkipIntegration) {
-    throw "Fase 2 desde Streamlit es SOLO CAPTURA. Integracion productiva deshabilitada."
-}
+# -SkipIntegration means only capture; without it this same run integrates
+# already produced Excel files. Soriana is NEVER captured a second time.
 
 Write-Host "FASE 2 - CAPTURA UNICA DESDE STREAMLIT"
 Write-Host "1. Farmacias Guadalajara: 4 categorias / una ejecucion"
@@ -74,5 +73,17 @@ if ($fgCode -ne 0 -or $sorianaCode -ne 0 -or $auditCode -ne 0) {
 }
 
 Write-Host "FASE 2 CAPTURA VALIDADA: Guadalajara COMPLETE y Soriana 24/24 COMPLETE"
-Write-Host "Sin integracion ni segunda captura Soriana. MASTER SIN CAMBIOS."
+if ($SkipIntegration) {
+    Write-Host "SOLO CAPTURA: master sin cambios."
+    exit 0
+}
+Write-Host ""
+Write-Host "INTEGRACION PROTEGIDA DE CAPTURAS YA DESCARGADAS"
+& (Join-Path $PSScriptRoot "integrate_phase2_postal.ps1") -ProjectDir $ProjectDir -PythonExe $PythonExe
+$integrationCode = $LASTEXITCODE
+if ($integrationCode -ne 0) {
+    Write-Warning "Captura completa; integracion bloqueada. Excel conservados."
+    exit $integrationCode
+}
+Write-Host "FASE 2 CAPTURA + INTEGRACION finalizada. Una sola Soriana."
 exit 0
