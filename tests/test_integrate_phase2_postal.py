@@ -84,7 +84,7 @@ def master(root: Path, day: str):
     )])
     _write_master(target, frame, cases, control)
     pointer = root/"output"/"checkpoints_validos"/"current_master.json"
-    pointer.parent.mkdir(parents=True)
+    pointer.parent.mkdir(parents=True, exist_ok=True)
     pointer.write_text(json.dumps({
         "master": str(target), "capture_date": day,
         "completed_phases": [1], "accepted_partial_phases": [],
@@ -207,7 +207,7 @@ def test_worker_selects_integration_only_runner_and_does_not_download(tmp_path, 
          patch("dashboard.execution.shutil.which", return_value="powershell.exe"):
         spec = prepare_run(root, 2, ALL, "solo_integracion")
     assert spec["runner"] == "integrate_phase2_postal.ps1"
-    assert "integrate_phase2_postal.ps1" in spec["command"]
+    assert any("integrate_phase2_postal.ps1" in str(arg) for arg in spec["command"])
     assert "-PostalCode" not in spec["command"]
     assert "-SkipIntegration" not in spec["command"]
     assert "integrate_phase2_postal.ps1" in public_command(root, 2, ALL, "solo_integracion")
