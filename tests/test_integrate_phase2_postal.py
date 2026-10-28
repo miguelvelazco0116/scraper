@@ -216,7 +216,7 @@ def test_worker_selects_integration_only_runner_and_does_not_download(tmp_path, 
 def test_read_actual_guadalajara_workbook_contract(tmp_path):
     """Exercise actual Excel reader and existing FG validation, not a mock."""
     from scripts.run_phase2_production import _enabled_category_ids
-    categories = _enabled_category_ids("Farmacias Guadalajara")
+    categories = _enabled_category_ids("farmacias-guadalajara")
     assert len(categories) == 4
     path = tmp_path/"output"/"farmacias_guadalajara_phase2_test.xlsx"
     path.parent.mkdir(parents=True)
