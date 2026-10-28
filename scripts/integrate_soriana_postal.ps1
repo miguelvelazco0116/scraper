@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("Preview", "Commit")][string]$Mode = "Preview",
+    [ValidateSet("SourcePreview", "Preview", "Commit")][string]$Mode = "Preview",
     [string]$CaptureDate = (Get-Date -Format "yyyy-MM-dd"),
     [string]$ProjectDir = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = ""
@@ -28,6 +28,9 @@ if ($Mode -eq "Commit") {
         throw "No se permite integrar un día histórico en el master activo."
     }
     & $PythonExe ".\scripts\integrate_soriana_postal.py" --commit --day $CaptureDate
+} elseif ($Mode -eq "SourcePreview") {
+    Write-Host "SOURCE PREVIEW: audita Excel historicos sin consultar ni modificar master."
+    & $PythonExe ".\\scripts\\integrate_soriana_postal.py" --source-preview --day $CaptureDate
 } else {
     Write-Host "PREVIEW: no modifica Excel ni puntero."
     & $PythonExe ".\scripts\integrate_soriana_postal.py" --preview --day $CaptureDate
