@@ -97,11 +97,12 @@ def audit_case(data: pd.DataFrame, summary: pd.DataFrame, cp: str,
     return case
 
 
-def audit(day: str, *, include_gastro: bool = False) -> list[dict]:
+def audit(day: str, *, include_gastro: bool = False, output_dir: Path | None = None) -> list[dict]:
     categories = expected_categories(include_gastro)
+    workbooks = output_dir if output_dir is not None else OUTPUT_DIR
     result: list[dict] = []
     for cp in CODES:
-        path = OUTPUT_DIR / f"soriana_{cp}.xlsx"
+        path = workbooks / f"soriana_{cp}.xlsx"
         if not path.is_file():
             result.extend({
                 "cp": cp, "category": category, "status": "PENDING",
