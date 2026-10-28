@@ -154,7 +154,13 @@ def safe_cli_command(root: Path, phase: int, retailer=None):
     """Fixed commands only; no user-provided shell arguments."""
     commands = {
         1: {None: "run_phase1_production.ps1"},
-        2: {None: "run_phase2_production.ps1"},
+        # Match exactly the allowlisted Streamlit paths. The legacy
+        # Phase-2 runner must never trigger a second manual Soriana capture.
+        2: {
+            None: "run_phase2_dashboard_capture.ps1",
+            "Farmacias Guadalajara": "test_farmacias_guadalajara_phase2.ps1",
+            "Soriana": "test_soriana_cp_rotation.ps1",
+        },
         3: {None: "run_phase3_production.ps1", "Bodega Aurrera": "test_bodega_aurrera.ps1", "Walmart": "test_walmart_phase3.ps1"},
         4: {None: "run_phase4_production.ps1", "Farmacias San Pablo": "run_san_pablo_full.ps1", "Farmacias Benavides": "test_benavides.ps1"},
         5: {None: "run_phase5_production.ps1", "Farmacias Similares": "test_farmacias_similares.ps1",
@@ -164,7 +170,8 @@ def safe_cli_command(root: Path, phase: int, retailer=None):
     if not runner:
         return "No hay runner aislado verificado; utiliza el runner de la fase."
     skip = (" -SkipIntegration" if runner in {
-        "run_phase2_production.ps1", "run_phase3_production.ps1",
+        "run_phase2_dashboard_capture.ps1", "run_phase3_production.ps1",
         "run_phase4_production.ps1", "run_phase5_production.ps1", "run_san_pablo_full.ps1"
     } else "")
-    return f"cd {root}\n& .\\scripts\\{runner}{skip}"
+    postal_args = " -PostalCode all -Category all" if phase == 2 and retailer == "Soriana" else ""
+    return f"cd {root}\\n& .\\\\scripts\\\\{runner}{skip}{postal_args}"
