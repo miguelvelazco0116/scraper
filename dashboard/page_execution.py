@@ -87,16 +87,20 @@ def render(root: Path):
     else:
         st.warning("No se encontró puntero productivo. Las fases que requieren master del día se bloquearán.")
 
-    if target == ALL and phase == 1:
+    if mode == "solo_integracion":
+        prereq = ("Fase 1 puede iniciar el master de hoy." if phase == 1 else
+                  f"Requiere master de hoy con fases 1 a {phase - 1} COMPLETE.")
+        st.info(
+            f"Fase {phase}: integrar capturas existentes **sin abrir navegador ni volver "
+            f"a descargar productos**. {prereq} Solo se admiten retailers COMPLETE "
+            "del día. Se realizan respaldo, auditoría posterior y rollback ante error."
+        )
+    elif target == ALL and phase == 1:
         st.warning("El runner de Fase 1 integra automáticamente. "
                    "Para iniciar un nuevo día, revisa antes sus validaciones y respaldos.")
     elif mode == "captura_integracion":
         st.warning("Se capturará y luego se integrarán los Excel validados al master de hoy. "
-                   "Soriana se descarga una sola vez; los checkpoints válidos se reutilizan.")
-    elif mode == "solo_integracion":
-        st.info("Solo integra las capturas EXISTENTES de Fase 2; **NO abre Chrome ni vuelve "
-                "a descargar Soriana**. Requiere master de hoy con Fase 1 COMPLETE. "
-                "Se hacen respaldo, auditoría y rollback ante error.")
+                   "Las fuentes incompletas no se consideran COMPLETE.")
     elif target != ALL:
         st.info("El runner por retailer genera una captura de prueba; no integra al master automáticamente.")
     else:
@@ -277,7 +281,7 @@ def render(root: Path):
 
     confirmation = st.checkbox(
         ("Confirmo que revisé la fecha, el master y los Excel ya descargados; "
-         "autorizo integrar Fase 2 sin ejecutar scraper."
+         f"autorizo integrar Fase {phase} sin ejecutar scraper."
          if mode == "solo_integracion" else
          "Confirmo que revisé la fecha, el alcance, las pestañas necesarias "
          "y que autorizo ejecutar este scraper localmente."),
@@ -292,7 +296,7 @@ def render(root: Path):
         allow_write = True
 
     if st.button("▶ Iniciar ejecución", type="primary",
-                 disabled=spec is None or active is not None or not confirmation or not allow_write or (phase == 1 and inventory is None),
+                 disabled=spec is None or active is not None or not confirmation or not allow_write or (phase == 1 and inventory is None and mode != "solo_integracion"),
                  use_container_width=True):
         try:
             job = start_run(root, phase, target, mode)

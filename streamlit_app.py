@@ -164,11 +164,15 @@ elif section == "Guía de comandos CLI":
     st.code(safe_cli_command(ROOT, phase, choice), language="powershell")
     if choice is not None and phase == 1 and "No hay runner" in safe_cli_command(ROOT, phase, choice):
         st.caption("Se recomienda utilizar el runner integral correspondiente para este retailer.")
+    st.info(
+        "Para todas las fases puedes elegir **Integrar capturas existentes** "
+        "desde Nueva ejecución → Todas las tiendas, sin volver a descargar. "
+        "Sólo se integran retailers validados del día; las fases previas "
+        "deben estar COMPLETE. Fase 2 utiliza la rotación postal Soriana."
+    )
     if phase == 2:
         st.info(
-            "Fase 2: una sola Soriana (4 CP). Desde Nueva ejecución puedes "
-            "seleccionar Solo captura, Captura + integración o Integrar "
-            "capturas existentes, sin volver a descargar productos. "
+            "Fase 2: Soriana usa una sola rotación de 4 códigos postales. "
             "La integración exige un master del día con Fase 1 COMPLETE."
         )
         st.subheader("Auditoría independiente de Soriana (solo lectura)")
@@ -181,8 +185,8 @@ elif section == "Guía de comandos CLI":
         st.caption("Para aplicar el cambio, usa Nueva ejecución → Fase 2 → "
                    "Todas las tiendas → Integrar capturas existentes.")
     else:
-        st.subheader("Auditoría de integración sin escrituras")
-        st.code(f"& .\\scripts\\integrate_complete_retailers.ps1 -Phase {phase} -Preview", language="powershell")
+        st.subheader("Previsualizar integración de capturas existentes")
+        st.code(f"& .\\scripts\\integrate_existing_phases.ps1 -Phase {phase} -Preview", language="powershell")
     if phase == 5:
         st.warning("Duero online: nunca se aprueba automáticamente desde el panel. La aprobación exige revisar evidencia y autorizarla por separado.")
     st.subheader("Checklist de operador (informativo)")
