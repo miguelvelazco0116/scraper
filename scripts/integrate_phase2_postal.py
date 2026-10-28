@@ -33,8 +33,8 @@ from scripts.run_phase2_production import _enabled_category_ids, _validate_fg
 from scripts.integrate_validated_phase import (
     _canonical, _control_capture_date, _frame_capture_dates,
     _read_existing_master, _write_master, _retailer_category_count,
-    _write_current_master_pointer,
 )
+from scraper.io_utils import atomic_output_path
 
 FG = "Farmacias Guadalajara"
 FG_FILE = Path("output") / "farmacias_guadalajara_phase2_test.xlsx"
@@ -211,6 +211,19 @@ def report(plan: dict, status: str, *, backup: str | None = None) -> dict:
     }
 
 
+def write_pointer(pointer_path: Path, master: Path, day: str,
+                  completed: list[int], accepted_partial: list[int]) -> None:
+    payload = {
+        "master": str(master), "capture_date": day,
+        "completed_phases": completed,
+        "accepted_partial_phases": accepted_partial,
+        "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    with atomic_output_path(pointer_path) as temporary:
+        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
+                             encoding="utf-8")
+
+
 def commit(root: Path, plan: dict) -> dict:
     if plan["day"] != datetime.now().astimezone().date().isoformat():
         raise ValueError("Cambió el día local; prohibido integrar capturas históricas")
@@ -229,11 +242,7 @@ def commit(root: Path, plan: dict) -> dict:
     shutil.copy2(pointer_path, pointer_backup)
     try:
         _write_master(master, plan["frame"], plan["summary"], plan["control"])
-        _write_current_master_pointer(
-            master_path=master, capture_date=plan["day"],
-            completed_phases=plan["completed"],
-            accepted_partial_phases=plan["partial"],
-        )
+        write_pointer(pointer_path, master, plan["day"], plan["completed"], plan["partial"])
         from scripts.audit_master_phases import inventory
         phases, retailers, _, _ = inventory(master)
         phase = phases.loc[phases["fase"].eq(2)]
