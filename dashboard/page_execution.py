@@ -74,7 +74,11 @@ def render(root: Path):
 
     modes = mode_labels(phase, target)
     mode_label = st.radio("Modalidad", modes, horizontal=True, key="exec_mode")
-    mode = "solo_captura" if mode_label == "Solo captura" else "captura_integracion"
+    mode = {
+        "Solo captura": "solo_captura",
+        "Captura + integración": "captura_integracion",
+        "Integrar capturas existentes": "solo_integracion",
+    }[mode_label]
 
     pointer = active_pointer(root)
     active_day = pointer.get("capture_date")
@@ -87,8 +91,12 @@ def render(root: Path):
         st.warning("El runner de Fase 1 integra automáticamente. "
                    "Para iniciar un nuevo día, revisa antes sus validaciones y respaldos.")
     elif mode == "captura_integracion":
-        st.warning("Se ejecutará el integrador real y **podría modificar el master**. "
-                   "Solo incorpora retailers que pasan sus gates, pero el exit code 0 no equivale a COMPLETE.")
+        st.warning("Se capturará y luego se integrarán los Excel validados al master de hoy. "
+                   "Soriana se descarga una sola vez; los checkpoints válidos se reutilizan.")
+    elif mode == "solo_integracion":
+        st.info("Solo integra las capturas EXISTENTES de Fase 2; **NO abre Chrome ni vuelve "
+                "a descargar Soriana**. Requiere master de hoy con Fase 1 COMPLETE. "
+                "Se hacen respaldo, auditoría y rollback ante error.")
     elif target != ALL:
         st.info("El runner por retailer genera una captura de prueba; no integra al master automáticamente.")
     else:
@@ -98,7 +106,8 @@ def render(root: Path):
         st.caption(
             "Fase 2 sin duplicados: Farmacias Guadalajara se captura una vez y "
             "Soriana se ejecuta una sola vez con rotación de los 4 CP y 6 categorías. "
-            "Los checkpoints COMPLETE del día se reutilizan. Master SIN CAMBIOS."
+            "Los checkpoints COMPLETE del día se reutilizan. "
+            "Solo los modos con integración pueden modificar el master de hoy."
         )
     if phase == 5:
         st.caption("Mayorista Duero: la opción especial de catálogo online público requiere "
@@ -267,11 +276,14 @@ def render(root: Path):
                    f"{active.get('status')}. No se iniciará otra.")
 
     confirmation = st.checkbox(
-        "Confirmo que revisé la fecha, el alcance, las pestañas necesarias "
-        "y que autorizo ejecutar este scraper localmente.",
+        ("Confirmo que revisé la fecha, el master y los Excel ya descargados; "
+         "autorizo integrar Fase 2 sin ejecutar scraper."
+         if mode == "solo_integracion" else
+         "Confirmo que revisé la fecha, el alcance, las pestañas necesarias "
+         "y que autorizo ejecutar este scraper localmente."),
         key="exec_confirm"
     )
-    if mode == "captura_integracion":
+    if mode in {"captura_integracion", "solo_integracion"}:
         allow_write = st.checkbox(
             "Autorizo la integración incremental y el eventual cambio del master de hoy.",
             key="exec_allow_master"
