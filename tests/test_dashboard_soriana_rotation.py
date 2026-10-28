@@ -85,8 +85,10 @@ def test_audit_reads_exact_pilot_root_and_distinguishes_cases(tmp_path, monkeypa
     assert len(result["issues"]) == 1
 
 
-def test_dashboard_uses_separate_capture_only_allowlisted_runner(tmp_path):
-    assert RUNNERS[2]["Soriana"] == "test_soriana_manual_phase2.ps1"
+def test_dashboard_soriana_is_single_capture_only_option(tmp_path):
+    assert RETAILER_TARGET == "Soriana"
+    assert list(RUNNERS[2]).count("Soriana") == 1
+    assert len(RUNNERS[2]) == 3  # Todas, Guadalajara, Soriana
     assert RUNNERS[2][RETAILER_TARGET] == "test_soriana_cp_rotation.ps1"
     script = tmp_path / "scripts" / "test_soriana_cp_rotation.ps1"
     script.parent.mkdir()
@@ -101,3 +103,18 @@ def test_dashboard_uses_separate_capture_only_allowlisted_runner(tmp_path):
     )
     with pytest.raises(ValueError):
         prepare_run(tmp_path, 2, RETAILER_TARGET, "captura_integracion")
+
+
+def test_full_phase2_script_runs_each_retailer_only_once(tmp_path):
+    from pathlib import Path
+    runner = Path(__file__).resolve().parents[1] / "scripts" / "run_phase2_dashboard_capture.ps1"
+    source = runner.read_text(encoding="utf-8")
+    assert source.count('& $fgScript -Category all') == 1
+    assert source.count('& $sorianaScript -PostalCode all -Category all') == 1
+    assert source.count('& $PythonExe ".\\scripts\\audit_soriana_cp_rotation.py"') == 1
+    assert 'if (-not $SkipIntegration)' in source
+    assert 'Master productivo: SIN CAMBIOS' in source
+    # Avoid accidentally calling the old non-postal Soriana inside the full phase.
+    assert 'test_soriana_manual_phase2.ps1' not in source
+    assert '$fgScript = Join-Path' in source
+    assert '$sorianaScript = Join-Path' in source
