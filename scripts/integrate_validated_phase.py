@@ -582,7 +582,7 @@ def _validate_duero_retailer(
     frame: pd.DataFrame,
     summary: pd.DataFrame,
     *,
-    allow_online_catalogue: bool = False,
+    allow_online_catalogue: bool = True,
 ) -> list[str]:
     notes: list[str] = []
     expected = {
@@ -1818,7 +1818,7 @@ def main() -> int:
         notes = _validate_sams_retailer(phase_frame, phase_summary)
     elif phase == 5 and retailer_mode == "Mayorista Duero":
         phase_frame, phase_summary, phase_control = _read_workbook_optional_control(source)
-        notes = _validate_duero_retailer(phase_frame, phase_summary)
+        notes = _validate_duero_retailer(phase_frame, phase_summary, allow_online_catalogue=True)
     elif phase == 5 and retailer_mode == "HEB":
         phase_frame, phase_summary, phase_control = (
             _read_workbook_optional_control(source)
