@@ -10,7 +10,8 @@ import re
 from pathlib import Path
 
 
-RETAILER_TARGET = "Soriana (rotación CP)"
+# User-facing Fase 2 has exactly one Soriana selector; it runs the CP pilot.
+RETAILER_TARGET = "Soriana"
 CODES = ("83420", "44220", "54030", "97245")
 EXPECTED_CATEGORIES = 6
 EXPECTED_CASES = 24

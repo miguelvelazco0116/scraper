@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from dashboard.execution import (
     ALL, RUNNERS, _atomic_json, current_active_job, job_path,
-    latest_jobs, public_command, prepare_run, start_run, request_stop, stop_requested,
+    latest_jobs, mode_labels, public_command, prepare_run, start_run, request_stop, stop_requested,
     update_heartbeat, heartbeat_time, update_job,
 )
 from dashboard.worker import exclusive_lock
@@ -90,10 +90,34 @@ class DashboardExecutionTests(unittest.TestCase):
 
     def test_retailers_all_thirteen_are_represented(self):
         self.assertEqual(len(RUNNERS), 5)
-        self.assertEqual(sum(len(row) - 1 for row in RUNNERS.values()), 14)  # 13 retailers plus one pilot
-        productive = {name for row in RUNNERS.values() for name in row
-                      if name not in (ALL, "Soriana (rotación CP)")}
+        self.assertEqual(sum(len(row) - 1 for row in RUNNERS.values()), 13)
+        productive = {name for row in RUNNERS.values() for name in row if name != ALL}
         self.assertEqual(len(productive), 13)
+        self.assertEqual(list(RUNNERS[2]), [ALL, "Farmacias Guadalajara", "Soriana"])
+        self.assertEqual(RUNNERS[2][ALL], "run_phase2_dashboard_capture.ps1")
+        self.assertEqual(RUNNERS[2]["Soriana"], "test_soriana_cp_rotation.ps1")
+        self.assertNotIn("test_soriana_manual_phase2.ps1", RUNNERS[2].values())
+
+    def test_phase2_never_offers_legacy_integration(self):
+        self.assertEqual(mode_labels(2, ALL), ["Solo captura"])
+        self.assertEqual(mode_labels(2, "Soriana"), ["Solo captura"])
+        self.assertEqual(mode_labels(2, "Farmacias Guadalajara"), ["Solo captura"])
+        self.assertEqual(mode_labels(1, ALL), ["Captura + integración"])
+        self.assertIn("Captura + integración", mode_labels(3, ALL))
+        with self.assertRaises(ValueError):
+            prepare_run(Path("C:/Proyectos/scraper"), 2, ALL, "captura_integracion")
+        self.assertEqual(mode_labels(2, "Soriana (rotación CP)"), [])
+
+    def test_phase2_full_command_captures_once_without_master_write(self):
+        root = Path("C:/Proyectos/scraper")
+        command = public_command(root, 2, ALL, "solo_captura")
+        self.assertIn("run_phase2_dashboard_capture.ps1", command)
+        self.assertIn("-SkipIntegration", command)
+        self.assertNotIn("run_phase2_production.ps1", command)
+        soriana = public_command(root, 2, "Soriana", "solo_captura")
+        self.assertIn("test_soriana_cp_rotation.ps1", soriana)
+        self.assertIn("-PostalCode all -Category all", soriana)
+        self.assertNotIn("test_soriana_manual_phase2.ps1", soriana)
 
     def test_cli_commands_are_allowlisted(self):
         base = Path("C:/Proyectos/scraper")

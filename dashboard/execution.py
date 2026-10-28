@@ -23,10 +23,10 @@ RUNNERS = {
         "Chedraui": "run_chedraui_incremental.ps1",
     },
     2: {
-        "Todas las tiendas": "run_phase2_production.ps1",
+        "Todas las tiendas": "run_phase2_dashboard_capture.ps1",
         "Farmacias Guadalajara": "test_farmacias_guadalajara_phase2.ps1",
-        "Soriana": "test_soriana_manual_phase2.ps1",
-        "Soriana (rotación CP)": "test_soriana_cp_rotation.ps1",
+        # One Soriana option: always the certified four-CP rotation.
+        "Soriana": "test_soriana_cp_rotation.ps1",
     },
     3: {
         "Todas las tiendas": "run_phase3_production.ps1",
@@ -53,7 +53,6 @@ BACKUP_SOURCE = {
     "Farmacias del Ahorro": "farmacias_del_ahorro_all_test.xlsx",
     "Ibarra Mayoreo": "ibarra_mayoreo_test.xlsx",
     "Farmacias Guadalajara": "farmacias_guadalajara_phase2_test.xlsx",
-    "Soriana": "soriana_manual_phase2_test.xlsx",
     "Farmacias San Pablo": "farmacias_san_pablo_test.xlsx",
     "Farmacias Benavides": "benavides_test.xlsx",
     "Farmacias Similares": "farmacias_similares_test.xlsx",
@@ -63,6 +62,21 @@ BACKUP_SOURCE = {
     "Bodega Aurrera": "bodega_aurrera_phase3_test.xlsx",
     "Walmart": "walmart_phase3_test.xlsx",
 }
+
+def mode_labels(phase: int, target: str) -> list[str]:
+    """The Streamlit modes for an allowlisted phase/retailer.
+
+    Phase 2 is capture-only until a separate, approved 24-case production
+    integration is available. Never offer legacy Soriana integration here.
+    """
+    if target not in RUNNERS.get(phase, {}):
+        return []
+    if target != ALL or phase == 2:
+        return ["Solo captura"]
+    if phase == 1:
+        return ["Captura + integración"]
+    return ["Solo captura", "Captura + integración"]
+
 
 def now():
     return datetime.now().astimezone().isoformat(timespec="seconds")
@@ -241,6 +255,11 @@ def prepare_run(root: Path, phase: int, target: str, mode: str):
         raise ValueError("Runner no autorizado para esa fase/retailer")
     if mode not in {"solo_captura", "captura_integracion"}:
         raise ValueError("Modo de ejecución inválido")
+    if phase == 2 and mode != "solo_captura":
+        raise ValueError(
+            "Fase 2 en Streamlit sólo ejecuta la rotación CP como captura. "
+            "No hay integración ni una segunda captura Soriana."
+        )
     full = target == ALL
     if not full and mode != "solo_captura":
         raise ValueError("Los runners por retailer son pruebas aisladas: no integran automáticamente")
@@ -277,7 +296,7 @@ def prepare_run(root: Path, phase: int, target: str, mode: str):
         args.append("-SkipIntegration")
     if not full and target == "Chedraui":
         args.append("-Headed")
-    if not full and target == "Soriana (rotación CP)":
+    if phase == 2 and target == "Soriana":
         # The pilot captures all six categories in all four ZIP codes,
         # never the legacy Phase-2 Soriana workbook or productive master.
         args.extend(["-PostalCode", "all", "-Category", "all"])
@@ -295,7 +314,7 @@ def public_command(root: Path, phase: int, target: str, mode: str):
     return (f"& .\\scripts\\{script}"
             + (" -SkipIntegration" if skip else "")
             + (" -Headed" if target == "Chedraui" else "")
-            + (" -PostalCode all -Category all" if target == "Soriana (rotación CP)" else ""))
+            + (" -PostalCode all -Category all" if phase == 2 and target == "Soriana" else ""))
 
 def start_run(root: Path, phase: int, target: str, mode: str):
     spec = prepare_run(root, phase, target, mode)

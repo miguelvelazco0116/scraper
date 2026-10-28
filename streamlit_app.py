@@ -1,4 +1,4 @@
-"""Scraper operations dashboard. Production scrapers remain CLI-only in this MVP."""
+"""Scraper operations dashboard with allowlisted local Windows runners."""
 from __future__ import annotations
 
 import sys
@@ -162,10 +162,22 @@ elif section == "Guía de comandos CLI":
     choice = None if retailer == "Toda la fase" else retailer
     st.subheader("Comando preparado para CLI")
     st.code(safe_cli_command(ROOT, phase, choice), language="powershell")
-    if choice is not None and phase in (1, 2) and "No hay runner" in safe_cli_command(ROOT, phase, choice):
+    if choice is not None and phase == 1 and "No hay runner" in safe_cli_command(ROOT, phase, choice):
         st.caption("Se recomienda utilizar el runner integral correspondiente para este retailer.")
-    st.subheader("Auditoría de integración sin escrituras")
-    st.code(f"& .\\scripts\\integrate_complete_retailers.ps1 -Phase {phase} -Preview", language="powershell")
+    if phase == 2:
+        st.info(
+            "Fase 2 desde Streamlit: dos retailers, una captura por retailer. "
+            "Soriana utiliza exclusivamente la rotación de 4 códigos postales. "
+            "La ejecución no modifica el master."
+        )
+        st.subheader("Auditoría independiente de Soriana (solo lectura)")
+        st.code(
+            "python .\\scripts\\audit_soriana_cp_rotation.py --day (Get-Date -Format yyyy-MM-dd)",
+            language="powershell",
+        )
+    else:
+        st.subheader("Auditoría de integración sin escrituras")
+        st.code(f"& .\\scripts\\integrate_complete_retailers.ps1 -Phase {phase} -Preview", language="powershell")
     if phase == 5:
         st.warning("Duero online: nunca se aprueba automáticamente desde el panel. La aprobación exige revisar evidencia y autorizarla por separado.")
     st.subheader("Checklist de operador (informativo)")

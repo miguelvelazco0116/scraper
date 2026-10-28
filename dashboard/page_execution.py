@@ -8,7 +8,7 @@ import streamlit as st
 
 from dashboard.execution import (
     ALL, RUNNERS, active_pointer, current_active_job, latest_jobs, local_day,
-    prepare_run, public_command, read_run_log, start_run, request_stop, stop_requested,
+    mode_labels, prepare_run, public_command, read_run_log, start_run, request_stop, stop_requested,
 )
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -72,10 +72,7 @@ def render(root: Path):
     phase = left.selectbox("Fase a ejecutar", sorted(RUNNERS), key="exec_phase")
     target = right.selectbox("Alcance", list(RUNNERS[phase]), key="exec_target")
 
-    if target == ALL:
-        modes = ["Solo captura", "Captura + integración"] if phase != 1 else ["Captura + integración"]
-    else:
-        modes = ["Solo captura"]
+    modes = mode_labels(phase, target)
     mode_label = st.radio("Modalidad", modes, horizontal=True, key="exec_mode")
     mode = "solo_captura" if mode_label == "Solo captura" else "captura_integracion"
 
@@ -97,6 +94,12 @@ def render(root: Path):
     else:
         st.info("El runner usará **-SkipIntegration**. No deberá modificar el master.")
 
+    if phase == 2:
+        st.caption(
+            "Fase 2 sin duplicados: Farmacias Guadalajara se captura una vez y "
+            "Soriana se ejecuta una sola vez con rotación de los 4 CP y 6 categorías. "
+            "Los checkpoints COMPLETE del día se reutilizan. Master SIN CAMBIOS."
+        )
     if phase == 5:
         st.caption("Mayorista Duero: la opción especial de catálogo online público requiere "
                    "aprobación explícita aparte. Esta pantalla **nunca** agrega "
@@ -158,12 +161,12 @@ def render(root: Path):
     else:
         inventory = None
 
-    if target == "Soriana (rotación CP)":
-        st.subheader("Fase 2 · Soriana — rotación postal (piloto)")
+    if phase == 2 and target in (ALL, "Soriana"):
+        st.subheader("Fase 2 · Soriana — rotación de códigos postales")
         st.caption(
             "Mismo estándar que Chedraui: COMPLETE / REINTENTAR, tres intentos "
             "por categoría y CP, checkpoints válidos del día, diagnóstico por intento. "
-            "Los cuatro Excel del piloto no modifican el master ni la Fase 2 productiva."
+            "La captura de las cuatro zonas se registra por separado y no modifica el master."
         )
 
         @st.fragment(run_every="5s")

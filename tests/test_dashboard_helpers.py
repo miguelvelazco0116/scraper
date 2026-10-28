@@ -70,7 +70,11 @@ class DashboardHelpersTests(unittest.TestCase):
     def test_cli_runner_allowlist(self):
         root = Path("C:/Proyectos/scraper")
         self.assertIn("test_heb.ps1", safe_cli_command(root, 5, "HEB"))
-        self.assertIn("No hay runner", safe_cli_command(root, 2, "Soriana"))
+        self.assertIn("test_soriana_cp_rotation.ps1", safe_cli_command(root, 2, "Soriana"))
+        self.assertIn("-PostalCode all -Category all", safe_cli_command(root, 2, "Soriana"))
+        self.assertIn("run_phase2_dashboard_capture.ps1", safe_cli_command(root, 2))
+        self.assertIn("-SkipIntegration", safe_cli_command(root, 2))
+        self.assertNotIn("test_soriana_manual_phase2.ps1", safe_cli_command(root, 2, "Soriana"))
 
 if __name__ == "__main__":
     unittest.main()
