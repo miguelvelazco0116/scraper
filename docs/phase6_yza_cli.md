@@ -103,3 +103,27 @@ bajo `output/checkpoints_validos/before_phase6_yza_*.{xlsx,json}`.
 No se importa el histórico del piloto ni se ejecuta integración automática.
 La validación live en Windows es condición indispensable para tener YZA
 incorporada al master; las pruebas de GitHub no acceden al Chrome del operador.
+
+
+## Streamlit: integración de Farmacias YZA (Fase 6)
+
+En Nueva ejecución → Fase 6 → Todas las tiendas se ofrecen **Solo captura**,
+**Captura + integración** e **Integrar capturas existentes**. La opción
+individual **Farmacias YZA** solo ejecuta la captura de dos categorías.
+
+- La captura requiere Chrome abierto por el operador y depuración CDP.
+- Integrar capturas existentes NO vuelve a ejecutar Chrome ni scraper.
+- El integrador exige master del día y Fases 1–5 COMPLETE.
+- Si YZA ya está certificada responde `YA_EXISTE_EN_MASTER`, sin modificar.
+- Si falta Excel responde `SIN_CAPTURA`, sin modificar.
+- Si el Excel existe pero falla la validación responde `CAPTURA_NO_VALIDADA`.
+- Si la captura cumple los gates responde `LISTO_PARA_INTEGRAR`.
+- La integración preserva otras fases y aplica respaldo y rollback.
+
+**Importante:** YZA se mantiene como catálogo online, sin certificar
+CP, tienda ni disponibilidad por localidad. Farmatodo está fuera del alcance.
+
+Para previsualizar sin escribir: `./scripts/integrate_phase6_yza.ps1 -Preview`
+desde PowerShell, o selecciona la opción correspondiente en Streamlit.
+
+Las pruebas offline no sustituyen validar una captura real de YZA en Windows.

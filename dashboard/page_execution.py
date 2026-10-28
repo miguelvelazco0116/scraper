@@ -117,7 +117,15 @@ def render(root: Path):
         st.caption("Mayorista Duero: la opción especial de catálogo online público requiere "
                    "aprobación explícita aparte. Esta pantalla **nunca** agrega "
                    "-ApproveDueroOnline de forma automática.")
-    if phase in (2, 3, 4, 5) and mode != "solo_integracion" and (target == ALL or target in {"HEB", "Sam's Club", "Bodega Aurrera", "Walmart", "Farmacias San Pablo"}):
+    if phase == 6:
+        st.caption(
+            "Farmacias YZA: solo catálogo online, dos categorías "
+            "(medicamentos respiratorio e higiene bucal). "
+            "No certifica CP, tienda ni stock por localidad. "
+            "Abre Chrome, habilita chrome://inspect/#remote-debugging y "
+            "deja abierta una pestaña yza.mx antes de capturar."
+        )
+    if phase in (2, 3, 4, 5, 6) and mode != "solo_integracion" and (target == ALL or target in {"HEB", "Sam's Club", "Bodega Aurrera", "Walmart", "Farmacias San Pablo", "Farmacias YZA"}):
         st.caption("Para los retailers con CDP, habilita remote debugging en Chrome y abre los sitios "
                    "correspondientes antes de iniciar.")
 
@@ -261,6 +269,42 @@ def render(root: Path):
                     st.error("No se pudo auditar la rotación: " + str(exc))
 
         postal_progress()
+
+    if mode == "solo_integracion" and target == ALL:
+        st.subheader("Validar capturas existentes por retailer")
+        st.caption(
+            "Verificación de solo lectura: identifica quién ya existe en el "
+            "master, quién tiene una captura validada y quién todavía no tiene "
+            "datos. No abre Chrome ni modifica archivos."
+        )
+        if st.button("Verificar retailers sin modificar master", key="check_retailers_existing"):
+            try:
+                if phase == 2:
+                    from scripts.integrate_phase2_postal import prepare_plan
+                    preflight = prepare_plan(root, local_day())
+                    statuses = preflight["retailers"]
+                elif phase == 6:
+                    from scripts.integrate_phase6_yza import preview as yza_preview
+                    preflight = yza_preview(local_day())
+                    statuses = {"Farmacias YZA": {
+                        "status": preflight["state"],
+                        "products": preflight["phase6_rows"],
+                        "detail": preflight.get("detail", ""),
+                    }}
+                else:
+                    from scripts.integrate_existing_phases import prepare as prepare_existing
+                    preflight = prepare_existing(root, phase, local_day())
+                    statuses = preflight["retailers"]
+                rows = [{
+                    "Retailer": name, "Estado": item["status"],
+                    "Productos": item["products"], "Detalle": item.get("detail", ""),
+                } for name, item in statuses.items()]
+                st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+                if all(item["status"] in {"YA_EXISTE_EN_MASTER", "SIN_CAPTURA", "CAPTURA_NO_VALIDADA"}
+                       for item in statuses.values()):
+                    st.info("No hay retailers nuevos validados para integrar. Master SIN CAMBIOS.")
+            except (ValueError, KeyError, OSError, TypeError) as exc:
+                st.warning("Prevalidación bloqueada: " + str(exc))
 
     st.subheader("Comando que se ejecutará")
     st.code(public_command(root, phase, target, mode), language="powershell")

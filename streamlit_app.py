@@ -35,7 +35,7 @@ def load_report(path, mtime):
 
 @st.cache_data(ttl=90, show_spinner=False)
 def load_quality(path, mtime):
-    from integrate_complete_retailers import EXPECTED
+    from scripts.audit_master_phases import EXPECTED
     frame = load_master_rows(Path(path))
     return metrics_by_retailer(frame, EXPECTED), quality_findings(frame, EXPECTED)
 
@@ -153,7 +153,7 @@ elif section == "Nueva ejecución":
     render(ROOT)
 
 elif section == "Guía de comandos CLI":
-    from integrate_complete_retailers import EXPECTED
+    from scripts.audit_master_phases import EXPECTED
     st.header("Guía de comandos CLI")
     st.info("Estos comandos siguen disponibles. Para lanzar procesos desde la interfaz utiliza **Nueva ejecución**.")
     a, b = st.columns([1, 2])
@@ -184,6 +184,10 @@ elif section == "Guía de comandos CLI":
         st.code("& .\\scripts\\integrate_phase2_postal.ps1 -Preview", language="powershell")
         st.caption("Para aplicar el cambio, usa Nueva ejecución → Fase 2 → "
                    "Todas las tiendas → Integrar capturas existentes.")
+    elif phase == 6:
+        st.info("YZA: 2 categorías del catálogo online, sin CP ni tienda verificados. Para capturar, Chrome CDP manual.")
+        st.subheader("Previsualizar integración de Farmacias YZA")
+        st.code("& .\\scripts\\integrate_phase6_yza.ps1 -Preview", language="powershell")
     else:
         st.subheader("Previsualizar integración de capturas existentes")
         st.code(f"& .\\scripts\\integrate_existing_phases.ps1 -Phase {phase} -Preview", language="powershell")

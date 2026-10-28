@@ -45,6 +45,10 @@ RUNNERS = {
         "Sam's Club": "test_sams_club.ps1",
         "Mayorista Duero": "test_duero_mayoreo.ps1",
     },
+    6: {
+        "Todas las tiendas": "run_phase6_dashboard.ps1",
+        "Farmacias YZA": "run_phase6_pilot.ps1",
+    },
 }
 ALL = "Todas las tiendas"
 RUNS_DIR = Path("diagnostics") / "dashboard_runs"
@@ -268,7 +272,9 @@ def prepare_run(root: Path, phase: int, target: str, mode: str):
     if os.name != "nt":
         raise RuntimeError("La ejecución local solo se habilita en Windows")
     runner_name = (
-        ("integrate_phase2_postal.ps1" if phase == 2 else "integrate_existing_phases.ps1")
+        ("integrate_phase2_postal.ps1" if phase == 2 else
+         "integrate_phase6_yza.ps1" if phase == 6 else
+         "integrate_existing_phases.ps1")
         if mode == "solo_integracion" else RUNNERS[phase][target]
     )
     runner = root / "scripts" / runner_name
@@ -291,10 +297,10 @@ def prepare_run(root: Path, phase: int, target: str, mode: str):
     args = [ps, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
             "-File", str(runner)]
     if full and mode == "solo_captura":
-        if phase not in (2, 3, 4, 5):
+        if phase not in (2, 3, 4, 5, 6):
             raise ValueError("El runner no implementa -SkipIntegration.")
         args.append("-SkipIntegration")
-    if mode == "solo_integracion" and phase != 2:
+    if mode == "solo_integracion" and phase in (1, 3, 4, 5):
         args.extend(["-Phase", str(phase)])
     if not full and target == "Farmacias San Pablo":
         args.append("-SkipIntegration")
@@ -304,6 +310,8 @@ def prepare_run(root: Path, phase: int, target: str, mode: str):
         # The pilot captures all six categories in all four ZIP codes,
         # never the legacy Phase-2 Soriana workbook or productive master.
         args.extend(["-PostalCode", "all", "-Category", "all"])
+    if phase == 6 and target == "Farmacias YZA":
+        args.extend(["-Mode", "capture", "-Retailer", "farmacias-yza"])
     return {
         "phase": phase, "target": target, "mode": mode,
         "runner": runner_name, "command": args,
@@ -317,12 +325,15 @@ def public_command(root: Path, phase: int, target: str, mode: str):
     if target == ALL and mode == "solo_integracion":
         if phase == 2:
             return "& .\\scripts\\integrate_phase2_postal.ps1"
+        if phase == 6:
+            return "& .\\scripts\\integrate_phase6_yza.ps1"
         return f"& .\\scripts\\integrate_existing_phases.ps1 -Phase {phase}"
-    skip = mode == "solo_captura" and (target == "Farmacias San Pablo" or target == ALL and phase in (2, 3, 4, 5))
+    skip = mode == "solo_captura" and (target == "Farmacias San Pablo" or target == ALL and phase in (2, 3, 4, 5, 6))
     return (f"& .\\scripts\\{script}"
             + (" -SkipIntegration" if skip else "")
             + (" -Headed" if target == "Chedraui" else "")
-            + (" -PostalCode all -Category all" if phase == 2 and target == "Soriana" else ""))
+            + (" -PostalCode all -Category all" if phase == 2 and target == "Soriana" else "")
+            + (" -Mode capture -Retailer farmacias-yza" if phase == 6 and target == "Farmacias YZA" else ""))
 
 def start_run(root: Path, phase: int, target: str, mode: str):
     spec = prepare_run(root, phase, target, mode)

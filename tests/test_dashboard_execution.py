@@ -89,10 +89,13 @@ class DashboardExecutionTests(unittest.TestCase):
             child.wait.assert_called_once()
 
     def test_retailers_all_thirteen_are_represented(self):
-        self.assertEqual(len(RUNNERS), 5)
-        self.assertEqual(sum(len(row) - 1 for row in RUNNERS.values()), 13)
+        self.assertEqual(len(RUNNERS), 6)
+        self.assertEqual(sum(len(row) - 1 for row in RUNNERS.values()), 14)
         productive = {name for row in RUNNERS.values() for name in row if name != ALL}
-        self.assertEqual(len(productive), 13)
+        self.assertEqual(len(productive), 14)
+        self.assertEqual(RUNNERS[6], {
+            ALL: "run_phase6_dashboard.ps1", "Farmacias YZA": "run_phase6_pilot.ps1",
+        })
         self.assertEqual(list(RUNNERS[2]), [ALL, "Farmacias Guadalajara", "Soriana"])
         self.assertEqual(RUNNERS[2][ALL], "run_phase2_dashboard_capture.ps1")
         self.assertEqual(RUNNERS[2]["Soriana"], "test_soriana_cp_rotation.ps1")
@@ -105,12 +108,12 @@ class DashboardExecutionTests(unittest.TestCase):
         self.assertEqual(mode_labels(2, "Farmacias Guadalajara"), ["Solo captura"])
         self.assertEqual(mode_labels(1, ALL),
                          ["Captura + integración", "Integrar capturas existentes"])
-        for phase in (2, 3, 4, 5):
+        for phase in (2, 3, 4, 5, 6):
             self.assertEqual(
                 mode_labels(phase, ALL),
                 ["Solo captura", "Captura + integración", "Integrar capturas existentes"],
             )
-        for phase in (1, 2, 3, 4, 5):
+        for phase in (1, 2, 3, 4, 5, 6):
             for retailer in RUNNERS[phase]:
                 if retailer != ALL:
                     self.assertEqual(mode_labels(phase, retailer), ["Solo captura"])
@@ -170,6 +173,63 @@ class DashboardExecutionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Master activo"):
                     prepare_run(root, 3, ALL, "solo_integracion")
 
+    def test_phase6_cli_modes_never_open_probe_or_farmatodo(self):
+        root = Path("C:/Proyectos/scraper")
+        for phase in (2, 3, 4, 5, 6):
+            self.assertIn("Integrar capturas existentes", mode_labels(phase, ALL))
+        self.assertEqual(mode_labels(6, "Farmacias YZA"), ["Solo captura"])
+        self.assertEqual(public_command(root, 6, ALL, "solo_integracion"),
+                         "& .\\scripts\\integrate_phase6_yza.ps1")
+        self.assertEqual(public_command(root, 6, ALL, "solo_captura"),
+                         "& .\\scripts\\run_phase6_dashboard.ps1 -SkipIntegration")
+        self.assertEqual(public_command(root, 6, "Farmacias YZA", "solo_captura"),
+                         "& .\\scripts\\run_phase6_pilot.ps1 -Mode capture -Retailer farmacias-yza")
+        self.assertNotIn("Farmatodo", RUNNERS[6])
+        self.assertNotIn("probe", public_command(root, 6, ALL, "captura_integracion"))
+
+    def test_phase6_prepares_capture_and_integrate_runners(self):
+        from pathlib import PosixPath
+        from dashboard.execution import local_day
+        with TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            (scripts / "run_phase6_dashboard.ps1").touch()
+            (scripts / "run_phase6_pilot.ps1").touch()
+            (scripts / "integrate_phase6_yza.ps1").touch()
+            with patch("dashboard.execution.os.name", "nt"), \
+                 patch("dashboard.execution.Path", PosixPath), \
+                 patch("dashboard.execution.shutil.which", return_value="powershell.exe"):
+                single = prepare_run(root, 6, "Farmacias YZA", "solo_captura")
+                all_capture = prepare_run(root, 6, ALL, "solo_captura")
+            self.assertEqual(single["command"][-4:],
+                             ["-Mode", "capture", "-Retailer", "farmacias-yza"])
+            self.assertEqual(all_capture["command"][-1], "-SkipIntegration")
+            # Only integration requires same-day master with previous phases.
+            with patch("dashboard.execution.os.name", "nt"), \
+                 patch("dashboard.execution.Path", PosixPath), \
+                 patch("dashboard.execution.shutil.which", return_value="powershell.exe"):
+                with self.assertRaisesRegex(ValueError, "Master activo"):
+                    prepare_run(root, 6, ALL, "solo_integracion")
+            file = root / "output" / "test_master.xlsx"
+            file.parent.mkdir(parents=True)
+            file.write_bytes(b"temporary master for allowlist test")
+            pointer = root / "output" / "checkpoints_validos" / "current_master.json"
+            pointer.parent.mkdir(parents=True)
+            pointer.write_text(json.dumps({
+                "master": str(file), "capture_date": local_day(),
+                "completed_phases": [1, 2, 3, 4, 5],
+            }), encoding="utf-8")
+            with patch("dashboard.execution.os.name", "nt"), \
+                 patch("dashboard.execution.Path", PosixPath), \
+                 patch("dashboard.execution.shutil.which", return_value="powershell.exe"):
+                integration = prepare_run(root, 6, ALL, "solo_integracion")
+                capture_and_integrate = prepare_run(root, 6, ALL, "captura_integracion")
+            self.assertEqual(integration["runner"], "integrate_phase6_yza.ps1")
+            self.assertNotIn("-Phase", integration["command"])
+            self.assertEqual(capture_and_integrate["runner"], "run_phase6_dashboard.ps1")
+            self.assertNotIn("-SkipIntegration", capture_and_integrate["command"])
+
     def test_cli_commands_are_allowlisted(self):
         base = Path("C:/Proyectos/scraper")
         self.assertIn("test_sams_club.ps1", public_command(base, 5, "Sam's Club", "solo_captura"))
@@ -190,7 +250,7 @@ class DashboardExecutionTests(unittest.TestCase):
     def test_unknown_command_rejected_before_shell_lookup(self):
         with TemporaryDirectory() as temp:
             with self.assertRaises(ValueError):
-                prepare_run(Path(temp), 6, ALL, "solo_captura")
+                prepare_run(Path(temp), 7, ALL, "solo_captura")
 
     def test_bad_run_id_rejected(self):
         with self.assertRaises(ValueError):

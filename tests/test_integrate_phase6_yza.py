@@ -117,3 +117,63 @@ def test_preview_never_writes_and_uses_same_date(tmp_path, monkeypatch):
     }), encoding="utf-8")
     with pytest.raises(ValueError, match="otra fecha"):
         phase6.preview(DAY)
+
+
+def _synthetic_phase6_master(tmp_path, monkeypatch, *, included_yza):
+    master = tmp_path / "master.xlsx"
+    pointer = tmp_path / "current_master.json"
+    old = pd.DataFrame([{
+        "retailer": "Soriana", "category_id": "cuidado-bucal",
+        "sku": "old", "price_current": 30,
+        "url": "https://www.soriana.com/old",
+        "scrape_timestamp": DAY + "T10:00:00"
+    }])
+    summary = pd.DataFrame([{
+        "retailer": "Soriana", "category_id": "cuidado-bucal",
+        "status": "COMPLETE", "source_phase": "FASE 2", "products": 1,
+    }])
+    if included_yza:
+        old = pd.concat([old, _products()], ignore_index=True)
+        cases = _summary().assign(status="COMPLETE", source_phase="FASE 6")
+        summary = pd.concat([summary, cases], ignore_index=True)
+    control = pd.DataFrame([{"capture_date": DAY}])
+    with pd.ExcelWriter(master) as writer:
+        old.to_excel(writer, sheet_name="Concentrado", index=False)
+        summary.to_excel(writer, sheet_name="Resumen", index=False)
+        control.to_excel(writer, sheet_name="Control", index=False)
+    pointer.write_text(json.dumps({
+        "master": str(master), "capture_date": DAY,
+        "completed_phases": [1, 2, 3, 4, 5] + ([6] if included_yza else [])
+    }), encoding="utf-8")
+    monkeypatch.setattr(phase6, "CURRENT_MASTER_POINTER", pointer)
+    monkeypatch.setattr(phase6, "_master_path_for_date", lambda day: master)
+    return master, pointer
+
+
+def test_yza_already_integrated_is_noop_without_requiring_pilot(tmp_path, monkeypatch):
+    master, pointer = _synthetic_phase6_master(tmp_path, monkeypatch, included_yza=True)
+    def never_download():
+        raise AssertionError("No need to revalidate/discover a pilot if YZA is certified")
+    monkeypatch.setattr(phase6.run_phase6_pilot, "validated_manifest", never_download)
+    initial = master.read_bytes(), pointer.read_bytes()
+    plan = phase6.preview(DAY)
+    assert plan["state"] == "YA_EXISTE_EN_MASTER"
+    assert plan["phase6_rows"] == 2
+    outcome = phase6.commit_plan(plan)
+    assert outcome["status"] == "YA_EXISTE_EN_MASTER"
+    assert outcome["master_modified"] is False
+    assert (master.read_bytes(), pointer.read_bytes()) == initial
+
+
+def test_yza_missing_capture_reports_noop_per_retailer(tmp_path, monkeypatch):
+    master, pointer = _synthetic_phase6_master(tmp_path, monkeypatch, included_yza=False)
+    missing = tmp_path / "nonexistent_yza.xlsx"
+    monkeypatch.setitem(phase6.run_phase6_pilot.EXPECTED["farmacias-yza"], "workbook", missing)
+    before = master.read_bytes(), pointer.read_bytes()
+    plan = phase6.preview(DAY)
+    assert plan["state"] == "SIN_CAPTURA"
+    assert plan["phase6_rows"] == 0
+    report = phase6.commit_plan(plan)
+    assert report["status"] == "SIN_CAPTURA"
+    assert report["master_modified"] is False
+    assert (master.read_bytes(), pointer.read_bytes()) == before
