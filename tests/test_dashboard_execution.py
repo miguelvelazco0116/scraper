@@ -103,8 +103,17 @@ class DashboardExecutionTests(unittest.TestCase):
                          ["Solo captura", "Captura + integración", "Integrar capturas existentes"])
         self.assertEqual(mode_labels(2, "Soriana"), ["Solo captura"])
         self.assertEqual(mode_labels(2, "Farmacias Guadalajara"), ["Solo captura"])
-        self.assertEqual(mode_labels(1, ALL), ["Captura + integración"])
-        self.assertIn("Captura + integración", mode_labels(3, ALL))
+        self.assertEqual(mode_labels(1, ALL),
+                         ["Captura + integración", "Integrar capturas existentes"])
+        for phase in (2, 3, 4, 5):
+            self.assertEqual(
+                mode_labels(phase, ALL),
+                ["Solo captura", "Captura + integración", "Integrar capturas existentes"],
+            )
+        for phase in (1, 2, 3, 4, 5):
+            for retailer in RUNNERS[phase]:
+                if retailer != ALL:
+                    self.assertEqual(mode_labels(phase, retailer), ["Solo captura"])
         with self.assertRaises(ValueError):
             prepare_run(Path("C:/Proyectos/scraper"), 2, "Soriana", "solo_integracion")
         self.assertEqual(mode_labels(2, "Soriana (rotación CP)"), [])
@@ -129,6 +138,37 @@ class DashboardExecutionTests(unittest.TestCase):
         combined = public_command(root, 2, ALL, "captura_integracion")
         self.assertIn("run_phase2_dashboard_capture.ps1", combined)
         self.assertNotIn("SkipIntegration", combined)
+
+    def test_existing_integrations_use_only_allowlisted_no_scrape_runner(self):
+        for phase in (1, 3, 4, 5):
+            command = public_command(Path("C:/Proyectos/scraper"), phase, ALL, "solo_integracion")
+            self.assertEqual(command, f"& .\\scripts\\integrate_existing_phases.ps1 -Phase {phase}")
+            self.assertNotIn("run_phase", command)
+            self.assertNotIn("test_soriana", command)
+        self.assertIn("integrate_phase2_postal.ps1",
+                      public_command(Path("C:/Proyectos/scraper"), 2, ALL, "solo_integracion"))
+        self.assertEqual(mode_labels(4, "Farmacias Benavides"), ["Solo captura"])
+
+    def test_integration_only_prepares_correct_script_and_same_day_guards(self):
+        from datetime import datetime
+        from dashboard.execution import local_day
+        from pathlib import PosixPath
+        with TemporaryDirectory() as name:
+            root = Path(name)
+            directory = root / "scripts"
+            directory.mkdir()
+            (directory / "integrate_existing_phases.ps1").touch()
+            with patch("dashboard.execution.os.name", "nt"), \\
+                 patch("dashboard.execution.Path", PosixPath), \\
+                 patch("dashboard.execution.shutil.which", return_value="powershell.exe"):
+                one = prepare_run(root, 1, ALL, "solo_integracion")
+            self.assertEqual(one["runner"], "integrate_existing_phases.ps1")
+            self.assertEqual(one["command"][-2:], ["-Phase", "1"])
+            with patch("dashboard.execution.os.name", "nt"), \\
+                 patch("dashboard.execution.Path", PosixPath), \\
+                 patch("dashboard.execution.shutil.which", return_value="powershell.exe"):
+                with self.assertRaisesRegex(ValueError, "Master activo"):
+                    prepare_run(root, 3, ALL, "solo_integracion")
 
     def test_cli_commands_are_allowlisted(self):
         base = Path("C:/Proyectos/scraper")
