@@ -66,19 +66,17 @@ BACKUP_SOURCE = {
 def mode_labels(phase: int, target: str) -> list[str]:
     """The Streamlit modes for an allowlisted phase/retailer.
 
-    Phase 2 is capture-only until a separate, approved 24-case production
-    integration is available. Never offer legacy Soriana integration here.
+    Every full phase can integrate previously captured, independently
+    validated retailer partitions without rerunning scrapers. Phase 2 keeps
+    its distinct 24-case postal Soriana workflow.
     """
     if target not in RUNNERS.get(phase, {}):
         return []
-    if phase == 2:
-        return (["Solo captura", "Captura + integración", "Integrar capturas existentes"]
-                if target == ALL else ["Solo captura"])
     if target != ALL:
         return ["Solo captura"]
     if phase == 1:
-        return ["Captura + integración"]
-    return ["Solo captura", "Captura + integración"]
+        return ["Captura + integración", "Integrar capturas existentes"]
+    return ["Solo captura", "Captura + integración", "Integrar capturas existentes"]
 
 
 def now():
@@ -258,20 +256,20 @@ def prepare_run(root: Path, phase: int, target: str, mode: str):
         raise ValueError("Runner no autorizado para esa fase/retailer")
     if mode not in {"solo_captura", "captura_integracion", "solo_integracion"}:
         raise ValueError("Modo de ejecución inválido")
-    if mode == "solo_integracion" and not (phase == 2 and target == ALL):
-        raise ValueError("Integrar capturas existentes sólo se habilita para toda la Fase 2")
+    if mode == "solo_integracion" and target != ALL:
+        raise ValueError("Integrar capturas existentes sólo se habilita para toda la fase")
     full = target == ALL
     if not full and mode != "solo_captura":
         raise ValueError("Los runners por retailer son pruebas aisladas: no integran automáticamente")
-    if phase == 1 and full and mode != "captura_integracion":
-        raise ValueError("Fase 1 siempre realiza integración incremental. No existe modo solo captura.")
+    if phase == 1 and full and mode == "solo_captura":
+        raise ValueError("Fase 1 no implementa modo solo captura; usa integración posterior o captura + integración.")
     if mode == "captura_integracion" and not full:
         raise ValueError("Integración restringida a runners de fase")
     if os.name != "nt":
         raise RuntimeError("La ejecución local solo se habilita en Windows")
     runner_name = (
-        "integrate_phase2_postal.ps1" if phase == 2 and mode == "solo_integracion"
-        else RUNNERS[phase][target]
+        ("integrate_phase2_postal.ps1" if phase == 2 else "integrate_existing_phases.ps1")
+        if mode == "solo_integracion" else RUNNERS[phase][target]
     )
     runner = root / "scripts" / runner_name
     if not runner.is_file():
@@ -296,6 +294,8 @@ def prepare_run(root: Path, phase: int, target: str, mode: str):
         if phase not in (2, 3, 4, 5):
             raise ValueError("El runner no implementa -SkipIntegration.")
         args.append("-SkipIntegration")
+    if mode == "solo_integracion" and phase != 2:
+        args.extend(["-Phase", str(phase)])
     if not full and target == "Farmacias San Pablo":
         args.append("-SkipIntegration")
     if not full and target == "Chedraui":
@@ -314,8 +314,10 @@ def public_command(root: Path, phase: int, target: str, mode: str):
     script = RUNNERS.get(phase, {}).get(target)
     if not script:
         return ""
-    if phase == 2 and target == ALL and mode == "solo_integracion":
-        return "& .\\scripts\\integrate_phase2_postal.ps1"
+    if target == ALL and mode == "solo_integracion":
+        if phase == 2:
+            return "& .\\scripts\\integrate_phase2_postal.ps1"
+        return f"& .\\scripts\\integrate_existing_phases.ps1 -Phase {phase}"
     skip = mode == "solo_captura" and (target == "Farmacias San Pablo" or target == ALL and phase in (2, 3, 4, 5))
     return (f"& .\\scripts\\{script}"
             + (" -SkipIntegration" if skip else "")
