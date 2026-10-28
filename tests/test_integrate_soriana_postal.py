@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
+import subprocess
+import sys
 
 import pandas as pd
 import pytest
@@ -14,9 +16,24 @@ from scraper.soriana_postal_contract import (
     effective_soriana_cases, is_postal_rotation_summary, postal_issues,
 )
 from scripts.integrate_soriana_postal import (
-    prepare_plan, plan_report, commit_plan, _hash,
+    prepare_plan, plan_report, commit_plan, source_preview, _hash,
 )
 from scripts.audit_master_phases import inventory
+
+
+def test_standalone_import_does_not_depend_on_pytest_order():
+    # Windows test discovery does not add scripts/ to sys.path. This exact
+    # isolated import used to throw ModuleNotFoundError on the operator PC.
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [sys.executable, "-c",
+         "from scripts.audit_master_phases import inventory; "
+         "from scripts.integrate_soriana_postal import prepare_plan; "
+         "print('AUDIT_IMPORT_OK')"],
+        cwd=root, capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "AUDIT_IMPORT_OK" in result.stdout
 
 
 def sample_data(day):
@@ -167,6 +184,30 @@ def test_post_write_audit_failure_restores_originals(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="simulated disk error"):
         commit_plan(tmp_path, plan)
     assert (_hash(master), _hash(pointer)) == previous
+
+
+def test_source_preview_historical_data_is_read_only(tmp_path):
+    day = "2026-10-27"
+    master, pointer = create_master_and_sources(tmp_path, day)
+    before = (_hash(master), _hash(pointer))
+    # Simulates a master pointer that advanced to another day.
+    pointer.write_text(json.dumps({
+        "master": str(master), "capture_date": "2026-10-28",
+        "completed_phases": [1, 2]
+    }), encoding="utf-8")
+    pointer_before = _hash(pointer)
+    preview = source_preview(tmp_path, day)
+    assert preview["status"] == "SORIANA_SOURCE_VALIDATED"
+    assert preview["capture_date"] == day
+    assert preview["master_active_date"] == "2026-10-28"
+    assert preview["postal_cases"] == 24
+    assert preview["products_validated"] == 24
+    assert preview["master_modified"] is False
+    assert preview["master_integration_checked"] is False
+    assert _hash(master) == before[0]
+    assert _hash(pointer) == pointer_before
+    with pytest.raises(ValueError, match="otra fecha"):
+        prepare_plan(tmp_path, day)
 
 
 def test_wrong_day_or_incomplete_sources_never_modify_master(tmp_path):
