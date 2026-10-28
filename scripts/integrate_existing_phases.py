@@ -200,6 +200,12 @@ def commit(root: Path, plan: dict) -> dict:
         if today() != plan["day"]:
             raise ValueError("La fecha local cambió durante la integración")
         after, summary, control = _read_existing_master(master)
+        # Sources must remain identical throughout publication, not only at
+        # initial preflight, otherwise a concurrent capture may invalidate
+        # the category counts validated by the operator.
+        for path, digest in plan["source_hashes"].items():
+            if checksum(Path(path)) != digest:
+                raise ValueError("Una captura cambió mientras se integraba; restaurando respaldo")
         if (_control_capture_date(control) != plan["day"]
             or _frame_capture_dates(after) != {plan["day"]}):
             raise ValueError("El master resultante mezcla fechas")
