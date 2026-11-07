@@ -18,7 +18,7 @@ from scripts.audit_master_phases import inventory
 NAMES = {1: [("Farmacias del Ahorro", 6), ("Ibarra Mayoreo", 4),
              ("Chedraui", 20)],
          2: [("Farmacias Guadalajara", 4), ("Soriana", 6)],
-         3: [("Bodega Aurrera", 3), ("Walmart", 3)],
+         3: [("Bodega Aurrera", 3), ("Walmart", 4)],
          4: [("Farmacias San Pablo", 4), ("Farmacias Benavides", 3)],
          5: [("Farmacias Similares", 2), ("HEB", 2),
              ("Sam's Club", 3), ("Mayorista Duero", 6)]}
@@ -136,7 +136,7 @@ def test_phase3_preserves_prior_retailers_on_integration(tmp_path, monkeypatch):
     monkeypatch.setattr(target.subprocess, "run", simulate_integrator)
     result = target.commit(tmp_path, plan)
     assert result["phase_status"] == "COMPLETE"
-    assert result["master_rows"] == 46
+    assert result["master_rows"] == 47
     updated, _, _ = target._read_existing_master(file)
     target.check_unchanged_partitions(original, updated, set(plan["ready"]))
 
