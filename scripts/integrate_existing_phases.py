@@ -87,22 +87,22 @@ def _legacy_walmart_categories(root: Path, summary: pd.DataFrame | None) -> bool
     """
     if summary is None or summary.empty:
         return False
-    from scraper.config import load_categories
-    configured = {category.id for category in load_categories(
-        root / "config" / "walmart" / "categories.yaml"
-    )}
-    if "desodorantes" not in configured or len(configured) != 4:
-        return False
     existing = summary.loc[
         summary["retailer"].astype(str).eq("Walmart")
         & summary["source_phase"].astype(str).eq("FASE 3")
     ]
+    if len(existing) != 3 or not existing["status"].astype(str).str.upper().eq(
+        "COMPLETE"
+    ).all():
+        return False
+    from scraper.config import load_categories
+    config_path = root / "config" / "walmart" / "categories.yaml"
+    if not config_path.is_file():
+        config_path = ROOT / "config" / "walmart" / "categories.yaml"
+    configured = {category.id for category in load_categories(config_path)}
     observed = set(existing["category_id"].dropna().astype(str))
-    return (
-        observed == configured - {"desodorantes"}
-        and len(existing) == 3
-        and existing["status"].astype(str).str.upper().eq("COMPLETE").all()
-    )
+    return ("desodorantes" in configured and len(configured) == 4
+            and observed == configured - {"desodorantes"})
 
 
 def prepare(root: Path, phase: int, capture_date: str) -> dict:
