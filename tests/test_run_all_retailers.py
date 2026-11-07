@@ -17,6 +17,7 @@ def test_run_all_retailers_discovers_current_categories():
         "cuidado-bucal",
         "cuidado-de-la-ropa",
         "depilacion-y-rasurado",
+        "desodorantes",
     }
 
 
