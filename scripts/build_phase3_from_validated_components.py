@@ -34,6 +34,7 @@ EXPECTED = [
     ("Walmart", "cuidado-bucal"),
     ("Walmart", "cuidado-de-la-ropa"),
     ("Walmart", "depilacion-y-rasurado"),
+    ("Walmart", "desodorantes"),
 ]
 
 
