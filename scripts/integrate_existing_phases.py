@@ -78,6 +78,33 @@ def classify_pending(reason: str) -> str:
     return "SIN_CAPTURA" if any(word in text for word in missing) else "CAPTURA_NO_VALIDADA"
 
 
+def _legacy_walmart_categories(root: Path, summary: pd.DataFrame | None) -> bool:
+    """Only the old, *complete* three-category Walmart source is upgradable.
+
+    A published Phase 3 built before deodorants must not be called fully
+    integrated under the expanded four-category contract. Do not allow
+    unrelated master inconsistencies to bypass auditing.
+    """
+    if summary is None or summary.empty:
+        return False
+    from scraper.config import load_categories
+    configured = {category.id for category in load_categories(
+        root / "config" / "walmart" / "categories.yaml"
+    )}
+    if "desodorantes" not in configured or len(configured) != 4:
+        return False
+    existing = summary.loc[
+        summary["retailer"].astype(str).eq("Walmart")
+        & summary["source_phase"].astype(str).eq("FASE 3")
+    ]
+    observed = set(existing["category_id"].dropna().astype(str))
+    return (
+        observed == configured - {"desodorantes"}
+        and len(existing) == 3
+        and existing["status"].astype(str).str.upper().eq("COMPLETE").all()
+    )
+
+
 def prepare(root: Path, phase: int, capture_date: str) -> dict:
     if phase not in PHASES:
         raise ValueError("Esta integración cubre únicamente las fases 1, 3, 4 y 5")
@@ -131,8 +158,18 @@ def prepare(root: Path, phase: int, capture_date: str) -> dict:
                     or not bool(row.iloc[0]["control_coincide"])):
                     raise ValueError(f"Fase {p} no tiene auditoría COMPLETE en master")
         if facts["warnings"]:
-            raise ValueError("El master tiene observaciones de auditoría: "
-                             + "; ".join(facts["warnings"]))
+            warnings = list(facts["warnings"])
+            # The exact old 3-category Walmart partition can temporarily
+            # disagree with the freshly expanded 4-category Fase 3 contract.
+            # All other master warnings remain hard errors.
+            if phase == 3 and _legacy_walmart_categories(root, old_summary):
+                warnings = [note for note in warnings if not (
+                    note.startswith("Fase 3: Control=COMPLETE ")
+                    and note.endswith("pero recalculado=PARTIAL_VALIDATED")
+                )]
+            if warnings:
+                raise ValueError("El master tiene observaciones de auditoría: "
+                                 + "; ".join(warnings))
 
     expected = incremental.EXPECTED[phase]
     # A retailer is an indivisible published partition. Never overwrite one
@@ -141,6 +178,12 @@ def prepare(root: Path, phase: int, capture_date: str) -> dict:
     if old_frame is not None:
         counts = old_frame["retailer"].astype(str).value_counts()
         existing = {name: int(counts[name]) for name in expected if name in counts}
+
+    # A historical, previously certified Walmart three-category partition
+    # requires *replacement* by an audited four-category source. Never add
+    # only deodorant rows to an unchanged retailer-level master partition.
+    upgrade_walmart = phase == 3 and _legacy_walmart_categories(root, old_summary)
+    legacy_walmart_rows = existing.pop("Walmart", 0) if upgrade_walmart else 0
 
     if len(existing) == len(expected):
         found, pending, hashes = {}, {}, {}
@@ -164,8 +207,12 @@ def prepare(root: Path, phase: int, capture_date: str) -> dict:
             }
         elif name in ready:
             retailers[name] = {
-                "status": "LISTO_PARA_INTEGRAR", "products": ready[name],
-                "detail": "Captura del día COMPLETE y validada.",
+                "status": ("LISTO_PARA_ACTUALIZAR" if name == "Walmart" and upgrade_walmart
+                           else "LISTO_PARA_INTEGRAR"),
+                "products": ready[name],
+                "detail": ("Walmart ya tenía tres categorías; se reemplazará por las cuatro "
+                           "validadas, sin tocar Bodega Aurrera." if name == "Walmart"
+                           and upgrade_walmart else "Captura del día COMPLETE y validada."),
             }
         else:
             reason = pending.get(name, "No hay captura validada del día")
@@ -182,6 +229,7 @@ def prepare(root: Path, phase: int, capture_date: str) -> dict:
         "master_sha": checksum(master), "pointer_sha": checksum(pointer_file),
         "source_hashes": source_hashes,
         "ready": ready, "already": existing,
+        "legacy_walmart_rows": legacy_walmart_rows,
         "pending": {name: retailers[name]["detail"] for name in expected
                     if retailers[name]["status"] in {"SIN_CAPTURA", "CAPTURA_NO_VALIDADA"}},
         "retailers": retailers,
@@ -199,7 +247,8 @@ def public_report(plan: dict, status: str, *, backup: str | None = None):
         "retailers": plan["retailers"],
         "message": ("No hay retailers nuevos para integrar; master SIN CAMBIOS."
                     if not plan["ready"] else
-                    "Solo se agregarán los retailers faltantes y certificados."),
+                    "Solo se integrarán los retailers faltantes; Walmart puede actualizar "
+                    "su partición legacy si sus cuatro categorías están certificadas."),
         "master": str(plan["master"]),
         "master_modified": status == "COMMITTED",
         "backup": backup,
