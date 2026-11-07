@@ -54,7 +54,7 @@ PHASES = {
             "Bodega Aurrera",
             "Walmart",
         },
-        "categories": 6,
+        "categories": 7,
         "require_fg_names": False,
     },
     4: {
@@ -88,7 +88,7 @@ PHASE3_RETAILER_SOURCES = {
     },
     "Walmart": {
         "source": ROOT / "output" / "walmart_phase3_test.xlsx",
-        "categories": 3,
+        "categories": 4,
     },
 }
 
@@ -260,8 +260,8 @@ def _validate_walmart_retailer(
 
     if frame.empty:
         notes.append("Concentrado Walmart vacío")
-    if len(summary) != 3:
-        notes.append(f"Walmart categorías {len(summary)}/3")
+    if len(summary) != 4:
+        notes.append(f"Walmart categorías {len(summary)}/4")
         return notes
 
     retailers = set(summary["retailer"].dropna().astype(str))
@@ -1450,8 +1450,8 @@ def _validate_phase(
             summary["retailer"].astype(str).eq("Bodega Aurrera")
         ].copy()
 
-        if len(walmart) != 3:
-            notes.append(f"Walmart categorías={len(walmart)}/3")
+        if len(walmart) != 4:
+            notes.append(f"Walmart categorías={len(walmart)}/4")
         else:
             required = {
                 "products",

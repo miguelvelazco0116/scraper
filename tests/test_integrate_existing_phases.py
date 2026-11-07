@@ -18,7 +18,7 @@ from scripts.audit_master_phases import inventory
 NAMES = {1: [("Farmacias del Ahorro", 6), ("Ibarra Mayoreo", 4),
              ("Chedraui", 20)],
          2: [("Farmacias Guadalajara", 4), ("Soriana", 6)],
-         3: [("Bodega Aurrera", 3), ("Walmart", 3)],
+         3: [("Bodega Aurrera", 3), ("Walmart", 4)],
          4: [("Farmacias San Pablo", 4), ("Farmacias Benavides", 3)],
          5: [("Farmacias Similares", 2), ("HEB", 2),
              ("Sam's Club", 3), ("Mayorista Duero", 6)]}
@@ -136,7 +136,7 @@ def test_phase3_preserves_prior_retailers_on_integration(tmp_path, monkeypatch):
     monkeypatch.setattr(target.subprocess, "run", simulate_integrator)
     result = target.commit(tmp_path, plan)
     assert result["phase_status"] == "COMPLETE"
-    assert result["master_rows"] == 46
+    assert result["master_rows"] == 47
     updated, _, _ = target._read_existing_master(file)
     target.check_unchanged_partitions(original, updated, set(plan["ready"]))
 
@@ -258,5 +258,77 @@ def test_partial_existing_phase_only_integrates_missing_retailer(tmp_path, monke
     pd.testing.assert_frame_equal(
         before_kept,
         after.loc[after["retailer"].eq("Bodega Aurrera")].reset_index(drop=True),
+        check_dtype=False,
+    )
+
+
+def test_old_walmart_three_categories_upgrade_to_four_without_touching_bodega(tmp_path, monkeypatch):
+    # The previously COMPLETE three-category Walmart partition is now
+    # PARTIAL under the four-category contract, so integrate-existing must
+    # offer a safe whole-retailer replacement, not duplicate deodorants.
+    day = target.today()
+    file, pointer = save_master(tmp_path, day, (1, 2))
+    base, base_cases, _ = target._read_existing_master(file)
+    frame3, cases3 = sample(3, day)
+    bodega = frame3.loc[frame3["retailer"].eq("Bodega Aurrera")].copy()
+    bodega_cases = cases3.loc[cases3["retailer"].eq("Bodega Aurrera")].copy()
+    old_categories = ["cuidado-bucal", "cuidado-de-la-ropa",
+                      "depilacion-y-rasurado"]
+    prior_walmart = pd.DataFrame([{
+        "retailer": "Walmart", "category_id": category,
+        "sku": "W-" + category, "price_current": 33,
+        "url": "https://www.walmart.com.mx/ip/" + category,
+        "scrape_timestamp": day + "T11:00:00",
+    } for category in old_categories]).reindex(columns=COLUMNS)
+    prior_cases = pd.DataFrame([{
+        "retailer": "Walmart", "source_phase": "FASE 3",
+        "category_id": category, "status": "COMPLETE", "products": 1,
+    } for category in old_categories])
+    oldframe = pd.concat([base, bodega, prior_walmart], ignore_index=True)
+    oldcases = pd.concat([base_cases, bodega_cases, prior_cases], ignore_index=True)
+    control = pd.DataFrame([{
+        "capture_date": day,
+        **{f"phase{i}_status": "COMPLETE" if i <= 3 else "PENDING"
+           for i in range(1, 6)},
+    }])
+    _write_master(file, oldframe, oldcases, control)
+    write_pointer(pointer, file, day, [1, 2, 3], [])
+    supply_sources(tmp_path, monkeypatch, 3)
+
+    plan = target.prepare(tmp_path, 3, day)
+    assert plan["legacy_walmart_rows"] == 3
+    assert plan["already"] == {"Bodega Aurrera": 3}
+    assert plan["ready"] == {"Walmart": 4}
+    assert plan["retailers"]["Walmart"]["status"] == "LISTO_PARA_ACTUALIZAR"
+
+    new_walmart = pd.DataFrame([{
+        "retailer": "Walmart", "category_id": category,
+        "sku": "W-" + category, "price_current": 34,
+        "url": "https://www.walmart.com.mx/ip/" + category,
+        "scrape_timestamp": day + "T11:00:00",
+    } for category in old_categories + ["desodorantes"]]).reindex(columns=COLUMNS)
+    new_cases = pd.DataFrame([{
+        "retailer": "Walmart", "source_phase": "FASE 3",
+        "category_id": category, "status": "COMPLETE", "products": 1,
+    } for category in old_categories + ["desodorantes"]])
+
+    def replace_walmart_only(args, **kwargs):
+        assert args[-2:] == ["--only-retailers", "Walmart"]
+        published = pd.concat([base, bodega, new_walmart], ignore_index=True)
+        summary = pd.concat([base_cases, bodega_cases, new_cases], ignore_index=True)
+        _write_master(file, published, summary, control)
+        write_pointer(pointer, file, day, [1, 2, 3], [])
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(target.subprocess, "run", replace_walmart_only)
+    result = target.commit(tmp_path, plan)
+    assert result["status"] == "COMMITTED"
+    assert result["master_rows"] == len(oldframe) + 1
+    updated, _, _ = target._read_existing_master(file)
+    assert len(updated.loc[updated["retailer"].eq("Walmart")]) == 4
+    assert updated.loc[updated["retailer"].eq("Walmart"), "category_id"].nunique() == 4
+    pd.testing.assert_frame_equal(
+        bodega.reset_index(drop=True),
+        updated.loc[updated["retailer"].eq("Bodega Aurrera")].reset_index(drop=True),
         check_dtype=False,
     )
