@@ -32,6 +32,21 @@ def test_walmart_categories_hierarchy():
         "3680083_3570057_3570058",
     }
 
+    assert len(categories) == 4
+    assert set(categories) == {
+        "cuidado-bucal", "cuidado-de-la-ropa",
+        "depilacion-y-rasurado", "desodorantes",
+    }
+    deodorants = categories["desodorantes"]
+    assert deodorants.department == "Cuidado personal"
+    assert deodorants.name == "Cuidado corporal"
+    assert deodorants.subcategory == "Desodorantes"
+    assert deodorants.url == (
+        "https://www.walmart.com.mx/browse/cuidado-personal/"
+        "cuidado-corporal/desodorantes/264479_950004_264503"
+    )
+    assert deodorants.source_urls == (deodorants.url,)
+
     shaving = categories["depilacion-y-rasurado"]
     assert shaving.department == "Belleza y cuidado personal"
     assert shaving.name == "Depilación y rasurado"
