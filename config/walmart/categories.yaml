@@ -29,3 +29,13 @@ categories:
     sub_subcategory: null
     url: https://www.walmart.com.mx/browse/belleza/depilacion-y-rasurado/930017_264512
     enabled: true
+
+  - id: desodorantes
+    department: Cuidado personal
+    name: Cuidado corporal
+    subcategory: Desodorantes
+    sub_subcategory: null
+    url: https://www.walmart.com.mx/browse/cuidado-personal/cuidado-corporal/desodorantes/264479_950004_264503
+    source_urls:
+      - https://www.walmart.com.mx/browse/cuidado-personal/cuidado-corporal/desodorantes/264479_950004_264503
+    enabled: true
