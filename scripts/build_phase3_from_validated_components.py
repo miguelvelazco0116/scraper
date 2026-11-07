@@ -31,6 +31,7 @@ CURRENT_MASTER_POINTER = (
 EXPECTED = [
     ("Bodega Aurrera", "cuidado-bucal"),
     ("Bodega Aurrera", "cuidado-de-la-ropa"),
+    ("Bodega Aurrera", "desodorantes"),
     ("Walmart", "cuidado-bucal"),
     ("Walmart", "cuidado-de-la-ropa"),
     ("Walmart", "depilacion-y-rasurado"),
