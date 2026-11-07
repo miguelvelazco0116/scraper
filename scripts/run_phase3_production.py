@@ -31,7 +31,7 @@ DIAG_DIR = ROOT / "diagnostics" / "phase3_production"
 DIAG_PATH = DIAG_DIR / "last_run.json"
 
 EXPECTED_BODEGA_CATEGORIES = 3
-EXPECTED_WALMART_CATEGORIES = 3
+EXPECTED_WALMART_CATEGORIES = 4
 
 
 def _canonical(frame: pd.DataFrame) -> pd.DataFrame:
@@ -277,7 +277,7 @@ def _create_baseline(
                         "products": products,
                         "bodega_aurrera_products": bodega_products,
                         "walmart_products": walmart_products,
-                        "categories": 6,
+                        "categories": EXPECTED_BODEGA_CATEGORIES + EXPECTED_WALMART_CATEGORIES,
                         "retailers": [
                             "Bodega Aurrera",
                             "Walmart",
