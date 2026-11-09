@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("higiene-bucal", "lavanderia", "desodorantes-y-antitranspirantes", "depilacion", "respiratorios", "candidates", "all", "full")]
+    [ValidateSet("higiene-bucal", "lavanderia", "desodorantes-y-antitranspirantes", "depilacion", "respiratorios", "equipo-y-botiquin-medico", "candidates", "all", "full")]
     [string]$Category = "all",
     [ValidateSet("chedraui-polanco", "chedraui-tepeyac", "chedraui-cancun-kabah", "chedraui-puebla-centro-sur")]
     [string]$Store = "chedraui-polanco",
@@ -11,6 +11,9 @@ param(
     [ValidateRange(0, 120)]
     [int]$StoreContextRetryDelaySeconds = 10,
     [switch]$Headed,
+    [switch]$Pilot,
+    [ValidateRange(1, 200)]
+    [int]$MaxPages = 100,
     [string]$PythonExe = ""
 )
 
@@ -40,6 +43,7 @@ $ArgsList = @(
     ".\scripts\test_chedraui.py",
     "--category", $Category,
     "--store", $Store,
+    "--max-pages", $MaxPages,
     "--category-delay-seconds", $CategoryDelaySeconds,
     "--store-context-retries", $StoreContextRetries,
     "--store-context-retry-delay-seconds", $StoreContextRetryDelaySeconds
@@ -51,6 +55,10 @@ if (-not [string]::IsNullOrWhiteSpace($ProfileDir)) {
 
 if ($Headed) {
     $ArgsList += "--headed"
+}
+
+if ($Pilot) {
+    $ArgsList += "--pilot"
 }
 
 & $PythonExe @ArgsList
