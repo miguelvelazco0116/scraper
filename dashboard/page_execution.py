@@ -51,7 +51,23 @@ def render(root: Path):
                 )
                 return
             if stop_requested(root, run_id):
-                st.warning("Paro solicitado. No inicies otra ejecución hasta que aparezca STOPPED.")
+                st.warning(
+                    "Paro solicitado. Si el proceso ya terminó pero este folio sigue RUNNING, "
+                    "puedes verificarlo y reconciliar el estado."
+                )
+                if st.button(
+                    "Verificar paro y liberar bloqueo si ya terminó",
+                    key="recover_stopped_" + run_id,
+                    type="secondary",
+                    use_container_width=True,
+                ):
+                    try:
+                        from dashboard.recovery import reconcile_requested_stop
+                        result = reconcile_requested_stop(root, run_id)
+                        st.success(result["message"])
+                        st.rerun()
+                    except (OSError, RuntimeError, ValueError) as exc:
+                        st.error("No se puede liberar todavía: " + str(exc))
                 return
             if st.button(
                 "⏹ Detener ejecución activa",
