@@ -10,7 +10,7 @@ import time
 from copy import copy
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -28,7 +28,7 @@ from scraper.retailers.chedraui import (
     STORE_CONTEXT_CONTRACT_VERSION,
 )
 from scraper.retailers.chedraui_polanco_api import ChedrauiScraper
-from chedraui_case_cache import load_valid_snapshots
+from chedraui_case_cache import load_valid_snapshots, persist_case, validate_case
 from scraper.retailers.farmacias_del_ahorro import (
     FarmaciasDelAhorroBlocked,
     FarmaciasDelAhorroNetworkUnavailable,
@@ -72,6 +72,7 @@ def _case_key(
 
 def _read_phase1_snapshot(
     path: Path,
+    *, day: str | None = None,
 ) -> dict[tuple[str, str, str], tuple[pd.DataFrame, dict[str, Any]]]:
     if not path.exists():
         return {}
@@ -91,7 +92,7 @@ def _read_phase1_snapshot(
     except Exception:
         return {}
 
-    today = datetime.now().astimezone().date().isoformat()
+    today = day or datetime.now().astimezone().date().isoformat()
     capture_date = ""
     if not control.empty:
         capture_date = str(control.iloc[0].get("capture_date") or "").strip()
@@ -101,13 +102,10 @@ def _read_phase1_snapshot(
     if frame.empty or summary.empty:
         return {}
 
-    dates = set(
-        frame["scrape_timestamp"]
-        .dropna()
-        .astype(str)
-        .str.slice(0, 10)
-    )
-    if dates and dates != {today}:
+    # Inspect dates by retailer/category/store, not across the entire
+    # workbook. A stale row in another case must not invalidate a healthy
+    # same-day category. No cross-day row may be reused.
+    if "scrape_timestamp" not in frame.columns:
         return {}
 
     results: dict[
@@ -146,8 +144,19 @@ def _read_phase1_snapshot(
             continue
         if len(subset) != expected_products or expected_products <= 0:
             continue
+        case_dates = set(
+            subset["scrape_timestamp"].dropna().astype(str).str.slice(0, 10)
+        )
+        if case_dates != {today}:
+            continue
 
-        results[key] = (subset, summary_row.to_dict())
+        record = summary_row.to_dict()
+        if retailer == "Chedraui" and validate_case(
+            subset, record, category_id=category_id,
+            store_id=key[2], day=today,
+        ):
+            continue
+        results[key] = (subset, record)
 
     return results
 
@@ -158,8 +167,9 @@ def _load_existing_valid_results(
     # Chedraui store/category cases with strict, same-day isolated snapshots.
     # This never replaces a production COMPLETE case with an isolated test.
     progress = _read_phase1_snapshot(PROGRESS_PATH)
-    if not progress:
-        progress = _read_phase1_snapshot(OUTPUT_PATH)
+    # Merge valid SAME-DAY productives even when progress is nonempty.
+    for key, item in _read_phase1_snapshot(OUTPUT_PATH).items():
+        progress.setdefault(key, item)
     date = datetime.now().astimezone().date().isoformat()
     isolated = load_valid_snapshots(ROOT, day=date)
     imported = 0
@@ -329,6 +339,7 @@ def _run_ahorro(
     location: Location,
     *,
     low_memory: bool,
+    on_case: Callable[[pd.DataFrame, dict[str, Any]], None] | None = None,
 ) -> tuple[list[pd.DataFrame], list[dict[str, Any]]]:
     frames: list[pd.DataFrame] = []
     summaries: list[dict[str, Any]] = []
@@ -401,6 +412,8 @@ def _run_ahorro(
             store_context_method=meta.get("store_context"),
         )
         summaries.append(summary)
+        if on_case is not None:
+            on_case(frame, summary)
         print(
             f"  -> {status} products={summary['products']} "
             f"target={target} price={summary['price_complete']} "
@@ -417,6 +430,7 @@ def _run_ibarra(
     *,
     headed: bool,
     low_memory: bool,
+    on_case: Callable[[pd.DataFrame, dict[str, Any]], None] | None = None,
 ) -> tuple[list[pd.DataFrame], list[dict[str, Any]]]:
     frames: list[pd.DataFrame] = []
     summaries: list[dict[str, Any]] = []
@@ -543,6 +557,8 @@ def _run_ibarra(
             ),
         )
         summaries.append(summary)
+        if on_case is not None:
+            on_case(frame, summary)
         print(
             f"  -> {status} products={summary['products']} "
             f"links={meta.get('product_links')} "
@@ -566,6 +582,7 @@ def _run_chedraui(
     headed: bool,
     low_memory: bool,
     category_delay_seconds: int = 0,
+    on_case: Callable[[pd.DataFrame, dict[str, Any]], None] | None = None,
 ) -> tuple[list[pd.DataFrame], list[dict[str, Any]]]:
     frames: list[pd.DataFrame] = []
     summaries: list[dict[str, Any]] = []
@@ -714,7 +731,33 @@ def _run_chedraui(
             state=location.state,
             attempts=len(retry_history),
         )
+        if status == "COMPLETE":
+            # A COMPLETE label alone cannot certify store/category data.
+            day = datetime.now().astimezone().date().isoformat()
+            issues = validate_case(
+                frame, summary, category_id=category.id,
+                store_id=str(location.store_id), day=day,
+            )
+            if issues:
+                status = "PARTIAL"
+                summary["status"] = status
+                summary["quality_notes"] = "; ".join(issues)
+                print("  VALIDACIÓN ESTRICTA PENDIENTE: "
+                      + "; ".join(issues), flush=True)
+            else:
+                try:
+                    snapshot = persist_case(
+                        ROOT, frame, summary, store_id=str(location.store_id),
+                        day=day,
+                    )
+                    print(f"  CHECKPOINT VALIDADO: {snapshot}", flush=True)
+                except OSError as exc:
+                    # The atomic progress file still preserves validated rows.
+                    print(f"  AVISO: checkpoint aislado no escrito: {exc}",
+                          flush=True)
         summaries.append(summary)
+        if on_case is not None:
+            on_case(frame, summary)
         print(
             f"  -> {status} products={summary['products']} target={target} "
             f"required_price={price_required_complete}/{price_required} "
@@ -943,6 +986,21 @@ def main() -> int:
         for item in existing.values()
     ]
 
+    def record_case(frame: pd.DataFrame, result: dict[str, Any]) -> None:
+        """Atomic same-day checkpoint after every category, not only at end."""
+        if not frame.empty:
+            all_frames.append(frame.copy())
+        summaries.append(dict(result))
+        current = _canonical_frame(
+            pd.concat(all_frames, ignore_index=True)
+            if all_frames else pd.DataFrame(columns=COLUMNS)
+        )
+        _write_progress(current, pd.DataFrame(summaries),
+                        generated_at=generated_at)
+        print(f"CHECKPOINT FASE 1: {len(summaries)}/{expected_cases} casos, "
+              f"{sum(row['status'] == 'COMPLETE' for row in summaries)} COMPLETE",
+              flush=True)
+
     if existing:
         print(f"Casos válidos reutilizados hoy: {len(existing)}")
         print("Sólo se ejecutarán casos pendientes o fallidos.")
@@ -961,9 +1019,8 @@ def main() -> int:
         pending_ahorro,
         ahorro_location,
         low_memory=args.low_memory,
+        on_case=record_case,
     )
-    all_frames.extend(frames)
-    summaries.extend(rows)
 
     ibarra_categories, ibarra_location = configurations["ibarra"]
     pending_ibarra = [
@@ -979,9 +1036,8 @@ def main() -> int:
         ibarra_location,
         headed=args.headed,
         low_memory=args.low_memory,
+        on_case=record_case,
     )
-    all_frames.extend(frames)
-    summaries.extend(rows)
 
     for store_index, location in enumerate(
         chedraui_locations,
@@ -1026,9 +1082,8 @@ def main() -> int:
             category_delay_seconds=(
                 args.chedraui_category_delay_seconds
             ),
+            on_case=record_case,
         )
-        all_frames.extend(frames)
-        summaries.extend(rows)
 
         if (
             store_index < len(chedraui_locations)
