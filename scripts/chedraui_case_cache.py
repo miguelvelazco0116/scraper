@@ -29,7 +29,7 @@ def _boolean(value) -> bool:
     This is only parsing an *existing* certification, never inferring it.
     """
     value_text = str(value).strip().lower()
-    return value_text == "true" or bool(re.fullmatch(r"1(?:\\.0+)?", value_text))
+    return value_text == "true" or bool(re.fullmatch(r"1(?:\.0+)?", value_text))
 
 
 def _store_id(value) -> str:
