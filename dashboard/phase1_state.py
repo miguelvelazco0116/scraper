@@ -39,8 +39,10 @@ def phase1_inventory(root: Path, day: str | None = None):
     from scraper.config import load_categories, load_locations
 
     verified = _read_phase1_snapshot(PROGRESS_PATH)
-    if not verified:
-        verified = _read_phase1_snapshot(OUTPUT_PATH)
+    # An unfinished progress workbook must not hide independently valid
+    # same-day cases in the last published productive workbook.
+    for key, item in _read_phase1_snapshot(OUTPUT_PATH).items():
+        verified.setdefault(key, item)
 
     # Recheck the exact store/category and quality contract for every Chedraui
     # case from the mutable progress file. Trust neither store labels nor a
@@ -55,19 +57,46 @@ def phase1_inventory(root: Path, day: str | None = None):
         verified.setdefault(key, item)
 
     errors = {}
-    progress = root / "output" / "fase1_progress.xlsx"
-    if progress.is_file():
+    # Show the actual reason for REVISAR instead of hiding all failures behind
+    # a generic message. This is a read-only audit, not automatic approval.
+    for progress in (root / "output" / "fase1_progress.xlsx",
+                     root / "output" / "concentrado_productivo.xlsx"):
+        if not progress.is_file():
+            continue
         try:
             control = pd.read_excel(progress, sheet_name="Control")
-            if not control.empty and str(control.iloc[0].get("capture_date", ""))[:10] == day:
-                summary = pd.read_excel(progress, sheet_name="Resumen",
-                                        dtype={"category_id": str, "store_id": str})
-                for _, row in summary.iterrows():
-                    retailer = str(row.get("retailer") or "")
-                    key = _case_key(retailer, str(row.get("category_id") or ""), row.get("store_id"))
-                    errors[key] = (str(row.get("status") or "").upper(), str(row.get("quality_notes") or ""))
+            if (control.empty or
+                str(control.iloc[0].get("capture_date", ""))[:10] != day):
+                continue
+            summary = pd.read_excel(
+                progress, sheet_name="Resumen",
+                dtype={"category_id": str, "store_id": str},
+            )
+            frame = pd.read_excel(
+                progress, sheet_name="Concentrado",
+                dtype={"sku": str, "store_id": str, "category_id": str},
+            )
+            for _, row in summary.iterrows():
+                retailer = str(row.get("retailer") or "").strip()
+                category_id = str(row.get("category_id") or "").strip()
+                key = _case_key(retailer, category_id, row.get("store_id"))
+                status = str(row.get("status") or "").strip().upper()
+                note = str(row.get("quality_notes") or "")
+                if retailer == "Chedraui" and status == "COMPLETE":
+                    subset = frame.loc[
+                        frame["retailer"].astype(str).eq("Chedraui")
+                        & frame["category_id"].astype(str).eq(category_id)
+                        & frame["store_id"].map(_normal_id).eq(key[2])
+                    ].copy()
+                    issues = validate_case(
+                        subset, row.to_dict(), category_id=category_id,
+                        store_id=key[2], day=day,
+                    )
+                    if issues:
+                        note = "; ".join(issues)
+                errors.setdefault(key, (status, note))
         except (ValueError, KeyError, OSError):
-            pass
+            continue
 
     locations = {loc.id: loc for loc in load_locations(root / "config" / "locations.yaml")}
     records = []
@@ -100,7 +129,8 @@ def _row(phase, retailer, store, store_id, category, key, verified, errors):
         count = 0
         if past_status == "COMPLETE":
             status = "REVISAR"
-            note = "La etiqueta COMPLETE no superó la validación de datos y contexto."
+            note = (note if note and note.lower() != "nan"
+                    else "La etiqueta COMPLETE no superó la validación de datos y contexto.")
     return {
         "fase": phase, "retailer": retailer, "tienda": store,
         "store_id": store_id, "categoria": category,
