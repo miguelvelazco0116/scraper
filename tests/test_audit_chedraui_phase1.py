@@ -52,6 +52,19 @@ class ChedrauiPhase1AuditTests(unittest.TestCase):
         self.assertTrue(result["valido"])
         self.assertEqual(result["filas"], 1)
 
+    def test_accepts_exact_excel_float_one_in_resumen(self):
+        self.summary["store_context_verified"] = 1.0
+        result = self.evaluate()
+        self.assertTrue(result["valido"])
+        self.assertEqual(result["filas"], 1)
+
+    def test_rejects_actual_false_even_when_product_rows_verified(self):
+        self.summary["store_context_verified"] = 0.0
+        result = self.evaluate()
+        self.assertFalse(result["valido"])
+        self.assertIn("tienda no verificada", result["problemas"])
+        self.assertIn("Resumen=", result["problemas"])
+
     def test_rejects_wrong_store(self):
         self.assertIsNone(_case(
             self.frame, self.summary, store_id="173", category_id="lavanderia",
