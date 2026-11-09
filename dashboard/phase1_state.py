@@ -33,15 +33,17 @@ def phase1_inventory(root: Path, day: str | None = None):
     if scripts not in sys.path:
         sys.path.insert(0, scripts)
     from run_phase1_production import (
-        PROGRESS_PATH, OUTPUT_PATH, _read_phase1_snapshot, _case_key,
+        _read_phase1_snapshot, _case_key,
     )
+    PROGRESS_PATH = root / "output" / "fase1_progress.xlsx"
+    OUTPUT_PATH = root / "output" / "concentrado_productivo.xlsx"
     from chedraui_case_cache import load_valid_snapshots, validate_case
     from scraper.config import load_categories, load_locations
 
-    verified = _read_phase1_snapshot(PROGRESS_PATH)
+    verified = _read_phase1_snapshot(PROGRESS_PATH, day=day)
     # An unfinished progress workbook must not hide independently valid
     # same-day cases in the last published productive workbook.
-    for key, item in _read_phase1_snapshot(OUTPUT_PATH).items():
+    for key, item in _read_phase1_snapshot(OUTPUT_PATH, day=day).items():
         verified.setdefault(key, item)
 
     # Recheck the exact store/category and quality contract for every Chedraui
