@@ -1,0 +1,25 @@
+retailer: farmatodo
+categories:
+  - id: respiratorios
+    department: Medicamentos
+    name: Respiratorios
+    subcategory: Respiratorios
+    sub_subcategory: null
+    url: https://www.farmatodo.com.mx/medicamentos/respiratorios
+    enabled: true
+
+  - id: cuidado-bucal
+    department: Cuidado personal y belleza
+    name: Cuidado bucal
+    subcategory: Cuidado bucal
+    sub_subcategory: null
+    url: https://www.farmatodo.com.mx/cuidado-personal-y-belleza/cuidado-bucal
+    enabled: true
+
+  - id: higiene-personal
+    department: Cuidado personal y belleza
+    name: Higiene personal
+    subcategory: Higiene personal
+    sub_subcategory: null
+    url: https://www.farmatodo.com.mx/cuidado-personal-y-belleza/higiene-personal
+    enabled: true
