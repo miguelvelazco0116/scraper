@@ -72,6 +72,7 @@ def _case_key(
 
 def _read_phase1_snapshot(
     path: Path,
+    *, day: str | None = None,
 ) -> dict[tuple[str, str, str], tuple[pd.DataFrame, dict[str, Any]]]:
     if not path.exists():
         return {}
@@ -91,7 +92,7 @@ def _read_phase1_snapshot(
     except Exception:
         return {}
 
-    today = datetime.now().astimezone().date().isoformat()
+    today = day or datetime.now().astimezone().date().isoformat()
     capture_date = ""
     if not control.empty:
         capture_date = str(control.iloc[0].get("capture_date") or "").strip()
@@ -101,13 +102,10 @@ def _read_phase1_snapshot(
     if frame.empty or summary.empty:
         return {}
 
-    dates = set(
-        frame["scrape_timestamp"]
-        .dropna()
-        .astype(str)
-        .str.slice(0, 10)
-    )
-    if dates and dates != {today}:
+    # Inspect dates by retailer/category/store, not across the entire
+    # workbook. A stale row in another case must not invalidate a healthy
+    # same-day category. No cross-day row may be reused.
+    if "scrape_timestamp" not in frame.columns:
         return {}
 
     results: dict[
@@ -145,6 +143,11 @@ def _read_phase1_snapshot(
         except (TypeError, ValueError):
             continue
         if len(subset) != expected_products or expected_products <= 0:
+            continue
+        case_dates = set(
+            subset["scrape_timestamp"].dropna().astype(str).str.slice(0, 10)
+        )
+        if case_dates != {today}:
             continue
 
         record = summary_row.to_dict()
