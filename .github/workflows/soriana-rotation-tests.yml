@@ -36,6 +36,9 @@ on:
       - "scripts/integrate_validated_phase.py"
       - "tests/test_walmart_deodorants_phase3.py"
       - "tests/test_walmart.py"
+      - "scripts/run_phase1_production.py"
+      - "dashboard/phase1_state.py"
+      - "tests/test_phase1_resume_verified_cases.py"
       - "scripts/integrate_existing_phases.ps1"
       - "scripts/**/*.ps1"
       - "tests/test_powershell_projectdir.py"
@@ -66,7 +69,7 @@ jobs:
         run: pip install -r requirements.txt
       - name: Run Soriana rotation and audit contracts (no network scraping)
         run: |
-          python -m pytest -q tests/test_capture_progress.py tests/test_soriana_cp_rotation.py tests/test_audit_soriana_cp_rotation.py tests/test_soriana_gastro_availability.py tests/test_dashboard_soriana_rotation.py tests/test_dashboard_execution.py tests/test_dashboard_stop_reconciliation.py tests/test_dashboard_helpers.py tests/test_integrate_phase2_postal.py tests/test_integrate_soriana_postal.py tests/test_integrate_existing_phases.py tests/test_integrate_phase6_yza.py tests/test_powershell_projectdir.py tests/test_duero_public_prices.py tests/test_walmart_deodorants_phase3.py tests/test_walmart.py
+          python -m pytest -q tests/test_capture_progress.py tests/test_soriana_cp_rotation.py tests/test_audit_soriana_cp_rotation.py tests/test_soriana_gastro_availability.py tests/test_dashboard_soriana_rotation.py tests/test_dashboard_execution.py tests/test_phase1_resume_verified_cases.py tests/test_dashboard_stop_reconciliation.py tests/test_dashboard_helpers.py tests/test_integrate_phase2_postal.py tests/test_integrate_soriana_postal.py tests/test_integrate_existing_phases.py tests/test_integrate_phase6_yza.py tests/test_powershell_projectdir.py tests/test_duero_public_prices.py tests/test_walmart_deodorants_phase3.py tests/test_walmart.py
       - name: PowerShell script-root smoke test (no scraping or writes)
         shell: bash
         run: |
