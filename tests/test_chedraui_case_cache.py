@@ -47,6 +47,43 @@ class ChedrauiCaseCheckpointTests(unittest.TestCase):
             "price_current": 89.0,
         }])
 
+    def test_excel_floating_one_is_true_but_zero_missing_and_other_numbers_are_not(self):
+        from chedraui_case_cache import _boolean
+        import numpy as np
+        valid = [True, 1, 1.0, "TRUE", "True", "1", "1.0",
+                 "1.00", np.float64(1.0), np.bool_(True)]
+        invalid = [False, 0, 0.0, "FALSE", "0", "0.0", "0.5",
+                   2.0, -1.0, None, pd.NA, np.nan, "", "yes"]
+        for value in valid:
+            with self.subTest(value=repr(value)):
+                self.assertTrue(_boolean(value))
+        for value in invalid:
+            with self.subTest(value=repr(value)):
+                self.assertFalse(_boolean(value))
+
+    def test_strict_case_can_reuse_excel_float_one_verification(self):
+        # Pandas/openpyxl often expose an Excel TRUE as 1.0 in mixed columns.
+        data = self.rows.copy()
+        data["store_context_verified"] = 1.0
+        summary = dict(self.case, store_context_verified=1.0)
+        self.assertEqual(validate_case(
+            data, summary, store_id="232", category_id="higiene-bucal",
+            day=self.day), [])
+        path = persist_case(self.root, data, summary,
+                            store_id="232", day=self.day)
+        self.assertTrue(path.is_file())
+        self.assertIn(
+            ("Chedraui", "higiene-bucal", "232"),
+            load_valid_snapshots(self.root, day=self.day))
+
+    def test_false_summary_not_promoted_using_good_product_rows(self):
+        # Row-level evidence alone cannot turn summary FALSE into COMPLETE.
+        summary = dict(self.case, store_context_verified=0.0)
+        issues = validate_case(
+            self.rows, summary, store_id="232", category_id="higiene-bucal",
+            day=self.day)
+        self.assertIn("Resumen sin tienda verificada", issues)
+
     def test_complete_is_persisted_independently(self):
         target = persist_case(self.root, self.rows, self.case,
                               store_id="232", day=self.day)

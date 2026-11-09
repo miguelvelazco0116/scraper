@@ -32,7 +32,7 @@ def prepare_root(tmp_path: Path) -> Path:
 
 
 def write_19_cases(root: Path, day: str, *, bad: str | None = None,
-                   old_date: str | None = None) -> Path:
+                   old_date: str | None = None, summary_flag=True) -> Path:
     locations = load_locations(root / "config/locations.yaml")
     locs = [x for x in locations if x.id.startswith("chedraui-")]
     categories = load_categories(root / "config/chedraui/categories.yaml")
@@ -60,7 +60,7 @@ def write_19_cases(root: Path, day: str, *, bad: str | None = None,
                 "retailer": "Chedraui", "store_id": str(location.store_id),
                 "category_id": category.id, "status": "COMPLETE",
                 "products": 1, "target_products": 1, "coverage": 1.0,
-                "store_context_verified": True,
+                "store_context_verified": summary_flag,
                 "store_context_contract_version": CONTRACT,
                 "pagination_gaps": 0,
                 "structured_price_missing_pages": 0,
@@ -93,6 +93,21 @@ def test_reuses_19_complete_chedraui_cases_and_retries_only_one(tmp_path):
         "OMITIR": 19, "REINTENTAR": 1
     }
     assert len([x for x in verified if x[0] == "Chedraui"]) == 19
+
+
+def test_reuse_19_cases_when_summary_excel_boolean_is_one_point_zero(tmp_path):
+    root = prepare_root(tmp_path)
+    day = datetime.now().astimezone().date().isoformat()
+    path = write_19_cases(root, day, summary_flag=1.0)
+    # No browser: 19 valid cases should be discovered by the production
+    # loader and the dashboard using the same Excel workbook.
+    verified = production._read_phase1_snapshot(path, day=day)
+    assert len(verified) == 19
+    inventory, _ = phase1_inventory(root, day)
+    chedraui = inventory.loc[inventory["retailer"].eq("Chedraui")]
+    assert (chedraui["estado"] == "COMPLETE").sum() == 19
+    assert (chedraui["accion"] == "REINTENTAR").sum() == 1
+    assert (chedraui["estado"] == "PENDIENTE").sum() == 1
 
 
 def test_invalid_store_evidence_is_explained_not_auto_approved(tmp_path):

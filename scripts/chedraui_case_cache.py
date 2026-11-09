@@ -9,6 +9,7 @@ if its source rows and summary prove the expected store, date and quality.
 
 from datetime import datetime
 from pathlib import Path
+import re
 
 import pandas as pd
 
@@ -20,7 +21,15 @@ MIN_COVERAGE = 0.90  # MVP: eligible snapshots need >=90% published coverage.
 
 
 def _boolean(value) -> bool:
-    return value is True or str(value).strip().lower() in {"true", "1"}
+    """Read strictly TRUE or numeric 1, including Excel's 1.0 encoding.
+
+    Excel sheets with missing values frequently promote boolean/1 columns
+    to floats; Pandas then exposes a valid True as 1.0. Do not interpret
+    arbitrary nonzero numbers, strings, missing values or false as verified.
+    This is only parsing an *existing* certification, never inferring it.
+    """
+    value_text = str(value).strip().lower()
+    return value_text == "true" or bool(re.fullmatch(r"1(?:\.0+)?", value_text))
 
 
 def _store_id(value) -> str:

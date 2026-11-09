@@ -15,6 +15,7 @@ import pandas as pd
 
 from integrate_complete_retailers import EXPECTED
 from integrate_validated_phase import ROOT, _read_current_master_pointer
+from chedraui_case_cache import _boolean as _verified_boolean
 
 STORES = (
     ("chedraui-polanco", "232", "Polanco"),
@@ -49,7 +50,7 @@ def _normalized_store(value) -> str:
 
 
 def _yes(value) -> bool:
-    return value is True or str(value).strip().lower() in ("true", "1")
+    return _verified_boolean(value)
 
 
 def _case(frame: pd.DataFrame, summary: pd.DataFrame, *, store_id: str,
@@ -96,7 +97,12 @@ def _case(frame: pd.DataFrame, summary: pd.DataFrame, *, store_id: str,
     if dates != {day}:
         reasons.append("fechas != " + day)
     if not _yes(item.get("store_context_verified")):
-        reasons.append("tienda no verificada")
+        # Display the actual summary value to distinguish missing evidence
+        # from Excel/pandas type decoding, without inventing verification.
+        reasons.append(
+            "tienda no verificada (Resumen="
+            + repr(item.get("store_context_verified")) + ")"
+        )
     if str(item.get("store_context_contract_version") or "").strip() != CONTRACT:
         reasons.append("contrato de tienda inválido")
     for metric in ("pagination_gaps", "structured_price_missing_pages", "price_order_errors"):
