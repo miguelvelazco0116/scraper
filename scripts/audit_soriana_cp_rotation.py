@@ -1,7 +1,6 @@
 """Read-only audit of Soriana postal-rotation pilot Excel workbooks.
 
-Does not touch master or any capture file. Evaluates 24 existing-category
-cases or 28 including the Gastrointestinales pilot, scoped by CP and day.
+Does not touch master or any capture file. Evaluates the dated productive category scope or adds the Gastrointestinales pilot, scoped by CP and day.
 """
 from __future__ import annotations
 
@@ -22,17 +21,16 @@ OUTPUT_DIR = ROOT / "output" / "pilots" / "soriana_cp_rotation"
 CODES = ("83420", "44220", "54030", "97245")
 
 
-def expected_categories(include_gastro: bool) -> tuple[str, ...]:
-    categories = load_categories(
-        ROOT / "config" / "soriana" / "categories.yaml",
-        include_disabled=include_gastro,
-    )
-    result = tuple(c.id for c in categories)
-    expected = 7 if include_gastro else 6
-    if len(result) != expected or len(set(result)) != expected:
+def expected_categories(include_gastro: bool, day: str | None = None) -> tuple[str, ...]:
+    from scraper.soriana_postal_contract import categories_for_day
+    required = categories_for_day(day)
+    path = ROOT / "config" / "soriana" / "categories.yaml"
+    result = tuple(c.id for c in load_categories(path) if c.id in required)
+    if include_gastro:
+        result += tuple(c.id for c in load_categories(path, include_disabled=True)
+                        if c.id == "gastrointestinales" and c.id not in result)
+    if len(result) != len(required) + int(include_gastro) or len(set(result)) != len(result):
         raise ValueError("La configuración de categorías no es consistente.")
-    if include_gastro and "gastrointestinales" not in result:
-        raise ValueError("Falta la categoría Gastrointestinales.")
     return result
 
 
@@ -98,7 +96,7 @@ def audit_case(data: pd.DataFrame, summary: pd.DataFrame, cp: str,
 
 
 def audit(day: str, *, include_gastro: bool = False, output_dir: Path | None = None) -> list[dict]:
-    categories = expected_categories(include_gastro)
+    categories = expected_categories(include_gastro, day)
     workbooks = output_dir if output_dir is not None else OUTPUT_DIR
     result: list[dict] = []
     for cp in CODES:
