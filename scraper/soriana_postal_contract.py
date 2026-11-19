@@ -1,6 +1,6 @@
-"""Strict 4-CP x 6-category Soriana partition contract in the productive master.
+"""Strict versioned 4-CP Soriana partition contract in the productive master.
 
-Legacy Soriana has 6 category cases. The postal variant has 24 CP/category
+Historical Soriana has six categories. Expanded scope has nine categories (36 CP/category)
 cases and may only be recognized with explicit, independently checked evidence.
 This module never modifies inputs, master files or execution state.
 """
@@ -9,11 +9,26 @@ from __future__ import annotations
 import pandas as pd
 
 CODES = ("83420", "44220", "54030", "97245")
-CATEGORIES = (
+LEGACY_CATEGORIES = (
     "cuidado-bucal", "limpiadores", "detergentes",
     "afeitado-depilacion-dama", "desodorantes-para-caballero",
     "desodorantes-para-dama",
 )
+EXPANSION_DATE = "2026-11-19"
+CATEGORIES = LEGACY_CATEGORIES + ("preservativos", "anti-acne", "respiratorios")
+
+
+def categories_for_day(day: str | None = None):
+    return LEGACY_CATEGORIES if day and day < EXPANSION_DATE else CATEGORIES
+
+
+def capture_day(frame: pd.DataFrame) -> str | None:
+    if "scrape_timestamp" not in frame:
+        return None
+    dates = set(frame["scrape_timestamp"].dropna().astype(str).str.slice(0, 10))
+    return next(iter(dates)) if len(dates) == 1 else None
+
+
 SCOPE = "POSTAL_ROTATION_VERIFIED"
 RETAILER = "Soriana"
 PHASE = "FASE 2"
@@ -37,7 +52,7 @@ def is_postal_rotation_summary(summary: pd.DataFrame) -> bool:
 
 
 def postal_issues(frame: pd.DataFrame, summary: pd.DataFrame, day: str | None = None) -> list[str]:
-    """Validate both the 24-case evidence and product location grain.
+    """Validate both the dated case evidence and product location grain.
 
     For an ordinary six-category legacy Soriana master, callers must not invoke
     this checker: use is_postal_rotation_summary to select the new contract.
@@ -60,8 +75,9 @@ def postal_issues(frame: pd.DataFrame, summary: pd.DataFrame, day: str | None = 
         summary["retailer"].astype(str).eq(RETAILER)
         & summary["source_phase"].astype(str).eq(PHASE)
     ].copy()
-    if len(cases) != len(EXPECTED):
-        issues.append(f"Resumen Soriana CP: {len(cases)}/{len(EXPECTED)} casos")
+    expected = {(cp, cat) for cp in CODES for cat in categories_for_day(day or capture_day(data))}
+    if len(cases) != len(expected):
+        issues.append(f"Resumen Soriana CP: {len(cases)}/{len(expected)} casos")
     if data.empty:
         issues.append("No hay productos de Soriana")
         return issues
@@ -74,11 +90,11 @@ def postal_issues(frame: pd.DataFrame, summary: pd.DataFrame, day: str | None = 
     cases["category_id"] = cases["category_id"].astype(str)
     data["category_id"] = data["category_id"].astype(str)
     keys = list(zip(cases["postal_code"], cases["category_id"]))
-    if set(keys) != EXPECTED or len(keys) != len(set(keys)):
-        issues.append("Resumen no tiene exactamente 24 pares CP/categoría únicos")
+    if set(keys) != expected or len(keys) != len(set(keys)):
+        issues.append(f"Resumen no tiene exactamente {len(expected)} pares CP/categoría únicos")
     product_keys = set(zip(data["postal_code"], data["category_id"]))
-    if product_keys != EXPECTED:
-        issues.append("Concentrado no tiene exactamente 24 pares CP/categoría")
+    if product_keys != expected:
+        issues.append(f"Concentrado no tiene exactamente {len(expected)} pares CP/categoría")
     if data["store_id"].notna().any():
         issues.append("Soriana postal no demuestra IDs de sucursal")
     if "store_context_verified" in data.columns and data["store_context_verified"].fillna(False).astype(bool).any():
@@ -125,10 +141,13 @@ def postal_issues(frame: pd.DataFrame, summary: pd.DataFrame, day: str | None = 
     return issues
 
 
-def effective_soriana_cases(frame: pd.DataFrame, summary: pd.DataFrame) -> int:
+def effective_soriana_cases(frame: pd.DataFrame, summary: pd.DataFrame, day: str | None = None) -> int:
     """Expected case count for Phase 2 without relaxing legacy acceptance.
 
     An invalid postal partition is recognized as postal-intent but callers
     must also demand postal_issues(...) == [] to mark its phase COMPLETE.
     """
-    return len(EXPECTED) if is_postal_rotation_summary(summary) else len(CATEGORIES)
+    day = day or capture_day(frame)
+    categories = categories_for_day(day)
+    postal = not day or day >= EXPANSION_DATE or is_postal_rotation_summary(summary)
+    return len(CODES) * len(categories) if postal else len(categories)
