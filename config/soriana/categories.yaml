@@ -53,3 +53,32 @@ categories:
     sub_subcategory: null
     url: https://www.soriana.com/farmacia/gastrointenstinales/?cgid=gastrointestinales
     enabled: false
+
+  # Ampliación 2026-11-19: activada en configuración el 2026-11-19; captura real pendiente.
+
+  - id: preservativos
+    department: "Farmacia"
+    name: "Salud sexual"
+    subcategory: "Preservativos"
+    sub_subcategory: null
+    url: "https://www.soriana.com/farmacia/salud-sexual/preservativos/?cgid=preservativos"
+    enabled: true
+    rollout: active_20261119
+
+  - id: anti-acne
+    department: "Farmacia"
+    name: "Dermatológicos"
+    subcategory: "Anti-acné"
+    sub_subcategory: null
+    url: "https://www.soriana.com/farmacia/dermatologicos/anti-acne/?cgid=anti-acne"
+    enabled: true
+    rollout: active_20261119
+
+  - id: respiratorios
+    department: "Farmacia"
+    name: "Respiratorios"
+    subcategory: null
+    sub_subcategory: null
+    url: "https://www.soriana.com/farmacia/respiratorios/?cgid=respiratorios"
+    enabled: true
+    rollout: active_20261119
